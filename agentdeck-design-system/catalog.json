@@ -63,7 +63,8 @@
       "docs/linux.md": "User manual (see docs/install.md). Platform setup steps rather than a platform contract.",
       "docs/troubleshooting.md": "User manual (see docs/install.md). Symptom-to-fix table, not a specification surface.",
       "docs/roadmap.md": "Forward-looking plan. Binding it would imply the catalog publishes commitments rather than the system as built.",
-      "docs/ENTERPRISE-ROADMAP.md": "Forward-looking plan (see docs/roadmap.md). Binding it would imply the catalog publishes commitments rather than the system as built."
+      "docs/ENTERPRISE-ROADMAP.md": "Forward-looking plan (see docs/roadmap.md). Binding it would imply the catalog publishes commitments rather than the system as built.",
+      "docs/marketing/ad-platform-revenue-research-2026-09-13.md": "Dated business research snapshot (ad-platform revenue options, Korean body). Nothing here is adopted; it records platform rules and sensitivity math for a decision not yet made, so cataloguing it would imply a policy the project has not set."
     }
   },
   "documents": [
