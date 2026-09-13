@@ -3133,6 +3133,15 @@ final class DaemonServer {
             ] as [String: Any])
         }
 
+        await httpServer.get("/dashboard/providers") { [weak self] _ in
+            guard let self else { return .json(["error": "unavailable"], status: 503) }
+            return await self.providerDisplayResponse(nil)
+        }
+        await httpServer.post("/dashboard/providers") { [weak self] request in
+            guard let self else { return .json(["error": "unavailable"], status: 503) }
+            return await self.providerDisplayResponse(Self.jsonBody(request.body))
+        }
+
         await httpServer.get("/status") { [weak self] _ in
             let payload = await self?.buildStatusPayload().value
                 ?? ["status": "error", "error": "daemon unavailable"]
@@ -9296,6 +9305,28 @@ final class DaemonServer {
                 data, esp32Payloads: esp32Payloads, esp32ConnIds: esp32ConnIds,
                 blockedConnIds: blockedSurfaceConnIds)
         }
+    }
+
+    /// Persist the shared display list without altering provider observation.
+    private func providerDisplayResponse(_ update: [String: Any]?) -> HTTPServer.HTTPResponse {
+        let url = AgentDeckPaths.settingsJson
+        var root = ((try? Data(contentsOf: url)).flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        }) ?? [:]
+        if let update {
+            let allowed = ["claude", "codex", "openclaw", "mlx", "ollama", "antigravity"]
+            guard let values = update["providers"] as? [String], values.allSatisfy(allowed.contains) else {
+                return .json(["error": "Invalid providers"], status: 400)
+            }
+            if update["initialize"] as? Bool != true || root["dashboardProviders"] as? [String] == nil {
+                root["dashboardProviders"] = allowed.filter(values.contains)
+                do {
+                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try JSONSerialization.data(withJSONObject: root).write(to: url, options: .atomic)
+                } catch { return .json(["error": "Unable to save providers"], status: 500) }
+            }
+        }
+        return .json(["providers": root["dashboardProviders"] as? [String] as Any? ?? NSNull()])
     }
 
     /// Read the `displaySleepDim` object from settings.json into

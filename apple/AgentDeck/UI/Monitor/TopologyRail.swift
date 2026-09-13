@@ -36,6 +36,10 @@ struct TopologyRail: View {
     @EnvironmentObject private var daemonService: DaemonService
     @EnvironmentObject private var preferences: AppPreferences
     #endif
+    @State private var displayedProviders: [String]? = nil
+    @State private var providerSaveError: String? = nil
+    private let providerNames = ["claude": "Claude", "codex": "Codex", "openclaw": "OpenClaw", "mlx": "MLX", "ollama": "Ollama", "antigravity": "Antigravity"]
+    private let providerOrder = ["claude", "codex", "openclaw", "mlx", "ollama", "antigravity"]
     @State private var hubPulse = false
 
     /// Landscape passes the water-region height so a long DOWNSTREAM
@@ -74,11 +78,34 @@ struct TopologyRail: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(TerrariumHUD.bg, in: RoundedRectangle(cornerRadius: 8))
         .opacity(stateHolder.state.bridgeConnected ? 1.0 : 0.6)
+        .task(id: stateHolder.connection.url) {
+            displayedProviders = nil
+            while !Task.isCancelled {
+                await syncProviders()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
     }
 
     private var railContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("UPSTREAM")
+            HStack {
+                sectionHeader("UPSTREAM")
+                Menu {
+                    ForEach(providerOrder, id: \.self) { id in
+                        Button {
+                            var next = displayedProviders ?? discoveredProviders
+                            if next.contains(id) { next.removeAll { $0 == id } } else { next.append(id) }
+                            Task { await syncProviders(save: next) }
+                        } label: {
+                            Label(providerNames[id] ?? id, systemImage: (displayedProviders ?? discoveredProviders).contains(id) ? "checkmark.circle.fill" : "circle")
+                        }
+                    }
+                } label: { Image(systemName: "slider.horizontal.3").accessibilityLabel("Displayed providers") }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            if let providerSaveError { Text(providerSaveError).font(.caption).foregroundStyle(.secondary) }
             upstreamRows
             hubZone
             sectionHeader("DOWNSTREAM")
@@ -203,18 +230,66 @@ struct TopologyRail: View {
                               fallback: AppPreferences.defaultDaemonPort)
     }
 
+    private var discoveredProviders: [String] {
+        let s = stateHolder.state
+        var ids: [String] = []
+        if s.oauthConnected == true || !consumerCreatures(for: .claude).isEmpty { ids.append("claude") }
+        if s.codexRateLimits != nil || s.codexPlanType != nil { ids.append("codex") }
+        if ProviderRailEvaluator.openClaw(state: s) != nil { ids.append("openclaw") }
+        if !s.mlxModels.isEmpty || s.mlxResidency?.known == true { ids.append("mlx") }
+        if s.ollamaStatus != nil { ids.append("ollama") }
+        if s.antigravityStatus?.planName != nil { ids.append("antigravity") }
+        return ids
+    }
+
+    @MainActor private func syncProviders(save: [String]? = nil) async {
+        guard let raw = stateHolder.connection.url,
+              var components = URLComponents(string: raw) else { return }
+        components.scheme = components.scheme == "wss" ? "https" : "http"
+        components.path = "/dashboard/providers"
+        guard let url = components.url else { return }
+        do {
+            var request = URLRequest(url: url, timeoutInterval: 5)
+            if let save {
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["providers": save])
+            }
+            var (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                if save != nil { providerSaveError = "Could not save provider display settings." }
+                return
+            }
+            var json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if json?["providers"] is NSNull, save == nil, stateHolder.state.bridgeConnected, !discoveredProviders.isEmpty {
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONSerialization.data(withJSONObject: ["providers": discoveredProviders, "initialize": true])
+                (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+                json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            }
+            guard !Task.isCancelled, stateHolder.connection.url == raw else { return }
+            if let ids = json?["providers"] as? [String] { displayedProviders = ids }
+            providerSaveError = nil
+        } catch { if save != nil { providerSaveError = "Could not save provider display settings." } }
+    }
+
+    private func unavailableProvider(_ name: String) -> AnyView {
+        AnyView(ProviderRow(name: name, status: .dim, subtitle: nil, rateLimits: [], consumers: []))
+    }
+
     // MARK: - Upstream rows
 
     private var upstreamRows: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if !consumerCreatures(for: .claude).isEmpty || !rateLimitChips.isEmpty {
-                claudeRow
-            }
-            codexRow
-            openClawRow
-            mlxRow
-            ollamaRow
-            antigravityRow
+            let visible = displayedProviders ?? discoveredProviders
+            if visible.contains("claude") { claudeRow }
+            if visible.contains("codex") { codexRow }
+            if visible.contains("openclaw") { openClawRow }
+            if visible.contains("mlx") { mlxRow }
+            if visible.contains("ollama") { ollamaRow }
+            if visible.contains("antigravity") { antigravityRow }
             // `showSubscriptionsSection` lives in the macOS-only Settings
             // "Tank Status Sections" group; on iOS there is no toggle UI, so
             // surface the footer whenever data is present (matches behaviour
@@ -283,8 +358,8 @@ struct TopologyRail: View {
         let subtitle = claudeModels.isEmpty ? base.subtitle : claudeModels.joined(separator: ", ")
         return ProviderRow(
             name: "Claude",
-            status: base.status,
-            subtitle: subtitle,
+            status: stateHolder.state.oauthConnected == true ? .ok : .dim,
+            subtitle: subtitle == "Hooks on" ? nil : subtitle,
             rateLimits: rateLimitChips,
             consumers: consumerCreatures(for: .claude)
         )
@@ -292,7 +367,7 @@ struct TopologyRail: View {
 
     private var openClawRow: some View {
         guard let base = ProviderRailEvaluator.openClaw(state: stateHolder.state) else {
-            return AnyView(EmptyView())
+            return unavailableProvider("OpenClaw")
         }
         // Same catalog-ownership gate as Claude — only surface the catalog
         // under OpenClaw when an OpenClaw-hosted session is primary.
@@ -316,7 +391,7 @@ struct TopologyRail: View {
 
     private var mlxRow: some View {
         let residency = stateHolder.state.mlxResidency
-        guard !stateHolder.state.mlxModels.isEmpty || residency?.known == true else { return AnyView(EmptyView()) }
+        guard !stateHolder.state.mlxModels.isEmpty || residency?.known == true else { return unavailableProvider("MLX") }
         let subtitle = LocalModelPresentation.mlx(models: stateHolder.state.mlxModels, residency: residency)
         return AnyView(
             ProviderRow(
@@ -330,7 +405,7 @@ struct TopologyRail: View {
     }
 
     private var ollamaRow: some View {
-        guard let ollama = stateHolder.state.ollamaStatus else { return AnyView(EmptyView()) }
+        guard let ollama = stateHolder.state.ollamaStatus else { return unavailableProvider("Ollama") }
         let status: LEDStatus = ollama.available ? .ok : .dim
         let subtitle = LocalModelPresentation.ollama(ollama)
 
@@ -356,7 +431,7 @@ struct TopologyRail: View {
         let limits = stateHolder.state.codexRateLimits
         let hasLimits = limits != nil
         guard hasLimits || (plan?.isEmpty == false) else {
-            return AnyView(EmptyView())
+            return unavailableProvider("Codex")
         }
         return AnyView(
             ProviderRow(
@@ -398,7 +473,7 @@ struct TopologyRail: View {
     private var antigravityRow: some View {
         guard let status = stateHolder.state.antigravityStatus,
               let plan = status.planName, !plan.isEmpty else {
-            return AnyView(EmptyView())
+            return unavailableProvider("Antigravity")
         }
         return AnyView(
             ProviderRow(

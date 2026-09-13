@@ -364,7 +364,7 @@ private struct Esp32HudBar: View {
                     .padding(.bottom, 3)
             }
         }
-        .frame(width: single ? size * 2 + 6 : size, height: size)
+        .frame(width: size, height: size)
     }
 }
 

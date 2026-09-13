@@ -154,6 +154,7 @@ import {
 } from './session-registry.js';
 import { isForeignDaemon } from './daemon-takeover.js';
 import { loadDaemonSettings } from './daemon-settings.js';
+import { dashboardProviders } from './dashboard-providers.js';
 import {
   resolveDaemonPort,
   describeDaemonPortSource,
@@ -2095,6 +2096,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       });
       return;
     }
+    // Display preference only: never changes provider observation or credentials.
+    if (pathname === '/dashboard/providers' && (req.method === 'GET' || req.method === 'POST')) {
+      void (async () => {
+        try {
+          const providers = dashboardProviders(req.method === 'POST' ? await readJsonBody(req, 4096) : undefined);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ providers: Array.isArray(providers) ? providers : null }));
+        } catch (error) {
+          res.writeHead(error instanceof TypeError ? 400 : 500); res.end('Unable to save provider display preferences');
+        }
+      })();
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/status') {
       const snap = core.stateMachine.getSnapshot();
       res.writeHead(200, { 'Content-Type': 'application/json' });

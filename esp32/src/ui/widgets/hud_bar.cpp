@@ -572,6 +572,7 @@ static lv_obj_t* makeTankGroup(lv_obj_t* parent, const char* name, uint32_t bran
     lv_obj_set_style_pad_column(row, GAUGE_GAP, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     createGauge(row, b5, f5, p5, pe5, r5, "5h");
     createGauge(row, b7, f7, p7, pe7, r7, "7d");
     return grp;
@@ -1827,6 +1828,7 @@ void init(lv_obj_t* parent) {
     lv_obj_set_style_pad_column(panelRight, GAUGE_GAP, 0);
     lv_obj_clear_flag(panelRight, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(panelRight, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panelRight, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_flex_align(panelRight, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     // No header for round — save space
@@ -1926,6 +1928,7 @@ void init(lv_obj_t* parent) {
     lv_obj_set_style_pad_column(panelRight, GAUGE_GAP, 0);
     lv_obj_clear_flag(panelRight, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(panelRight, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panelRight, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     // Header (hidden per user request)
     lblTankHeader = lv_label_create(panelRight);
@@ -2306,18 +2309,6 @@ void update() {
         bool showCodex = (cxP5h >= 0.0f || cxP7d >= 0.0f);
         if (codexGroup) { showCodex ? lv_obj_clear_flag(codexGroup, LV_OBJ_FLAG_HIDDEN) : lv_obj_add_flag(codexGroup, LV_OBJ_FLAG_HIDDEN); }
     }
-
-    const auto sizeWindows = [](lv_obj_t* first, lv_obj_t* second, float a, float b) {
-        const int width = ((a >= 0) != (b >= 0)) ? GAUGE_SIZE * 2 + GAUGE_GAP : GAUGE_SIZE;
-        for (lv_obj_t* box : {first, second}) {
-            if (!box) continue;
-            lv_obj_set_width(lv_obj_get_parent(box), width);
-            lv_obj_set_width(box, width);
-            lv_obj_set_width(lv_obj_get_child(box, 0), width - GAUGE_BORDER * 2);
-        }
-    };
-    sizeWindows(gauge5hBox, gauge7dBox, p5h, p7d);
-    sizeWindows(gaugeCx5hBox, gaugeCx7dBox, cxP5h, cxP7d);
 
     // Stale indicator (shown only when we have Claude data but it's stale)
     if (lblStale) {
