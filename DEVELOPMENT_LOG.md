@@ -73,6 +73,76 @@ Deployment: macOS and Lenovo installed and their actual dashboard upstream rows 
 
 USB findings: TRMNL's running CDC node changes to a different download node; match its USB serial identifier before choosing the new port. IPS35's inherited `no_reset` upload setting does not enter its bootloader: a default reset plus a verified 16MB flash-id allowed the write, and watchdog reset released the board into its new app. Round did not answer either USB reset probe, so deployment uses the live Wi-Fi identity. Preserve serial-suspend leases around every USB operation.
 
+## 2026-09-13 — 1.3.0 델타 적대적 리뷰: 수퍼바이저 프로브와 승인 생존자, npm 1.3.2
+
+#318을 머지한 뒤 1.3.0 델타에서 새로 생긴 모듈부터 적대적 리뷰를 돌렸다
+(`daemon-supervisor.ts`, 플러그인 승인 경로). 10건이 나왔고 전부 소스로 검증한 뒤
+실재하는 것만 고쳐 PR #319로 머지했다. 머지 직전에 다른 세션이 `npm-v1.3.1`을
+`7f479906`에 찍고 퍼블리시한 상태라 세 수정은 1.3.1에 없다 — 그래서 1.3.2를 잘랐다.
+Apple·Android·Stream Deck·Ulanzi·ESP32는 움직이지 않는다.
+
+## 프로브가 안 보고도 "죽었다"고 답했다
+
+`supervisorJobRunning`의 자기 주석이 규칙을 적어 두었다 — `undefined`는 "답을 못
+받았다"이지 "죽었다"가 아니며 호출자는 상한까지 기다린다. 세 프로브가 각자 어겼다.
+
+- `schtasks`는 헤더뿐 아니라 **상태 값도 현지화**한다. `/^Status:\s+Running/`는
+  한국어 Windows에서 실행 중인 작업을 못 맞추고 `false`를 답했다 →
+  `convergeInstalledSupervision`이 멀쩡한 수퍼바이즈드 데몬을 멈춰 "인계"하고,
+  `waitForRestartedDaemon`의 180초 상한이 20초 하한으로 접혀 거짓 실패 보고.
+- launchd `catch`는 모든 `execFileSync` 실패에 `false`. 주석은 bootout 경우만
+  정당화하는데 재시작 부하 중 5초 타임아웃도 같은 가지를 탄다. 실제로 실행되고
+  0이 아닌 코드로 끝난 명령만 숫자 `status`를 가진다 — 그게 "답했다"의 기준이다.
+- systemd는 `active` 외 전부를 죽음으로 읽었다. `Restart=on-failure` 백오프 중인
+  유닛은 `activating`을 답한다.
+- `supervisorPosture`는 못 읽으면 `[]`를 답했다. "기본 posture를 굽는다"로 읽힌다.
+  Windows 예약 작업은 XML을 `schtasks /Create` 뒤 지우므로 unit 파일이 아예 없고,
+  `--local` 머신의 모든 `daemon restart`가 상속한 `--local`을 날조된 기본값과
+  비교해 posture-mismatch 가지를 타고, 작업에 대해 사실이 아닌 문장을 찍고,
+  **비수퍼바이즈드 데몬을 포크**했다. `routeDaemonLifecycle`이 이미 `undefined`를
+  "비교할 것 없음"으로 모델링하고 있어 넘겨주는 것이 수정의 전부다.
+
+`unknown`이 어디에 떨어지는지 소비자까지 따라갔다. `classifySupervision`은 명시적
+`'unknown'` 분기로 돌아가고, `supervisorLivenessProbe`는 unknown을 생존으로 읽되
+180초 상한이 대기를 끝낸다. 무한 대기·오탈취 경로는 없다.
+
+## 승인 하나를 닫으면 다른 하나가 안 보였다
+
+exec 승인과 플러그인 승인은 독립 큐이고 데크는 한 번에 하나만 그린다.
+`activePendingApproval`의 주석은 "보이던 것이 닫히는 순간 대기 중이던 것이 자동으로
+떠오른다"고 약속했다. 행 필드는 그랬다. **상태는 아니었다.** 모든 종료 경로가
+`spinner_start`/`idle`을 무조건 냈고 데몬이 그걸 그대로 `gatewaySessionState`에
+매핑해서, 살아 있는 승인이 남아 있어도 행이 `awaiting_permission`을 벗어났다.
+`sessionTier`가 `attention`을 멈추고 어떤 표면도 PERM을 그리지 않는다 —
+사용자는 한가한 데크를 보고 에이전트는 계속 막혀 있다. 기존 공존 테스트가
+`getPendingApproval()`만 단언했던 것이 이 버그가 출시된 이유다.
+
+`settleApprovalActivity`가 셋째 경우를 제자리에 놓는다: 생존자가 있으면 재방송(상태
+복구와 질문 교체를 한 번에), 큐가 비었을 때만 processing/idle로 정착. 같은 리뷰에서
+둘 더 — 두 번째 플러그인 승인이 첫 번째를 조용히 버리던 것(독립 플러그인·cron에서
+오므로 실제로 겹친다; 버려진 쪽은 Gateway에 pending으로 남고 어떤 표면에서도 답할
+수 없다), `exec.approval.list` 실패가 한 `await` 체인 때문에 플러그인 캐치업을
+통째로 건너뛰던 것.
+
+Swift 데몬은 같은 버그에 `gatewayPendingApproval = nil`까지 무조건이라 생존자가
+행마저 잃었다. `survivingApprovalPrompt()`로 같은 모양을 맞췄고 `xcodebuild`로
+빌드·853 테스트를 돌렸다. 남은 사소한 비대칭 하나: survivor 분기에서
+`gatewayCurrentTool`을 nil로 두는데 `gateway_approval` 경로는 `command`의 첫
+토큰을 채운다. 표시용이라 이번 컷에 넣지 않았다.
+
+## master의 기존 실패
+
+`CollaborationFeedTests.testRenderCollaborationHistoryAtRailWidth`
+("InvalidTransition")가 손대지 않은 `origin/master`에서도 로컬 재현된다. CI
+`test-macos`는 통과하므로 환경 의존이다. 이 컷과 무관하며 더 파지 않았다.
+
+## 컷
+
+새 테스트는 전부 변이 검증했다 — 각 수정을 되돌리면 빨개진다. 머지된 master
+(`62b5a117`)에서 4,483 통과 / 1 skip. 1.3.1과 같은 절차: 네 public 매니페스트,
+`daemon.ts`의 `--version`, portable-reader 픽스처를 1.3.2로 올리고
+`npm-v1.3.2` 태그로 CI 퍼블리시.
+
 ## 2026-09-13 — Inline dashboard subscription details
 
 macOS and Android dashboards now show ChatGPT/Google plan metadata once in the owning upstream row. Append the matching subscription date without changing quota gauges or credit balances; remove the duplicate SUBSCRIPTIONS footer. Provider display preferences also govern subscription visibility. Keep the complete reported list and readable dates in Dashboard settings, with a distinction between subscription dates and usage reset timers. Preserve the existing macOS visibility preference as Subscription dates.
@@ -80,6 +150,60 @@ macOS and Android dashboards now show ChatGPT/Google plan metadata once in the o
 Past or invalid dates in the compact row say that the date is unconfirmed, rather than claiming the subscription was cancelled or needs renewal. Dates may be cached or estimated by the producer.
 
 Validation: 4,482 TypeScript tests passed (one skipped), 13 Apple topology helper tests and 15 Android subscription tests passed. Both native apps built; protocol generation and token mirrors are clean, with design lint at the existing 89 findings. Installed macOS and Lenovo dashboards show each plan once and preserve Codex usage, with the subscription date fitting on the subtitle line. The complete subscription list is available in settings. Daemon and firmware behavior is unchanged.
+
+## 2026-09-13 — 데스크의 호스트 전부를 출시 버전으로 맞췄고, 맞추기 전엔 하나도 아니었다
+
+npm 1.3.2를 컷한 직후 "지금 보고 있는 화면이 최신 릴리스인가"를 실측했다. 답은
+**아니오, 하나도** — 데몬 1.3.1, Mac 앱 1.2.1(build 2), Stream Deck은 9/11에 빌드한
+저장소 심볼릭 번들(태그에 포함된 shared 커밋 3개 이전), Ulanzi 1.2.0, Android 1.2.0,
+ESP32 11대는 1.0.5~1.2.2에 `-dirty` 빌드 5대. 전부 올렸다.
+
+### 무엇을 어떻게
+
+각 채널의 **GitHub Release 산출물**(그 태그 커밋에서 CI가 만든 것)을 그대로 설치했다.
+로컬 체크아웃을 빌드하면 태그와 다른 바이트가 되므로 — 이날 공유 체크아웃은 master와
+앞뒤로 어긋나 있었다 — 산출물이 정본이다.
+
+- **데몬**: `npx @agentdeck/setup@1.3.2 --yes`(저장소 밖에서). setup이 LaunchAgent를
+  다시 써서 argv가 `~/Library/pnpm/agentdeck`(pnpm shim)에서 `/opt/homebrew/bin/agentdeck`로
+  바뀌었다 — 따로 늙던 전역 진입점 둘이 하나로 수렴했다. 검증은 `/health.build` ↔
+  설치본 `distBuildId()` 일치(`95307fb4b9a5`), pid 교체, 9121 잔존 리스너 0.
+- **Mac 앱**: #314가 롤백 저장소에 보관한 `verified-Release-AgentDeck-1.3.0-6601.app`
+  (스토어 소스 `04233b72`, 팀 서명, 56MB 유니버설 Release). 현재 앱을 이동(삭제 아님)
+  후 `ditto`. 클라이언트 모드 확인 — 자체 리스너 없음, 9120은 Node가 유지.
+- **Stream Deck**: `.streamDeckPlugin`을 풀어 dev 심볼릭 자리에 복사, `streamdeck restart`.
+  옛 저장소 번들을 물고 launchd 직속으로 떠돌던 **고아 node 프로세스 2개**(9/11, 9/12
+  부터)가 있었고, 이게 데몬의 유령 WS 클라이언트 2개였다. 종료하니 18→16.
+- **Ulanzi**: GH zip과 #314의 CDN 제출 zip은 sha가 다르지만 **파일·CRC 전부 동일**
+  (zip 메타데이터 차이). 기존 `.backup-<stamp>` 패턴으로 백업 후 교체, Studio 재시작.
+- **Android(Lenovo)**: 서명 digest 동일 → `install -r`로 데이터 보존. Pantone6·Crema S는
+  데몬에 대시보드로는 붙어 있으나 adb에 없어 미적용.
+- **ESP32 9대 OTA**: `POST /esp32/ota {target, firmwarePath}`(라이브 WiFi WS). 한 대씩.
+  86box 2.4분, ttgo_t_display(구형 ESP32) 7.5분, ips_10 4.3MB 4분. 나머지 1~2분.
+- **ESP32 2대 USB**: nm_epd_420(단일 OTA 파티션), t_display_pro(WiFi 꺼짐) →
+  `agentdeck esp32 flash <board> --tag esp32-v1.2.3 -p <port>`. lease·preflight·
+  post-write reset·read-back이 전부 CLI 안에 있어 15.6s / 45.2s에 끝났다.
+
+### 재확인된 함정 넷
+
+1. **OTA 뒤 25초는 짧다.** ttgo_t_display는 시리얼로 t+15s에 1.2.3을 보고했지만 WiFi
+   재등록은 t+45s. 검증은 "최대 90초 폴링, 시리얼 또는 WiFi 보고 인정"으로.
+2. **시리얼 device_info 캐시 시드**가 최종 집계에서 또 걸렸다. round_amoled·lilygo_epd47이
+   옛 버전으로 보였는데 uptime이 OTA 전 값(404,485s)에 얼어 있었다 — 같은 순간 WiFi 항목은
+   1.2.3, lastSeen 6초 전. 집계 코드가 시리얼을 WiFi보다 우선한 게 원인. WiFi가 진실.
+3. **inkdeck는 OTA 후 `trmnl_75`로 자기 id를 바꿔 보고한다.** 1.2.3 manifest의 legacy
+   alias가 의도대로 동작한 것이고, OTA 타깃은 보드가 *지금* 보고하는 이름(`inkdeck`)이다.
+4. **t_display_pro의 `usbPowered`는 읽기마다 뒤집힌다**(전원 경로 특성, 배터리 4.02V가
+   붙어 있으면 안정). 플래시 전 판단 근거는 uptime 증가분과 lastReadSecondsAgo다.
+
+### 남은 것
+
+- Pantone6·Crema S 앱(USB 연결 필요).
+- Mac 6601은 태그 기준이라 Swift 승인 생존자 수정(`0d128304`)이 없다. 클라이언트 모드에선
+  그 코드가 돌지 않으므로 지금은 노출되지 않고, 다음 Apple 컷에서 닫힌다.
+- master에 로컬에서만 재현되는 Swift 테스트 실패 1건
+  (`CollaborationFeedTests.testRenderCollaborationHistoryAtRailWidth`, CI는 통과). 이슈감.
+- SD 설치본이 릴리스 복사본이 됐다. 개발 재개 시 `cd plugin && streamdeck link …`.
 
 ## 2026-09-13 — 광고 플랫폼 수익화 조사: 무료 제품에는 회수 매출이 없고, 유료 플러그인은 Stripe 한국 미지원으로 막힌다
 
@@ -209,6 +333,47 @@ eval 13,329개가 있었고, 두 쿼리는 payload-bearing 테이블 전체를 �
 Work board와 abandoned-run 회귀를 포함한 16개 테스트, 전체 4,459개 테스트,
 bridge typecheck 및 전체 빌드가 통과했다. npm 태그는 수정 커밋의 재설치와
 세 모드 재검증 이후에만 만든다. 최종 결과는 #314에 기록한다.
+
+## 2026-09-12 — npm 1.3.1 릴리스가 빨갔지만 퍼블리시는 끝나 있었다
+
+`npm-v1.3.1` 태그의 `npm Release` 워크플로(run 34699456625) 1차 시도가 `Publish packages`
+단계에서 exit 1 로 끝났다. 로그를 읽으면 실패 지점은 publish 가 아니다. 네 패키지는
+14:31:26Z 부터 25초 안에 `shared → hooks → bridge → setup` 순서로 전부 올라갔고, 그 뒤
+`scripts/publish-npm.mjs` 의 읽기 확인이 `@agentdeck/shared@1.3.1` 을 60초(5초 × 12회) 동안
+`npm view` 로 보지 못해 `registry verification failed` 를 냈다. 다른 세 패키지는 확인 순서상
+아직 차례가 오지 않았다.
+
+이 창은 1.0.18 때 `setup` 이 publish 1.5초 뒤 확인에서 안 보였던 사례를 근거로 잡은 값이다.
+이번엔 **가장 먼저 올린 패키지가 publish 시작 뒤 84초의 마지막 확인에서도 안 보였다.** npm 의 쓰기 엔드포인트가
+publish 를 승인한 뒤 읽기 엔드포인트에 반영되는 지연이 그만큼 길어질 수 있다는 실측이다.
+
+## 조치
+
+실패한 잡을 **재실행**했다(2차 시도 14:33:29Z 시작). `publish-npm.mjs` 는 레지스트리에 이미
+있는 정확한 버전을 `already published; skipping` 으로 건너뛰므로, 2차 시도는 publish 없이
+네 버전을 읽어 확인하고 notes 렌더와 GitHub Release `AgentDeck npm v1.3.1` 생성까지
+14:35:04Z 에 마쳤다. `npm view` 로 네 패키지의 `latest` 가 1.3.1 인 것을 별도로 읽었다.
+
+⚠️ 워크플로 빨간불만 보고 "퍼블리시 실패" 로 읽으면 안 된다. 태그를 지우고 다시 올리거나
+버전을 올리는 것은 오답이다 — 버전은 이미 레지스트리에 불변으로 있고, 재태그는 publish 시도가
+되어 첫 게이트에서 막힌다([RELEASING.md § A release has five states](RELEASING.md)).
+실패한 잡의 재실행이 정확한 절차이며 그대로 [RELEASING.md § npm](RELEASING.md) 5단계에
+적었다.
+
+## 60초 창을 그대로 둔 이유와 바꾸는 조건
+
+창을 넓히면 진짜 인증·권한 실패도 그만큼 늦게 빨개진다. 재실행 경로가 이미 무손실로 동작했고
+발생은 한 번이므로 값은 그대로 둔다. **같은 실패가 다시 나거나 재실행마저 창 안에 못 보면**
+`scripts/npm-registry-visibility.mjs` 의 `attempts`·`intervalMs` 를 올리고 이 항목을 갱신한다.
+
+## 같은 날 OpenClaw 쪽 운영 기록의 오귀인
+
+OpenClaw 운영 문서가 전역 설치 뒤 `node-pty` `spawn-helper` 의 0644 를 "`npm i -g` 가
+postinstall 을 막아서" 로 적었는데, 그 원인 귀인은 틀렸다. 퍼블리시된 `@agentdeck/bridge` 에는
+postinstall 이 없고, 0644 는 상류 `node-pty@1.1.0` tarball 자체의 모드다. 이미
+[2026-08-31 #279](docs/devlog/entries/2026-08-31-04-npm-soak-node-pty-1-1-0-0644-spawn-helper-279.md) 에 규명돼
+`PtyManager` 가 첫 spawn 전에 실행 비트를 더하며, 1.3.1 설치본 `dist/pty-manager.js` 에 그 경로가
+들어 있다. 이 저장소에 새로 적을 것은 없고 OpenClaw 쪽 문서를 고쳤다.
 
 ## 2026-09-12 — doctor 프로브가 양쪽으로 오답이었고, 30초마다 돌고 있었다
 
