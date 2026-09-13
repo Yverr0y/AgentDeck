@@ -14,8 +14,13 @@ import type { AntigravityStatusInfo, BillingType, CodexRateLimits, CodexRateLimi
 function formatClaudeSubscription(
   apiUsage?: ApiUsageData | null,
   billingType?: BillingType,
+  stale = false,
 ): SubscriptionInfo | undefined {
-  if (apiUsage?.inferredBillingType === 'subscription' || billingType === 'subscription') {
+  // A session's billing mode and a retained cache do not prove a current plan.
+  if (!stale && apiUsage &&
+      (apiUsage.fiveHourPercent != null || apiUsage.sevenDayPercent != null) &&
+      (apiUsage.inferredBillingType === 'subscription' ||
+       (apiUsage.inferredBillingType == null && billingType === 'subscription'))) {
     return { name: 'Claude' };
   }
   return undefined;
@@ -26,7 +31,8 @@ export function buildSubscriptions(
   apiUsage?: ApiUsageData | null,
   billingType?: BillingType,
   antigravityStatus?: AntigravityStatusInfo | null,
-): SubscriptionInfo[] | undefined {
+  claudeStale = false,
+): SubscriptionInfo[] {
   const items: SubscriptionInfo[] = [];
   const chatgptName = formatChatGptPlanName(codexAuth?.planType);
   if (chatgptName) {
@@ -36,7 +42,7 @@ export function buildSubscriptions(
     });
   }
 
-  const claude = formatClaudeSubscription(apiUsage, billingType);
+  const claude = formatClaudeSubscription(apiUsage, billingType, claudeStale);
   if (claude) {
     items.push(claude);
   }
@@ -48,7 +54,7 @@ export function buildSubscriptions(
     });
   }
 
-  return items.length > 0 ? items : undefined;
+  return items;
 }
 
 /**
@@ -191,7 +197,7 @@ export function buildUsageEvent(
   aggregateSubscriptionQuota?: boolean,
   codexRateLimits?: CodexRateLimits | null,
 ): UsageEvent {
-  const subscriptionQuotaApplies = (
+  const subscriptionQuotaApplies = !stale && (
     apiUsage?.inferredBillingType === 'subscription'
       || billingType === 'subscription'
   ) && (aggregateSubscriptionQuota || isClaudeSubscriptionModel(snapshot.modelName));
@@ -266,7 +272,7 @@ export function buildUsageEvent(
     codexRateLimits: normalizeCodexRateLimits(codexRateLimits, codexAuth?.planType),
     modelCatalog: modelCatalog && modelCatalog.length > 0 ? modelCatalog : undefined,
     mlxModels: mlxModels && mlxModels.length > 0 ? mlxModels : undefined,
-    subscriptions: buildSubscriptions(codexAuth, apiUsage, billingType, antigravityStatus),
+    subscriptions: buildSubscriptions(codexAuth, apiUsage, billingType, antigravityStatus, stale),
     antigravityStatus: antigravityStatus ?? undefined,
   };
   return event;

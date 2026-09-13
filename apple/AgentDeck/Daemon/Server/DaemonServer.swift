@@ -8616,7 +8616,7 @@ final class DaemonServer {
                 try? await Task.sleep(for: .seconds(5))
                 guard let self, await self.wsServer.hasClients() else { continue }
                 // TTL: keep last good cache, but mark it stale after 10 minutes.
-                // Clearing to nil makes the HUD look like usage disappeared entirely.
+                // Retain diagnostic data; stale quota is omitted from display frames.
                 if self.cachedApiUsage != nil,
                    self.lastApiFetchTime != .distantPast,
                    Date().timeIntervalSince(self.lastApiFetchTime) > Self.usageStaleTTL {
@@ -9653,7 +9653,7 @@ final class DaemonServer {
         // callers that want to distinguish "never fetched" from "had data, now
         // stale" can, but no numbers ride along with it.
         if let u = cachedApiUsage {
-            let usageIsStale = apiUsageStale || u.stale
+            let usageIsStale = claudeUsageStale
             if !usageIsStale {
                 if apiUsagePreAdjusted {
                     e["fiveHourPercent"] = u.fiveHourPercent as Any
@@ -9678,11 +9678,11 @@ final class DaemonServer {
                         return d
                     }
                 }
+                e["extraUsageEnabled"] = u.extraUsageEnabled
+                if let v = u.extraUsageMonthlyLimit { e["extraUsageMonthlyLimit"] = v }
+                if let v = u.extraUsageUsedCredits { e["extraUsageUsedCredits"] = v }
+                if let v = u.extraUsageUtilization { e["extraUsageUtilization"] = v }
             }
-            e["extraUsageEnabled"] = u.extraUsageEnabled
-            if let v = u.extraUsageMonthlyLimit { e["extraUsageMonthlyLimit"] = v }
-            if let v = u.extraUsageUsedCredits { e["extraUsageUsedCredits"] = v }
-            if let v = u.extraUsageUtilization { e["extraUsageUtilization"] = v }
         }
 
         e["oauthConnected"] = effectiveOauthConnected()
@@ -9692,7 +9692,7 @@ final class DaemonServer {
         // as "keep previous value". Without this a dashboard that roamed
         // from a Node daemon keeps rendering the other host's quota forever
         // (iOS stale-usage bug, 2026-07-17).
-        e["usageStale"] = apiUsageStale || (cachedApiUsage?.stale ?? true)
+        e["usageStale"] = claudeUsageStale
         mergeEngineSnapshot(into: &e)
         e["tokenStatus"] = usageAPI.tokenStatus.rawValue
         let codexAuth = codexAuthStatusSnapshot()
@@ -9746,13 +9746,22 @@ final class DaemonServer {
         }
     }
 
+    /// Read-time expiry covers initial/state frames as well as the usage tick.
+    private var claudeUsageStale: Bool {
+        apiUsageStale || (cachedApiUsage?.stale ?? true) ||
+            (lastApiFetchTime != .distantPast && Date().timeIntervalSince(lastApiFetchTime) > Self.usageStaleTTL)
+    }
+
     private func buildSubscriptions() -> [[String: Any]] {
         var subscriptions: [[String: Any]] = []
         // ChatGPT/Codex plan metadata comes from local Codex auth files and
         // is not a live subscription source for the App Store daemon. Keep it
         // out of the subscription footer; the external CLI daemon may still
         // relay this row when it owns the full developer bridge.
-        if cachedApiUsage?.inferredBillingType == "subscription" || stateMachine.billingType == "subscription" {
+        if !claudeUsageStale, let usage = cachedApiUsage,
+           usage.fiveHourPercent != nil || usage.sevenDayPercent != nil,
+           usage.inferredBillingType == "subscription" ||
+            (usage.inferredBillingType == nil && stateMachine.billingType == "subscription") {
             subscriptions.append(["name": "Claude"])
         }
         return subscriptions

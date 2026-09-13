@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PermissionMode, State, type StateSnapshot, type UsageEvent } from '../types.js';
-import { buildUsageEvent, mergeRelayedSessionUsage } from '../usage-event.js';
+import { buildSubscriptions, buildUsageEvent, mergeRelayedSessionUsage } from '../usage-event.js';
 import type { ApiUsageData } from '../usage-api.js';
 import { codexUsageFootnote } from '@agentdeck/shared';
 
@@ -229,12 +229,12 @@ describe('buildUsageEvent staleness contract', () => {
     expect(JSON.parse(JSON.stringify(evt)).usageStale).toBe(false);
   });
 
-  it('keeps usageStale true when cached numbers ride a stale frame', () => {
-    // "Had data, now stale" — clients rely on the explicit true to SCRUB the
-    // percentages, so data-presence must never override an explicit flag.
+  it('retires cached quota on a stale frame', () => {
+    // Omit retired values at the producer so older renderers collapse too.
+    // Keep the explicit flag so retain-on-absent clients clear previous values.
     const evt = buildUsageEvent(
       snapshot({ modelName: 'claude-fable-5', billingType: 'subscription' }),
-      usage(),
+      usage({ scopedLimits: [{ label: 'model', percent: 80 }] }),
       true,
       undefined,
       undefined,
@@ -246,8 +246,18 @@ describe('buildUsageEvent staleness contract', () => {
       true,
     ) as UsageEvent;
 
-    expect(evt.fiveHourPercent).toBe(55);
-    expect(evt.usageStale).toBe(true);
+    const wire = JSON.parse(JSON.stringify(evt));
+    expect(wire.fiveHourPercent).toBeUndefined();
+    expect(wire.sevenDayPercent).toBeUndefined();
+    expect(wire.fiveHourResetsAt).toBeUndefined();
+    expect(wire.sevenDayResetsAt).toBeUndefined();
+    expect(wire.scopedLimits).toBeUndefined();
+    expect(wire.extraUsageEnabled).toBeUndefined();
+    expect(wire.extraUsageMonthlyLimit).toBeUndefined();
+    expect(wire.extraUsageUsedCredits).toBeUndefined();
+    expect(wire.extraUsageUtilization).toBeUndefined();
+    expect(wire.subscriptions).toEqual([]);
+    expect(wire.usageStale).toBe(true);
   });
 
   it('does not force usageStale when the cost-based API-billing percent is present', () => {
@@ -558,5 +568,23 @@ describe('buildUsageEvent Codex plan reconciliation', () => {
     ) as UsageEvent;
 
     expect(evt.subscriptions).toEqual([{ name: 'ChatGPT Free' }]);
+  });
+});
+
+
+describe('subscription replacement snapshots', () => {
+  it('does not treat session billing or windowless cache as a current subscription', () => {
+    expect(buildSubscriptions(null, null, 'subscription')).toEqual([]);
+    expect(buildSubscriptions(null, usage({ fiveHourPercent: null, sevenDayPercent: null }), 'subscription')).toEqual([]);
+    expect(buildSubscriptions(null, usage({ inferredBillingType: 'api' }), 'subscription')).toEqual([]);
+  });
+
+  it('removes only Claude on failure and restores it on a fresh reading', () => {
+    const auth = { authMode: 'chatgpt', webAuthConnected: true, planType: 'plus' };
+    const live = buildSubscriptions(auth, usage(), 'subscription');
+    expect(live).toEqual([{ name: 'ChatGPT Plus', until: undefined }, { name: 'Claude' }]);
+    const stale = buildSubscriptions(auth, usage(), 'subscription', null, true);
+    expect(stale).toEqual([{ name: 'ChatGPT Plus', until: undefined }]);
+    expect(buildSubscriptions(auth, usage(), 'subscription')).toEqual(live);
   });
 });

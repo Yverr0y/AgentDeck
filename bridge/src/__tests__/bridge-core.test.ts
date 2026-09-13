@@ -229,6 +229,40 @@ describe('BridgeCore Orchestration', () => {
         expect(core.apiUsageStale).toBe(true);
       });
 
+      it('retires quota and the subscription in both frame types before a timer runs, then recovers', () => {
+        core.stateMachine.handleHookEvent('SessionStart', {});
+        core.stateMachine.handleParserEvent('model_info', { model: 'claude-fable-5' });
+        core.updateApiUsage(sampleApiUsage());
+        const state = () => core.buildStateEvent({ agentType: 'claude-code' }) as StateUpdateEvent;
+        const usage = () => core.buildUsage() as UsageEvent;
+        expect(state().subscriptions).toContainEqual({ name: 'Claude' });
+        expect(usage().fiveHourPercent).toBe(35);
+        core.cachedAntigravityStatus = { planName: 'Antigravity Pro' };
+        core.lastApiFetchTime = Date.now() - 600_001;
+        expect(state().subscriptions).not.toContainEqual({ name: 'Claude' });
+        expect(state().subscriptions).toContainEqual({ name: 'Antigravity Pro' });
+        expect(usage().usageStale).toBe(true);
+        expect(usage().fiveHourPercent).toBeUndefined();
+        expect(core.cachedApiUsage?.fiveHourPercent).toBe(35);
+        core.updateApiUsage(sampleApiUsage({ fiveHourPercent: 8 }));
+        expect(usage().fiveHourPercent).toBe(8);
+        expect(usage().usageStale).toBe(false);
+        expect(state().subscriptions).toContainEqual({ name: 'Claude' });
+        core.applyUsageResult(null);
+        expect(usage().fiveHourPercent).toBeUndefined();
+        expect(state().subscriptions).not.toContainEqual({ name: 'Claude' });
+      });
+
+      it('keeps API cost usage live without a subscription cache', () => {
+        vi.spyOn(core.stateMachine, 'getSnapshot').mockReturnValue({
+          ...core.stateMachine.getSnapshot(), billingType: 'api', costSpent: 5, costLimit: 20,
+        });
+        const event = core.buildUsage() as UsageEvent;
+        expect(event.fiveHourPercent).toBe(25);
+        expect(event.usageStale).toBe(false);
+        expect(event.subscriptions).not.toContainEqual({ name: 'Claude' });
+      });
+
       it('reports freshness back to the caller', () => {
         expect(core.applyUsageResult({ data: sampleApiUsage(), fresh: true })).toBe(true);
         expect(core.applyUsageResult({ data: sampleApiUsage(), fresh: false })).toBe(false);

@@ -270,6 +270,15 @@ static void handleUsageUpdate(JsonObject& obj) {
     storeResetTime(obj, "fiveHourResetsAt", g_state.fiveHourReset, sizeof(g_state.fiveHourReset));
     storeResetTime(obj, "sevenDayResetsAt", g_state.sevenDayReset, sizeof(g_state.sevenDayReset));
 
+    // An explicit stale signal retires Claude quota even from older daemons
+    // that still send cached numbers. All renderers collapse on the sentinel.
+    if (g_state.usageStale) {
+        g_state.fiveHourPercent = -1.0f;
+        g_state.sevenDayPercent = -1.0f;
+        g_state.fiveHourReset[0] = '\0';
+        g_state.sevenDayReset[0] = '\0';
+    }
+
     // Codex (ChatGPT) rolling-window limits. Nested object mirrors the Claude
     // 5h/7d shape — primary ≈ 5h window, secondary ≈ 7d. Absent (→ sentinel)
     // for non-Codex users. Reuses the storeResetTime lambda on each window.

@@ -278,15 +278,7 @@ struct TopologyRail: View {
                 .filter(\.available)
                 .map { shortClaudeModel($0.name) }
         }()
-        // A usage issue rides ALONGSIDE the catalog, never in place of it —
-        // the model list is this row's primary content, and replacing it made
-        // a quota fact look like the row lost its models.
-        let subtitle: String? = {
-            guard !claudeModels.isEmpty else { return base.subtitle }
-            let models = claudeModels.joined(separator: ", ")
-            guard let issue = stateHolder.state.claudeUsageIssue else { return models }
-            return "\(issue) · \(models)"
-        }()
+        let subtitle = claudeModels.isEmpty ? base.subtitle : claudeModels.joined(separator: ", ")
         return ProviderRow(
             name: "Claude",
             status: base.status,
@@ -936,14 +928,8 @@ struct TopologyRail: View {
     /// daemon) via a separate `codexRateLimitChips` row, so this is no longer
     /// "the only provider with limits."
     ///
-    /// `stale` flag: surfaced prominently because stale usage data is the
-    /// single most common source of "the number is wrong" confusion. When
-    /// `state.usageStale == true` (bridge hasn't fetched fresh usage for >
-    /// 10 min — e.g. API backoff, sandbox OAuth blocked, daemon just woke
-    /// from sleep) we show `stale` in the reset slot instead of hiding
-    /// reset info silently. Either the chip becomes a loud marker of
-    /// "don't trust this yet" or it shows fresh data with a real reset
-    /// timer — no silent middle state.
+    /// Stale Claude quota is cleared by AgentStateHolder; the whole chip
+    /// disappears. Authentication details remain in Settings diagnostics.
     private var rateLimitChips: [RateChip] {
         // Progressive enhancement gate: Claude subscription quota gauges
         // depend on OAuth token / sibling relay data the sandboxed App
