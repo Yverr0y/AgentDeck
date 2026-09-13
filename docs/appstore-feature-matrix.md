@@ -177,3 +177,5 @@ decisions follow from that:
 - Treating Gateway availability as authenticated connection; use the authenticated state.
 - Showing sandbox limitations as broken empty sections; hide unavailable progressive enhancements.
 - Rendering steering buttons without real session options.
+
+Dashboard subscription presentation: plan names and reported subscription dates appear once in the owning upstream row. The full reported list remains available in Dashboard settings, including hidden providers.

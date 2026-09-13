@@ -51,7 +51,6 @@ import dev.agentdeck.net.AgentState
 import dev.agentdeck.net.CodexRateLimits
 import dev.agentdeck.net.ModelCatalogEntry
 import dev.agentdeck.net.OllamaStatus
-import dev.agentdeck.net.SubscriptionInfo
 import dev.agentdeck.state.DashboardState
 import dev.agentdeck.terrarium.TerrariumColors
 import dev.agentdeck.ui.component.AgentDeckMark
@@ -314,6 +313,7 @@ private fun daemonPortText(state: DashboardState): String =
 
 @Composable
 private fun UpstreamRows(state: DashboardState, scale: MonitorLayoutScale, visible: List<String>) {
+    val now by rememberCurrentInstant()
     val usage = state.usage
     val ollama = state.ollamaStatus
     val modelCatalog = state.modelCatalog ?: emptyList()
@@ -399,7 +399,8 @@ private fun UpstreamRows(state: DashboardState, scale: MonitorLayoutScale, visib
             ProviderRow(
                 name = "Codex",
                 status = if (state.codexRateLimits != null || codexPlan != null) LEDStatus.OK else LEDStatus.DIM,
-                subtitle = codexSubtitle(codexPlan, state.codexRateLimits),
+                subtitle = withSubscriptionDate(codexSubtitle(codexPlan, state.codexRateLimits),
+                    state.subscriptions.firstOrNull { it.name == chatGptPlanLabel(codexPlan) }?.until, now),
                 consumers = consumersFor(ProviderKey.CODEX, state),
                 rateLimits = codexRateLimits,
             )
@@ -481,15 +482,13 @@ private fun UpstreamRows(state: DashboardState, scale: MonitorLayoutScale, visib
             ProviderRow(
                 name = "Antigravity",
                 status = if (antiPlan != null) LEDStatus.OK else LEDStatus.DIM,
-                subtitle = antiPlan,
+                subtitle = withSubscriptionDate(antiPlan,
+                    state.subscriptions.firstOrNull { it.name == antiPlan }?.until, now),
                 consumers = consumersFor(ProviderKey.ANTIGRAVITY, state),
                 rateLimits = emptyList(),
             )
         }
 
-        if (state.subscriptions.isNotEmpty()) {
-            SubscriptionsFooter(state.subscriptions)
-        }
     }
 }
 
@@ -533,7 +532,7 @@ internal fun normalizeOpenClawName(name: String): String =
 /**
  * Snapshot of the wall clock that re-emits every `periodMillis` so views
  * keyed on time invalidate without depending on incidental state changes.
- * Used by the SUBSCRIPTIONS footer (HUD rail) and the e-ink TANK STATUS
+ * Used by upstream subscription dates (HUD rail) and the e-ink TANK STATUS
  * subscription line so a row can flip from a future date to
  * "renewal needed" the moment the underlying timestamp becomes past — a
  * dashboard left open across an expiry would otherwise hold the stale
@@ -552,48 +551,10 @@ internal fun rememberCurrentInstant(periodMillis: Long = 60_000L): State<Instant
         }
     }
 
-@Composable
-private fun SubscriptionsFooter(subs: List<SubscriptionInfo>) {
-    // `rememberCurrentInstant` re-emits `now` every 60s and invalidates this
-    // composable, so a subscription that expires while the dashboard is
-    // open flips from its date suffix to "renewal needed" without needing
-    // unrelated state to change first. Reading `Instant.now()` inline
-    // would only refresh on incidental recomposition, which can be rare
-    // when the daemon is idle.
-    val now by rememberCurrentInstant()
-    Column(
-        verticalArrangement = Arrangement.spacedBy(1.dp),
-        modifier = Modifier.padding(top = 4.dp),
-    ) {
-        Text(
-            text = "SUBSCRIPTIONS",
-            color = TerrariumColors.HUDSubtext.copy(alpha = 0.8f),
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            letterSpacing = 0.8.sp,
-        )
-        subs.forEach { sub ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = sub.name,
-                    color = TerrariumColors.HUDText,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-                val trailing = subscriptionTrailing(sub.until, now)
-                if (trailing != null) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = trailing.text,
-                        color = if (trailing.expired) TerrariumColors.LEDAmber else TerrariumColors.HUDSubtext,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-        }
-    }
+internal fun withSubscriptionDate(subtitle: String?, until: String?, now: Instant): String? {
+    val trailing = subscriptionTrailing(until, now) ?: return subtitle
+    val date = if (trailing.expired) "subscription date unconfirmed" else "subscription ${trailing.text}"
+    return listOfNotNull(subtitle, date).joinToString(" · ")
 }
 
 // MARK: - Downstream rows

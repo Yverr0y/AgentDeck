@@ -30,6 +30,14 @@ Deployment: macOS and Lenovo installed and their actual dashboard upstream rows 
 
 USB findings: TRMNL's running CDC node changes to a different download node; match its USB serial identifier before choosing the new port. IPS35's inherited `no_reset` upload setting does not enter its bootloader: a default reset plus a verified 16MB flash-id allowed the write, and watchdog reset released the board into its new app. Round did not answer either USB reset probe, so deployment uses the live Wi-Fi identity. Preserve serial-suspend leases around every USB operation.
 
+## 2026-09-13 — Inline dashboard subscription details
+
+macOS and Android dashboards now show ChatGPT/Google plan metadata once in the owning upstream row. Append the matching subscription date without changing quota gauges or credit balances; remove the duplicate SUBSCRIPTIONS footer. Provider display preferences also govern subscription visibility. Keep the complete reported list and readable dates in Dashboard settings, with a distinction between subscription dates and usage reset timers. Preserve the existing macOS visibility preference as Subscription dates.
+
+Past or invalid dates in the compact row say that the date is unconfirmed, rather than claiming the subscription was cancelled or needs renewal. Dates may be cached or estimated by the producer.
+
+Validation: 4,482 TypeScript tests passed (one skipped), 13 Apple topology helper tests and 15 Android subscription tests passed. Both native apps built; protocol generation and token mirrors are clean, with design lint at the existing 89 findings. Installed macOS and Lenovo dashboards show each plan once and preserve Codex usage, with the subscription date fitting on the subtitle line. The complete subscription list is available in settings. Daemon and firmware behavior is unchanged.
+
 ## 2026-09-13 — 광고 플랫폼 수익화 조사: 무료 제품에는 회수 매출이 없고, 유료 플러그인은 Stripe 한국 미지원으로 막힌다
 
 광고 플랫폼으로 AgentDeck에서 수익을 낼 수 있는지 조사해

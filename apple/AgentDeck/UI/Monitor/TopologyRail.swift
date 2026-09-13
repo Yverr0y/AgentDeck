@@ -290,18 +290,6 @@ struct TopologyRail: View {
             if visible.contains("mlx") { mlxRow }
             if visible.contains("ollama") { ollamaRow }
             if visible.contains("antigravity") { antigravityRow }
-            // `showSubscriptionsSection` lives in the macOS-only Settings
-            // "Tank Status Sections" group; on iOS there is no toggle UI, so
-            // surface the footer whenever data is present (matches behaviour
-            // before the toggle was wired up).
-            #if os(macOS)
-            let subscriptionsAllowed = preferences.showSubscriptionsSection
-            #else
-            let subscriptionsAllowed = true
-            #endif
-            if subscriptionsAllowed && !stateHolder.state.subscriptions.isEmpty {
-                subscriptionsFooter
-            }
         }
     }
 
@@ -423,8 +411,8 @@ struct TopologyRail: View {
     /// Codex (ChatGPT) usage limits — Codex CLI writes a `rate_limits` snapshot
     /// (5h primary / weekly secondary) into its own local rollout files, so the
     /// daemon surfaces them here much like the Claude 5h/7d gauges. Reading the
-    /// user's own local files, not the OpenAI API. Subscription expiry continues
-    /// to live in the SUBSCRIPTIONS footer; this row is about live usage.
+    /// user's own local files, not the OpenAI API. The subscription date
+    /// appears beside the plan name, separately from quota reset times.
     /// Hidden when neither a plan nor any rate-limit data is present.
     private var codexRow: some View {
         let plan = stateHolder.state.codexPlanType
@@ -437,7 +425,7 @@ struct TopologyRail: View {
             ProviderRow(
                 name: "Codex",
                 status: .ok,
-                subtitle: Self.codexSubtitle(plan: plan, limits: limits),
+                subtitle: subscriptionSubtitle(Self.codexSubtitle(plan: plan, limits: limits), plan: Self.chatGptPlanLabel(plan)),
                 rateLimits: codexRateLimitChips,
                 consumers: consumerCreatures(for: .codex)
             )
@@ -479,7 +467,7 @@ struct TopologyRail: View {
             ProviderRow(
                 name: "Antigravity",
                 status: .ok,
-                subtitle: plan,
+                subtitle: subscriptionSubtitle(plan, plan: plan),
                 rateLimits: [],
                 consumers: consumerCreatures(for: .antigravity)
             )
@@ -497,28 +485,18 @@ struct TopologyRail: View {
         return s
     }
 
-    private var subscriptionsFooter: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text("SUBSCRIPTIONS")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .kerning(0.8)
-                .foregroundStyle(TerrariumHUD.subtext.opacity(0.8))
-            ForEach(Array(stateHolder.state.subscriptions.enumerated()), id: \.offset) { _, sub in
-                HStack(spacing: 4) {
-                    Text(sub.name)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(TerrariumHUD.text)
-                    let trailing = Self.subscriptionTrailing(for: sub.until, now: Date())
-                    if let trailing {
-                        Spacer(minLength: 4)
-                        Text(trailing.text)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(trailing.expired ? TerrariumHUD.ledAmber : TerrariumHUD.subtext)
-                    }
-                }
-            }
-        }
-        .padding(.top, 4)
+    private func subscriptionSubtitle(_ subtitle: String?, plan: String?) -> String? {
+        #if os(macOS)
+        guard preferences.showSubscriptionsSection else { return subtitle }
+        #endif
+        let until = stateHolder.state.subscriptions.first { $0.name == plan }?.until
+        return Self.withSubscriptionDate(subtitle, until: until, now: Date())
+    }
+
+    static func withSubscriptionDate(_ subtitle: String?, until: String?, now: Date) -> String? {
+        guard let trailing = subscriptionTrailing(for: until, now: now) else { return subtitle }
+        let date = trailing.expired ? "subscription date unconfirmed" : "subscription \(trailing.text)"
+        return [subtitle, date].compactMap { $0 }.joined(separator: " · ")
     }
 
     /// Resolve what (if anything) sits to the right of the subscription
