@@ -967,8 +967,14 @@ static int usageRowCount(const Snap& s) {
     return n;
 }
 
+static uint8_t dashboardActivityRows(const Snap& s) {
+    if (!s.bridgeConnected) return 0;
+    // Preserve two readable card rows when several sessions share the page.
+    return min(s.tickerCount, (uint8_t)(s.rowCount > 2 ? 2 : Snap::TICKER_ROWS));
+}
+
 AgentDeckEink::Layout dashboardLayout(const Snap& s) {
-    uint8_t activityRows = s.bridgeConnected ? s.tickerCount : 0;
+    uint8_t activityRows = dashboardActivityRows(s);
     return AgentDeckEink::makeLayout(AgentDeckEink::LayoutInput{
         W, H,
         68,  // product header + double rule
@@ -1022,9 +1028,9 @@ void drawUsageFooter(const Snap& s, bool showIdentity, const AgentDeckEink::Layo
     if (s.bridgeConnected && s.tickerCount > 0) {
         textAt(layout.pad, layout.activity.y + 16, "RECENT", &FreeSansBold9pt7b);
         constexpr int16_t rowH = 28;
-        for (uint8_t i = 0; i < s.tickerCount; i++) {
+        for (uint8_t i = 0; i < dashboardActivityRows(s); i++) {
             int16_t ty = layout.activity.y + 44 + (int16_t)i * rowH;
-            bool bottomRow = (i == s.tickerCount - 1);
+            bool bottomRow = (i == dashboardActivityRows(s) - 1);
             textAt(layout.pad, ty, s.tickerTime[i], &FreeSansBold9pt7b);
             char tf[108];
             int16_t textX = layout.pad + 58;

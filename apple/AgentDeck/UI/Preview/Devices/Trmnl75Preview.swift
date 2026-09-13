@@ -38,7 +38,7 @@
 // fails CI when the firmware drifts ahead of this mirror. Update this view and
 // re-pin whenever the firmware layout changes.
 //
-// SYNC-HASH esp32/src/ui/eink/eink_display.cpp 3edbedf77274d9853317a86f484273674f225eb9
+// SYNC-HASH esp32/src/ui/eink/eink_display.cpp d99f40aea9f6014b208fafb5a5b13d2c5110b56a
 // SYNC-HASH esp32/src/ui/eink/eink_dashboard_layout.h 97b1d2a6f5c84e9cf733b3e5b3145ad45f3136e7
 
 import SwiftUI
@@ -426,7 +426,7 @@ struct Trmnl75Preview: View {
             // rows, newest first, gated on the live daemon link (a stale line
             // under the "searching…" screen read as if still connected).
             if selection.state != .disconnected {
-                ForEach(Array(workStripRows.enumerated()), id: \.offset) { _, row in
+                ForEach(Array(workStripRows.prefix(selection.sessionCount > 2 ? 2 : 3).enumerated()), id: \.offset) { _, row in
                     HStack(spacing: 5) {
                         Text(row.time)
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
