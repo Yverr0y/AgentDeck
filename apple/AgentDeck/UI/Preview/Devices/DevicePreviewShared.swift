@@ -160,8 +160,8 @@ struct PreviewDisplayUsageRow: Identifiable {
     var agent: PixooPreviewAgent
     var label: String   // "CLAUDE" / "CODEX"
     var plan: String    // "Max 20x" / "Plus"
-    var p5: Double       // 5h window, 0…1
-    var p7: Double       // 7d window, 0…1
+    var p5: Double       // 5h window, 0…1; -1 means absent
+    var p7: Double       // 7d window, 0…1; -1 means absent
     var id: String { label }
 }
 
@@ -238,12 +238,12 @@ extension DevicePreviewSelection {
             if live.usageKnown, live.fiveHourPercent != nil || live.sevenDayPercent != nil {
                 rows.append(PreviewDisplayUsageRow(
                     agent: .claudeCode, label: "CLAUDE", plan: "Max 20x",
-                    p5: (live.fiveHourPercent ?? 0) / 100, p7: (live.sevenDayPercent ?? 0) / 100))
+                    p5: (live.fiveHourPercent ?? -100) / 100, p7: (live.sevenDayPercent ?? -100) / 100))
             }
             if live.codexPrimaryPercent != nil || live.codexSecondaryPercent != nil {
                 rows.append(PreviewDisplayUsageRow(
                     agent: .codex, label: "CODEX", plan: "Plus",
-                    p5: (live.codexPrimaryPercent ?? 0) / 100, p7: (live.codexSecondaryPercent ?? 0) / 100))
+                    p5: (live.codexPrimaryPercent ?? -100) / 100, p7: (live.codexSecondaryPercent ?? -100) / 100))
             }
             return rows
         }

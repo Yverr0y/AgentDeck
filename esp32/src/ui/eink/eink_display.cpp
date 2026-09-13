@@ -647,8 +647,9 @@ void smartTextAt(int16_t x, int16_t y, const char* s, const GFXfont* f) {
 
 // Fit-with-ellipsis that is UTF-8 safe and font-smart.
 void smartFitText(char* out, size_t outLen, const char* s, int16_t maxW, const GFXfont* f) {
-    if (isAsciiOnly(s)) { fitText(out, outLen, s, maxW, f); return; }
+    if (outLen == 0) return;
     strncpy(out, s, outLen - 1); out[outLen - 1] = '\0';
+    Utf8::singleLine(out);
     if (smartWidth(out, f) <= maxW) return;
     size_t len = strlen(out);
     while (len > 1) {
@@ -906,21 +907,15 @@ void drawBrandHeader(const Snap& s, const AgentDeckEink::Layout& layout) {
         textRight(chipX - 14, 38, cnt, countFont);
     }
 
-#if defined(AGENTDECK_TRMNL_75_UI)
-    // These are the only two front-panel actions. Keep them visible on every
-    // dashboard face instead of relying on a manual or hidden button cycle.
-    textAt(286, 58, "KEY1 VIEW  |  KEY2 HOME", CLASSIC_FONT);
-#endif
-
     // Double rule (print-style)
     display.fillRect(0, 62, W, 2, GxEPD_BLACK);
     display.drawFastHLine(0, 66, W, GxEPD_BLACK);
 }
 
-// One gauge block: "5H [▓▓▓░░] 42% · 1h 23m". Bar kept narrow (140px) so the
-// value+reset text breathes before the next block starts.
-void drawGaugeBar(int16_t x, int16_t y, const char* tag, float pct, const char* reset) {
-    constexpr int16_t barW = 140, barH = 16;
+// Reserve label/value space, then let the bar fill its available window slot.
+void drawGaugeBar(int16_t x, int16_t y, const char* tag, float pct, const char* reset, int16_t slotW) {
+    constexpr int16_t barH = 16;
+    const int16_t barW = slotW - 160;
     textAt(x, y + barH - 2, tag, &FreeSansBold9pt7b);
     int16_t bx = x + 30;
     display.drawRect(bx, y, barW, barH, GxEPD_BLACK);
@@ -957,8 +952,9 @@ bool drawProviderUsage(int16_t y, const char* agentType, const char* label,
         textAt(44, y + 26, pf, CLASSIC_FONT);  // "Max 20x ~7/12" under the label
     }
     int16_t slotX = 150;
-    if (p5 >= 0.0f) { drawGaugeBar(slotX, y + 2, "5H", p5, r5); slotX = 490; }
-    if (p7 >= 0.0f) drawGaugeBar(slotX, y + 2, "7D", p7, r7);
+    const int16_t slotW = (W - slotX - 12) / ((p5 >= 0 && p7 >= 0) ? 2 : 1);
+    if (p5 >= 0.0f) { drawGaugeBar(slotX, y + 2, "5H", p5, r5, slotW); slotX += slotW; }
+    if (p7 >= 0.0f) drawGaugeBar(slotX, y + 2, "7D", p7, r7, slotW);
     return true;
 }
 
@@ -972,13 +968,13 @@ static int usageRowCount(const Snap& s) {
 }
 
 AgentDeckEink::Layout dashboardLayout(const Snap& s) {
-    uint8_t activityRows = s.bridgeConnected && s.tickerCount > 0 ? s.tickerCount : 1;
+    uint8_t activityRows = s.bridgeConnected ? s.tickerCount : 0;
     return AgentDeckEink::makeLayout(AgentDeckEink::LayoutInput{
         W, H,
         68,  // product header + double rule
         0,   // TRMNL 7.5" has no persistent button-hint bar
-        28, 21,
-        (uint8_t)usageRowCount(s), activityRows,
+        36, 28,
+        (uint8_t)usageRowCount(s), (uint8_t)(activityRows > 0 ? activityRows + 1 : 0),
         s.rowCount, 2,
     });
 }
@@ -988,27 +984,16 @@ AgentDeckEink::Layout dashboardLayout(const Snap& s) {
 // 800x480 offsets), and X3/X4 consume that same band contract through the
 // mirrored geometry header.
 //
-// What is NOT responsive is the horizontal composition *inside* a band: the
-// wordmark, glyph, label and the two gauge slots below use absolute x constants
-// tuned for this panel's 800px width (drawBrandHeader, drawProviderUsage). That
-// is fine — this renderer only ever runs on TRMNL 7.5"'s 800x480 — but it means
-// rendering this file at another width is not a preview of that panel. The
-// esp32/sim `xteink_x3`/`xteink_x4` diagnostic envs do exactly that to inspect
-// the shared *geometry*; their squashed header and off-panel second gauge are
-// this renderer's constants, not a fault in the layout SSOT and not what the
-// XTeink fork draws (it has its own GfxRenderer). Measured 2026-08-05: bands
-// are clean at 800x480 / 528x792 / 480x800; the 2nd gauge slot (x=490, ~288px
-// wide) simply does not exist on a 480px panel. Make these width-derived only
-// when a second e-ink size actually ships — it moves TRMNL 7.5"'s shipped pixels.
+// Available usage windows divide the remaining row width equally.
 void drawUsageFooter(const Snap& s, bool showIdentity, const AgentDeckEink::Layout& layout) {
     if (!layout.usage.empty()) {
         display.fillRect(0, layout.usage.y, W, 2, GxEPD_BLACK);
         int16_t y = layout.usage.y + layout.gap;
         bool any = false;
         if (drawProviderUsage(y, "claude-code", "CLAUDE", s.claudePlan, s.fiveH, s.fiveReset,
-                              s.sevenD, s.sevenReset, s.usageStale)) { y += 28; any = true; }
+                              s.sevenD, s.sevenReset, s.usageStale)) { y += 36; any = true; }
         if (drawProviderUsage(y, "codex-cli", "CODEX", s.codexPlan, s.codexP, s.codexPReset,
-                              s.codexS, s.codexSReset, false)) { y += 28; any = true; }
+                              s.codexS, s.codexSReset, false)) { y += 36; any = true; }
         if (!any) textAt(16, y + 16, "usage: waiting for data", &FreeSans9pt7b);
     }
 
@@ -1035,9 +1020,10 @@ void drawUsageFooter(const Snap& s, bool showIdentity, const AgentDeckEink::Layo
     // were still connected. Only the bottom row shares its width with the AGY
     // chip / identity tag pinned at y≈474.
     if (s.bridgeConnected && s.tickerCount > 0) {
-        constexpr int16_t rowH = 21;
+        textAt(layout.pad, layout.activity.y + 16, "RECENT", &FreeSansBold9pt7b);
+        constexpr int16_t rowH = 28;
         for (uint8_t i = 0; i < s.tickerCount; i++) {
-            int16_t ty = layout.activity.y + 16 + (int16_t)i * rowH;
+            int16_t ty = layout.activity.y + 44 + (int16_t)i * rowH;
             bool bottomRow = (i == s.tickerCount - 1);
             textAt(layout.pad, ty, s.tickerTime[i], &FreeSansBold9pt7b);
             char tf[108];
@@ -1597,8 +1583,7 @@ void drawEp47Chrome(const Snap& s, AgentDeckEpd47::Page selected) {
     display.drawFastHLine(20, headerH, W - 40, EINK_INK_RULE);
 }
 
-void drawEp47Footer(const Snap& s) {
-    constexpr int16_t y = 492;
+void drawEp47Footer(const Snap& s, int16_t y = 492) {
     display.drawFastHLine(20, y - 14, W - 40, EINK_INK_RULE);
     // No arbitration chrome. "HELD / 8m · QUEUE READY" narrated the page
     // arbiter's internal state — a question nobody asked — and collided with
@@ -1612,10 +1597,12 @@ void drawEp47Footer(const Snap& s) {
     // edge. Bold 9pt in full black is the same weight the QUEUE state column
     // reads at across a desk, and two lines of it fit with real gaps —
     // baselines 498/520 leave the rule (478) and the edge (540) alone.
-    const uint8_t tickerLines = s.tickerCount > 1 ? 2 : s.tickerCount;
+    const bool spacious = y < 492;
+    if (spacious) textAt(20, y + 6, "RECENT", &FreeSansBold9pt7b);
+    const uint8_t tickerLines = min(s.tickerCount, (uint8_t)(spacious ? 3 : 2));
     for (uint8_t ti = 0; ti < tickerLines; ti++) {
         char event[116];
-        const int16_t lineY = y + 6 + (int16_t)ti * 22;
+        const int16_t lineY = y + (spacious ? 34 : 6) + (int16_t)ti * 22;
         smartFitText(event, sizeof(event), s.tickerText[ti],
                      ti == 0 ? 660 : (int16_t)(W - 40), &FreeSansBold9pt7b);
         smartTextAt(20, lineY, event, &FreeSansBold9pt7b);
@@ -1648,12 +1635,11 @@ void drawEp47Window(int16_t x, int16_t y, int16_t w, const char* label,
     textAt(x, y + 78, resetLine, &FreeSans9pt7b);
 }
 
-void drawEp47ProviderCard(int16_t x, const char* agentType, const char* name,
+void drawEp47ProviderCard(int16_t x, int16_t w, const char* agentType, const char* name,
                           const char* plan, float first, const char* firstReset,
                           float second, const char* secondReset, bool stale) {
     constexpr int16_t y = 104;
-    constexpr int16_t w = 444;
-    constexpr int16_t h = 356;
+    const int16_t h = first >= 0 && second >= 0 ? 356 : 244;
     display.drawRoundRect(x, y, w, h, 8, EINK_INK_RULE);
     drawAgentGlyph(agentType, x + 24, y + 24, 54);
     textAt(x + 96, y + 55, name, &FreeSansBold18pt7b);
@@ -1684,11 +1670,19 @@ void drawEp47ProviderCard(int16_t x, const char* agentType, const char* name,
 
 void drawEp47Limits(const Snap& s) {
     drawEp47Chrome(s, AgentDeckEpd47::Page::Limits);
-    drawEp47ProviderCard(24, "claude-code", "CLAUDE", s.claudePlan,
+    const bool claude = s.fiveH >= 0 || s.sevenD >= 0;
+    const bool codex = s.codexP >= 0 || s.codexS >= 0;
+    const int16_t cardW = claude && codex ? (W - 72) / 2 : W - 48;
+    if (claude) drawEp47ProviderCard(24, cardW, "claude-code", "CLAUDE", s.claudePlan,
                          s.fiveH, s.fiveReset, s.sevenD, s.sevenReset, s.usageStale);
-    drawEp47ProviderCard(492, "codex-cli", "CODEX", s.codexPlan,
+    if (codex) drawEp47ProviderCard(claude ? 48 + cardW : 24, cardW, "codex-cli", "CODEX", s.codexPlan,
                          s.codexP, s.codexPReset, s.codexS, s.codexSReset, false);
-    drawEp47Footer(s);
+    if (!claude && !codex) {
+        textAt(44, 180, "No usage limits available", &FreeSansBold18pt7b);
+        textAt(44, 220, "Usage appears here when your account reports a limit.", &FreeSans9pt7b);
+    }
+    const bool twoWindows = (s.fiveH >= 0 && s.sevenD >= 0) || (s.codexP >= 0 && s.codexS >= 0);
+    drawEp47Footer(s, twoWindows ? 492 : 380);
 }
 
 void drawEp47Focus(const Snap& s) {
@@ -1755,7 +1749,8 @@ void drawEp47Focus(const Snap& s) {
         drawMiniUsage(752, gaugeY, 174, "Claude", s.fiveH, 46);
         gaugeY += 48;
     }
-    if (s.codexP >= 0) drawMiniUsage(752, gaugeY, 174, "Codex", s.codexP, 46);
+    if (s.codexP >= 0 || s.codexS >= 0) drawMiniUsage(752, gaugeY, 174,
+        s.codexP >= 0 ? "Codex 5H" : "Codex 7D", s.codexP >= 0 ? s.codexP : s.codexS, 46);
     if (awaiting) {
         textAt(752, 430,
                epd47TouchAvailable() ? "TAP CARD · DECIDE" : "GPIO21 · DECIDE",

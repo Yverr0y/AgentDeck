@@ -296,9 +296,7 @@ private fun UpstreamRows(state: DashboardState, scale: MonitorLayoutScale) {
                 )
             }
         }
-        val showClaudeRow = state.oauthConnected == true ||
-            claudeModels.isNotEmpty() ||
-            claudeConsumers.isNotEmpty() ||
+        val showClaudeRow = claudeConsumers.isNotEmpty() ||
             claudeRateLimits.isNotEmpty()
         if (showClaudeRow) {
             ProviderRow(

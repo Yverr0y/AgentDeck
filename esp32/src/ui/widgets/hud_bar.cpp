@@ -2307,6 +2307,18 @@ void update() {
         if (codexGroup) { showCodex ? lv_obj_clear_flag(codexGroup, LV_OBJ_FLAG_HIDDEN) : lv_obj_add_flag(codexGroup, LV_OBJ_FLAG_HIDDEN); }
     }
 
+    const auto sizeWindows = [](lv_obj_t* first, lv_obj_t* second, float a, float b) {
+        const int width = ((a >= 0) != (b >= 0)) ? GAUGE_SIZE * 2 + GAUGE_GAP : GAUGE_SIZE;
+        for (lv_obj_t* box : {first, second}) {
+            if (!box) continue;
+            lv_obj_set_width(lv_obj_get_parent(box), width);
+            lv_obj_set_width(box, width);
+            lv_obj_set_width(lv_obj_get_child(box, 0), width - GAUGE_BORDER * 2);
+        }
+    };
+    sizeWindows(gauge5hBox, gauge7dBox, p5h, p7d);
+    sizeWindows(gaugeCx5hBox, gaugeCx7dBox, cxP5h, cxP7d);
+
     // Stale indicator (shown only when we have Claude data but it's stale)
     if (lblStale) {
         bool showStale = usageStale && (p5h >= 0.0f || p7d >= 0.0f);

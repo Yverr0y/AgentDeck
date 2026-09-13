@@ -207,7 +207,9 @@ struct TopologyRail: View {
 
     private var upstreamRows: some View {
         VStack(alignment: .leading, spacing: 5) {
-            claudeRow
+            if !consumerCreatures(for: .claude).isEmpty || !rateLimitChips.isEmpty {
+                claudeRow
+            }
             codexRow
             openClawRow
             mlxRow
