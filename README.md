@@ -361,22 +361,22 @@ identified separately below. Matching minor versions are never a requirement.
 
 | Artifact | Publicly available | Connects to |
 |---|---|---|
-| npm CLI + daemon (`@agentdeck/*`) | 1.3.0 | — (the hub every client dials) |
-| Apple app (macOS · iPhone/iPad) | 1.2.1 | its built-in Swift daemon, or any 1.x daemon |
-| Android app | 1.3.0 APK / 1.2.0 Play | any 1.x daemon |
+| npm CLI + daemon (`@agentdeck/*`) | 1.3.3 | — (the hub every client dials) |
+| Apple app (macOS · iPhone/iPad) | 1.3.0 | its built-in Swift daemon, or any 1.x daemon |
+| Android app | 1.3.1 APK / Play | any 1.x daemon |
 | Stream Deck plugin | 1.2.0 | any 1.x daemon |
 | Ulanzi D200H/D200X plugin | 1.2.0 | any 1.x daemon |
-| ESP32 firmware (12 boards) | 1.2.3 | any 1.x daemon (serial or Wi-Fi) |
+| ESP32 firmware (12 boards) | 1.3.0 | any 1.x daemon (serial or Wi-Fi) |
 
 | Channel | Tag | Status |
 |---|---|---|
-| **npm** — `@agentdeck/setup` | `npm-v*` | [1.3.0](https://github.com/puritysb/AgentDeck/releases/tag/npm-v1.3.0) live — all four packages (`shared`, `hooks`, `bridge`, `setup`) have exact version and `latest` 1.3.0, independently registry-verified on 2026-09-12. OIDC release run 34682450639 succeeded after final installed CLI/Swift/coexistence checks ([delivery record](https://github.com/puritysb/AgentDeck/issues/314)). |
-| **Apple App Store** — macOS + iPhone/iPad | `apple-v*` | **1.2.1 live; 1.3.0 (6601) submitted on both platforms.** App Store Connect reports `WAITING_FOR_REVIEW`, with release after approval. All 48 media assets across three locales finished processing and match the committed sources. |
+| **npm** — `@agentdeck/setup` | `npm-v*` | [1.3.3](https://github.com/puritysb/AgentDeck/releases/tag/npm-v1.3.3) live — all four packages (`shared`, `hooks`, `bridge`, `setup`) and `latest` independently registry-verified on 2026-09-13. Fixes protected registry-file reads blocking agent startup. Installed Swift-only, CLI-only and coexistence checks passed ([delivery record](https://github.com/puritysb/AgentDeck/issues/314#issuecomment-5653078997)). |
+| **Apple App Store** — macOS + iPhone/iPad | `apple-v*` | **1.3.0 live; 1.3.2 (6801) submitted on both platforms on 2026-09-13.** App Store Connect API verifies `WAITING_FOR_REVIEW` and `AFTER_APPROVAL` for each platform. English, Korean and Japanese notes saved; existing processed screenshots and previews retained. 1.3.1 (6701) was superseded before submission. |
 | **Elgato Marketplace** — Stream Deck plugin | `streamdeck-v*` | [1.2 live](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464); **1.3 pending review** since 2026-09-12. The manifest is `1.3.0.0`; Elgato trims trailing zeros in the UI. Official CI artifact submitted with SDK 3 and DRM enabled; publication after approval is authorized without an additional DRM encoder gate; automatic publication remains off because the pending-review console did not save the setting change ([record](marketplace/elgato/LISTING.md)). |
 | **Ulanzi Marketplace** — D200H / D200X plugin | `ulanzi-v*` | [1.2.0 live](https://ugc.ulanzistudio.com/contentView/1141); **1.3.0 submitted for review** on 2026-09-12. Reopened the submitted record to verify all seven locale pairs, supported devices/OS flags and Dial off; downloaded CDN ZIP matches the local package ([record](marketplace/ulanzi/LISTING.md)). |
-| **GitHub Release** — Android APK | `android-v*` | [1.3.0](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.3.0) — versionCode 16, published 2026-09-12. |
-| **GitHub Release** — ESP32 firmware | `esp32-v*` | [1.2.3](https://github.com/puritysb/AgentDeck/releases/tag/esp32-v1.2.3) — 62 assets published 2026-09-12 for all 12 boards: merged factory images at `0x0`, four loose parts per board, `manifest.json` and `SHA256SUMS.txt`. TRMNL uses `trmnl_75`; `inkdeck` remains a compatibility alias. |
-| **Google Play** — Android AAB | `android-v*` | [1.2.0 live](https://play.google.com/store/apps/details?id=dev.agentdeck); **1.3.0 (16) production update under review** on 2026-09-12. Automatic prechecks finished; existing country coverage and 100% rollout retained. Listing assets and runbook: [marketplace/play/](marketplace/play/LISTING.md). |
+| **GitHub Release** — Android APK | `android-v*` | [1.3.1](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.3.1) — versionCode 17, published 2026-09-13. |
+| **GitHub Release** — ESP32 firmware | `esp32-v*` | [1.3.0](https://github.com/puritysb/AgentDeck/releases/tag/esp32-v1.3.0) — 62 assets published 2026-09-13 for all 12 boards. All 60 firmware binaries were downloaded and verified against SHA256SUMS and manifest size/hash fields. Adds TTGO Usage default, T-Embed approval queue and T-Display-S3-Pro pinned-session/waiting-list interaction. |
+| **Google Play** — Android AAB | `android-v*` | [1.3.1 live](https://play.google.com/store/apps/details?id=dev.agentdeck) — versionCode 17, published 2026-09-13 at 21:08 KST after review. Console reports “Available on Google Play”; 100% rollout and 177-country coverage retained. Listing assets and runbook: [marketplace/play/](marketplace/play/LISTING.md). |
 
 ---
 

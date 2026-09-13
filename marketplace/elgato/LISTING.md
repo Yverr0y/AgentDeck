@@ -27,6 +27,17 @@ once approval exposes `Release`, publication is authorized without another
 permission prompt. Do not describe this as automatic publication being enabled.
 See [delivery tracking](https://github.com/puritysb/AgentDeck/issues/314).
 
+**2026-09-13 verification:** `1.3` remains Pending review. Retoggling automatic
+publication and reopening the dialog again returned **off**, so the console
+still does not persist the change. The downloaded DRM-processed package is
+766,627 bytes, SHA-256
+`ac0f9750b25a9fc73070cd3f4a2253bff3a0fa81db6c0c9cad74281e9b7b987e`.
+Installed that package into Stream Deck: daemon connection, 23 keypad actions
+and four encoder registrations succeeded, and the normal Stream Deck preview
+rendered live sessions and usage. Physical encoder rotation and the Stream Deck+
+touch-strip appearance were not verified; do not call this a complete encoder
+review loop. The owner's publication authorization above remains applicable.
+
 ```
 AgentDeck 1.3.0 improves session and agent identity across the dashboard, adds OpenClaw plugin approval requests alongside tool approvals, and makes collaboration and connection recovery more consistent. Usage windows now reflect only the quota data actually reported by each provider. Bundled profiles cover Stream Deck, Mini, XL, +, and + XL. Requires the free AgentDeck daemon on the same computer.
 ```
