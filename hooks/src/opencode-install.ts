@@ -72,13 +72,30 @@ export function opencodePluginSource(): string {
 // timeline with the same prompt → response turn shape. Every POST is
 // fire-and-forget with a hard timeout; OpenCode never blocks on AgentDeck.
 
-import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const PORT_TTL_MS = 60000;
 let cachedPort = null;
 let cachedAt = 0;
+
+// Keep at most one OS read per known registry path in flight. An OS consent
+// decision can outlive AbortSignal, so the race also bounds the caller while
+// the map prevents retries from exhausting the filesystem worker pool.
+const registryReads = new Map();
+function readRegistry(path) {
+  if (registryReads.has(path)) return registryReads.get(path);
+  let timer;
+  const io = readFile(path, { encoding: "utf-8", signal: AbortSignal.timeout(200) });
+  const bounded = Promise.race([io, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("registry read timed out")), 200);
+  })]);
+  registryReads.set(path, bounded);
+  const settled = () => { clearTimeout(timer); registryReads.delete(path); };
+  io.then(settled, settled);
+  return bounded;
+}
 
 async function resolvePort() {
   const now = Date.now();
@@ -91,7 +108,7 @@ async function resolvePort() {
     join(home, "Library/Group Containers/group.bound.serendipity.agent.deck/daemon.json"),
   ]) {
     try {
-      const d = JSON.parse(readFileSync(f, "utf-8"));
+      const d = JSON.parse(await readRegistry(f));
       const p = d.httpPort || d.port;
       if (typeof p === "number" && p > 0 && !candidates.includes(p)) candidates.push(p);
     } catch { /* missing/malformed — try next */ }

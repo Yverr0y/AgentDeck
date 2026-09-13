@@ -95,7 +95,11 @@ describe('AgentDeckObserver event sequencing', () => {
   async function observer() {
     dir = mkdtempSync(join(tmpdir(), 'agentdeck-oc-run-'));
     const file = join(dir, 'agentdeck.mjs');
-    writeFileSync(file, opencodePluginSource(), 'utf-8');
+    // Sequencing tests must not read the maintainer's real daemon/container files.
+    writeFileSync(file, opencodePluginSource().replace(
+      'import { readFile } from "node:fs/promises";',
+      'const readFile = async () => { throw new Error("fixture: no registry"); };',
+    ), 'utf-8');
     const mod = await import(pathToFileURL(file).href);
     return mod.AgentDeckObserver({ directory: '/tmp/proj', client: null });
   }
@@ -107,6 +111,20 @@ describe('AgentDeckObserver event sequencing', () => {
     type: 'message.updated',
     properties: { info: { id: 'm1', sessionID: 's1', role: 'user', text: 'hi' } },
   };
+
+  it('keeps posting when every registry read is stuck awaiting OS access', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'agentdeck-oc-blocked-'));
+    const file = join(dir, 'agentdeck.mjs');
+    writeFileSync(file, opencodePluginSource().replace(
+      'import { readFile } from "node:fs/promises";',
+      'let reads = 0; const readFile = () => { if (++reads > 3) throw new Error("duplicate read"); return new Promise(() => {}); };',
+    ), 'utf8');
+    const mod = await import(pathToFileURL(file).href);
+    const { event } = await mod.AgentDeckObserver({ directory: '/tmp/proj', client: null });
+    await event({ event: userMessage });
+    await new Promise((r) => setTimeout(r, 850));
+    expect(posts.some((p) => p.event === 'opencode_user_prompt_submit')).toBe(true);
+  });
 
   it('posts one user_prompt_submit per user message, including after the turn settles', async () => {
     const { event } = await observer();
