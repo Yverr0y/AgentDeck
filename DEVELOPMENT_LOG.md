@@ -12,6 +12,10 @@ EPD47 now opens on a stable home with work/recent results beside usage. Details 
 
 Validation: 4,482 TypeScript tests passed, one skipped; Apple Protocol/ProviderRail and Android Protocol suites passed. All six native firmware targets built, three host C++ suites passed, and real-renderer previews covered sparse and four-window data. Protocol generation and token checks are clean; clean-source design lint retains its 89 baseline findings. Host previews do not establish physical ghosting or touch-controller quality.
 
+Deployment: rebuilt/restarted the Node daemon, installed macOS and Lenovo, and updated IPS35, 86box, Round, TRMNL, EPD47 and NM. All six report the final pre-commit firmware build `5b945465-dirty`, distinct recorded build epochs, Codex 7d 49% and absent 5h (`-1`). E-ink repaint counters advance. Round completed live Wi-Fi OTA (2,589 chunks); its fresh Wi-Fi record supersedes stale USB cache. USB writes were MD5-verified; TRMNL required its identity-matched download node and post-flash reset, IPS35 required the established ROM-write/watchdog-reset path. Serial suspend was released.
+
+The selected list is Codex, OpenClaw, MLX, Ollama and Antigravity; Claude is explicitly hidden without disabling observation. macOS accessibility and Lenovo screenshot confirm the shared display selection, and a second daemon restart preserves it. Invalid provider updates return HTTP 400 without changing saved selection. Final artifact hashes, readbacks, logs and actual-renderer previews are retained locally under `diagnostics/display-layout/deployed-v2/`. Physical touch interaction and optical ghosting still require observation on the panels.
+
 ## 2026-09-13 — Sparse provider usage and e-ink display layout
 
 The macOS and Android dashboard Claude upstream row was still driven by installed hooks/OAuth metadata after the quota retirement change. Gate that row on a live consumer or displayed quota; configuration metadata remains in Settings. Preserve absent usage windows in Apple hardware previews instead of converting them to zero.
