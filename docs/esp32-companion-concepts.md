@@ -239,55 +239,38 @@ work rather than hidden requirements of the current UI.
 
 Design-system constraints carry over unchanged: status colors are semantic and only amber awaiting animates ([DESIGN.md](../DESIGN.md)); brand marks come from the generated masks, never redrawn; both boards would join the counted-surfaces derivation only at promotion time, which is when their spec-sheet rows change status and the surface matrix — not this document — becomes the source of truth.
 
-## Small-display role review — 2026-09-13 (proposal)
+## Small-display roles — implemented 2026-09-13
 
-TTGO now has an explicit **quota-meter** default. The other two boards already
-ship steering, history, shared focus, and pager attention; adding those again
-would not explain why a user should keep the devices on the desk. The next
-iteration should make the existing useful path immediately legible.
-
-| Device | Recommended primary job | First UI change to evaluate |
+| Device | Primary job | Interaction |
 |---|---|---|
-| TTGO T-Display | Passive quota meter | Implemented: Usage default, GPIO0 mode toggle, GPIO35 rotation |
-| T-Display-S3-Pro without camera | Stable work monitor beside the keyboard | Pinned project + current task + latest result, with a persistent waiting count |
-| T-Embed CC1101 | One-handed answer/approval remote | Waiting-item queue with question and explicit actions occupying the main screen |
+| TTGO T-Display | Passive quota meter | Usage default, GPIO0 toggles terrarium, GPIO35 rotates |
+| T-Display-S3-Pro without camera | Stable work monitor | Tap the project or press the primary button to pin/unpin; tap NEW RESULT to refresh the retained result |
+| T-Embed CC1101 | One-handed answer remote | Waiting queue first; turn between requests, press to open, deliberately turn to select an action |
 
-### Focus Strip: retain context, expose the next decision
+### Focus Strip
 
-The current Focus page already prioritizes awaiting sessions; Sessions already
-shows three rows. The proposed improvement is **stable selection**, rather than
-another page or an additional tiny chart: retain the chosen project by session
-ID, show its current task and last completed result, and put `N waiting` in a
-persistent strip. Tapping that strip opens the ordered waiting list. Incoming
-activity must not replace a result the operator is reading. The existing
-Sessions and Usage pages remain secondary destinations, and Deny/Approve remain
-separate, labelled targets. For an unpinned display, new waiting work can still
-be the default focus.
+A pin follows the session ID across roster reorder. Current activity updates while
+the last result remains readable until tapped. A removed pinned session stays
+visible as ENDED. The persistent waiting count opens an arrival-ordered list;
+three readable rows and a next-page target make every waiting session reachable.
+New requests never steal the Usage or Sessions page. Selecting a session row pins
+it. The camera-equipped model retains its portrait Pocket role.
 
-The camera-equipped unit keeps its portrait Pocket personality and image-input
-role. A camera delivery status with target session and receipt feedback is a
-more useful refinement there than forcing the landscape layout onto it.
+### Companion Knob
 
-### Companion Knob: make the decision the center of the display
+The waiting screen gives project, agent, and the actual question the main display
+area. The encoder cycles requests plus an All sessions destination; that secondary
+list retains the existing carousel, history, and voice access. Detail offers two
+readable option rows. Entering a request or receiving changed choices clears the
+cursor, requiring a deliberate turn before pressing.
 
-Pager auto-focus, ID retention across roster reorder, observed-session Go-on
-suppression, and real option lists are already implemented. The next step is
-presentation and queue navigation: show project, actual question, and `2 / 4
-waiting` prominently, with a compact agent mark rather than a large carousel
-creature. In the waiting list, rotation moves between waiting sessions; press
-opens that request. In detail, rotation highlights an actual choice and press
-submits it. Keep browsing all sessions, history, and voice available through a
-secondary destination; do not overload the existing hold-to-talk/back gestures.
+Both controllers compare the displayed request ID, question, prompt type, state,
+and option indices/labels with the current session immediately before sending.
+They reject stale or disconnected actions and suppress duplicate replies while
+waiting for a state update. A transport send is not proof of approval: an observed
+state update or changed request is reported explicitly; absence/disconnection
+cannot acknowledge the action, and after 15 seconds it is marked unconfirmed.
 
-After a command, show **sent / waiting for state update**, then resolved only
-when the matching request disappears or authoritative state confirms it. A
-transport send is not proof of approval. If the request changes while a choice
-is highlighted, rebuild and require a fresh deliberate selection rather than
-reusing an old option index. Keep another session's new alert in the footer
-while someone is already reading detail.
-
-Evaluate this direction first with concurrent waiting requests, a request that
-resolves elsewhere, roster reorder, reconnect, and Korean questions long enough
-to require a detail view. Do not add radio, NFC, or new voice modes just to fill
-the board's hardware capabilities. These refinements are **not implemented** by
-the TTGO change; they are the recommended scope for the next UI iteration.
+Native interaction checks use the production LVGL renderers, covering queue
+reordering, changed options, offline input, pinned results, ended sessions, and
+pagination. These screens use bounded reusable request snapshots and queue state.

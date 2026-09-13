@@ -112,6 +112,10 @@ int main(int argc, char** argv) {
 #endif
 #endif
 
+#if defined(BOARD_T_EMBED) || defined(BOARD_T_DISPLAY_PRO)
+#include "companion_checks.h"
+#endif
+
 namespace {
 constexpr uint32_t FRAME_MS = 33;                 // ~30fps
 constexpr float    FRAME_DT = FRAME_MS / 1000.0f;
@@ -224,6 +228,9 @@ int main(int argc, char** argv) {
   SimDisplay::init(SCREEN_W, SCREEN_H);
 #endif
   treeCreate();
+#if defined(BOARD_T_EMBED) || defined(BOARD_T_DISPLAY_PRO)
+  if (flag(argc, argv, "--verify-interactions")) return verifyCompanionInteractions(arg(argc, argv, "--outdir", "sim-out")) ? 0 : 1;
+#endif
 
   if (flag(argc, argv, "--all")) {
     const char* outdir = arg(argc, argv, "--outdir", "sim-out");

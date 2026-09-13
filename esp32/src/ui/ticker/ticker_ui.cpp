@@ -1,6 +1,7 @@
 #if defined(BOARD_T_DISPLAY_PRO)
 
 #include "ticker_ui.h"
+#include "../companion/interaction_state.h"
 #include "../../state/agent_state.h"
 #include "../../net/wifi_manager.h"
 #include "../../net/ws_client.h"
@@ -39,6 +40,16 @@ static constexpr int BODY_Y = HEADER_Y + HEADER_H;
 static constexpr int BODY_H = 222 - BODY_Y - KEY_RAIL_H;
 
 static uint8_t s_page = 0;
+static char s_pinId[32]{};
+static char s_pinnedResult[100]{}, s_pinnedResultHm[6]{};
+static bool s_capturePin = false, s_newResult = false;
+static bool s_waitingFilter = false;
+static uint8_t s_sessionOffset = 0, s_sessionTotal = 0;
+static Companion::WaitingQueue<10> s_waiting;
+static Companion::Request<SESSION_OPTIONS_CAP> s_visibleRequest, s_frameRequest;
+static Companion::PendingReply<SESSION_OPTIONS_CAP> s_pendingReply;
+static lv_obj_t *s_pinLabel, *s_waitingLabel;
+static char s_waitingText[24]{};
 
 static lv_obj_t* s_scr = nullptr;
 static lv_obj_t* s_tabs[4] = {nullptr, nullptr, nullptr, nullptr};
@@ -122,6 +133,11 @@ static bool sameSessionId(const char* a, const char* b) {
 // Awaiting owns the strip. Otherwise follow the session explicitly focused by
 // the Companion Knob/another surface, then fall back to live work and the first.
 static int pickFocusSession() {
+    if (s_pinId[0]) {
+        for (uint8_t i = 0; i < g_state.sessionCount; ++i)
+            if (!strcmp(s_pinId, g_state.sessions[i].id)) return i;
+        return -1; // Keep the ended pinned project; never silently pick another.
+    }
     int firstAwaiting = -1;
     int explicitFocus = -1;
     int firstProcessing = -1;
@@ -146,6 +162,10 @@ static int pickFocusSession() {
 struct FocusSnap {
     bool have;
     bool awaiting;
+    bool ended;
+    bool canAnswer;
+    char result[100];
+    char resultHm[6];
     char id[32];
     char agentType[16];
     char projectName[40];
@@ -154,6 +174,7 @@ struct FocusSnap {
     char caption[160];
 };
 
+static FocusSnap s_visibleFocus{}, s_pinnedFocus{};
 
 static lv_obj_t* makeLabel(lv_obj_t* parent, const lv_font_t* font,
                            uint32_t color, const char* text) {
@@ -196,13 +217,15 @@ static void updateKeyHints(uint32_t now) {
     // so the CAM page slots in only when the camera is present.
     static const char* const shortNames[4] = {"FOCUS", "USAGE", "SESS", "CAM"};
     static uint8_t lastPage = 0xFF;
-    if (lastPage != s_page) {
+    static bool lastPin = false;
+    if (lastPage != s_page || lastPin != bool(s_pinId[0])) {
+        lastPin = bool(s_pinId[0]);
         lastPage = s_page;
         uint8_t n = pageCount();
         lv_label_set_text_static(s_hintPrev, shortNames[(s_page + n - 1) % n]);
         lv_label_set_text_static(s_hintNext, shortNames[(s_page + 1) % n]);
         // The lower-right capsule doubles as the shutter on the CAM page.
-        lv_label_set_text_static(s_hintPrimary, s_page == PAGE_CAM ? "SNAP" : "FOCUS");
+        lv_label_set_text_static(s_hintPrimary, s_page == PAGE_CAM ? "SNAP" : s_page == 0 ? (s_pinId[0] ? "UNPIN" : "PIN") : "FOCUS");
     }
 
     static bool lastActive[3] = {false, false, false};
@@ -375,7 +398,7 @@ static void renderFocusPage(const FocusSnap& f, bool connected) {
     lv_label_set_long_mode(proj, LV_LABEL_LONG_DOT);
     lv_obj_align(proj, LV_ALIGN_TOP_LEFT, 132, 11);
 
-    const char* status = f.awaiting ? "NEEDS INPUT"
+    const char* status = f.ended ? "ENDED" : f.awaiting ? "NEEDS INPUT"
                        : strcmp(f.state, "processing") == 0 ? "WORKING"
                        : strcmp(f.state, "idle") == 0 ? "READY" : f.state;
     lv_obj_t* st = makeLabel(s_body, &lv_font_montserrat_14,
@@ -389,11 +412,14 @@ static void renderFocusPage(const FocusSnap& f, bool connected) {
     lv_obj_set_width(cap, 452);
     lv_label_set_long_mode(cap, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_line_space(cap, 6, 0);
-    lv_obj_set_height(cap, f.awaiting ? 62 : 92);
+    lv_obj_set_height(cap, f.awaiting ? 62 : 42);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 16, 51);
 
     bool flashOn = s_flashText[0] != '\0';
-    if (f.awaiting && !flashOn) {
+    if (s_pendingReply.active) {
+        auto* receipt = makeLabel(s_body, &font_kr_16, Theme::HUDText, "Sent - waiting for state update");
+        lv_obj_align(receipt, LV_ALIGN_BOTTOM_LEFT, 8, -6);
+    } else if (f.awaiting && f.canAnswer && !flashOn) {
         auto actionChip = [&](int x, int w, const char* label, uint32_t color) {
             lv_obj_t* chip = lv_obj_create(s_body);
             lv_obj_remove_style_all(chip);
@@ -410,11 +436,26 @@ static void renderFocusPage(const FocusSnap& f, bool connected) {
         lv_obj_t* hint = makeLabel(s_body, &lv_font_montserrat_12,
                                    Theme::HUDFaint, "tap a labelled action");
         lv_obj_align(hint, LV_ALIGN_BOTTOM_LEFT, 16, -11);
+    } else if (f.awaiting && !flashOn) {
+        auto* hint = makeLabel(s_body, &font_kr_12, Theme::HUDDim, "Choose an option on your controller");
+        lv_obj_align(hint, LV_ALIGN_BOTTOM_LEFT, 16, -10);
     } else if (flashOn) {
         lv_obj_t* h = makeLabel(s_body, &lv_font_montserrat_14,
-                                Theme::StatusGreen, s_flashText);
+                                Theme::HUDText, s_flashText);
         lv_obj_align(h, LV_ALIGN_BOTTOM_LEFT, 16, -10);
     }
+    if (!f.awaiting && !flashOn) {
+        char title[64];
+        snprintf(title, sizeof(title), "%s%s%s", s_newResult ? "NEW RESULT - TAP" : "LAST RESULT",
+                 f.resultHm[0] ? " / " : "", f.resultHm);
+        auto* label = makeLabel(s_body, &font_kr_12, s_newResult ? Theme::StatusCyan : Theme::HUDDim, title);
+        lv_obj_set_pos(label, 16, 98);
+        auto* result = makeLabel(s_body, &font_kr_16, Theme::HUDText,
+                                 f.result[0] ? f.result : "No result yet");
+        lv_obj_set_pos(result, 16, 116); lv_obj_set_size(result, 452, 40);
+        lv_label_set_long_mode(result, LV_LABEL_LONG_DOT);
+    }
+
 }
 
 static void renderSessionsPage() {
@@ -426,7 +467,6 @@ static void renderSessionsPage() {
         bool focused;
     } rows[3];
     uint8_t n = 0;
-    uint8_t hiddenInput = 0, hiddenWork = 0, hiddenIdle = 0, hiddenReady = 0;
     s_sessionRowCount = 0;
     memset(s_sessionRowIds, 0, sizeof(s_sessionRowIds));
     lockState();
@@ -436,17 +476,21 @@ static void renderSessionsPage() {
         for (uint8_t j = 0; j < orderCount; j++) if (order[j] == idx) return;
         if (orderCount < 10) order[orderCount++] = idx;
     };
-    // Preserve the same glance priority as Focus: waits, explicit focus, work,
-    // then the remaining roster. Three readable rows beat five tiny ones.
-    for (uint8_t i = 0; i < g_state.sessionCount; i++)
-        if (strstr(g_state.sessions[i].state, "awaiting") != nullptr) addIndex(i);
-    for (uint8_t i = 0; i < g_state.sessionCount; i++)
-        if (sameSessionId(g_state.sessions[i].id, g_state.focusedSessionId)) addIndex(i);
-    for (uint8_t i = 0; i < g_state.sessionCount; i++)
-        if (strcmp(g_state.sessions[i].state, "processing") == 0) addIndex(i);
-    for (uint8_t i = 0; i < g_state.sessionCount; i++) addIndex(i);
+    // Waiting requests retain arrival order across daemon roster reordering.
+    for (uint8_t q = 0; q < s_waiting.count; ++q)
+        for (uint8_t i = 0; i < g_state.sessionCount; ++i)
+            if (sameSessionId(g_state.sessions[i].id, s_waiting.ids[q])) addIndex(i);
+    if (!s_waitingFilter) {
+        for (uint8_t i = 0; i < g_state.sessionCount; i++)
+            if (sameSessionId(g_state.sessions[i].id, s_pinId[0] ? s_pinId : g_state.focusedSessionId)) addIndex(i);
+        for (uint8_t i = 0; i < g_state.sessionCount; i++)
+            if (strcmp(g_state.sessions[i].state, "processing") == 0) addIndex(i);
+        for (uint8_t i = 0; i < g_state.sessionCount; i++) addIndex(i);
+    }
+    s_sessionTotal = orderCount;
+    if (s_sessionOffset >= orderCount) s_sessionOffset = 0;
 
-    for (uint8_t oi = 0; oi < orderCount && n < 3; oi++) {
+    for (uint8_t oi = s_sessionOffset; oi < orderCount && n < 3; oi++) {
         const SessionInfo& s = g_state.sessions[order[oi]];
         strncpy(rows[n].agentType, s.agentType, sizeof(rows[n].agentType));
         strncpy(rows[n].projectName, s.projectName, sizeof(rows[n].projectName));
@@ -454,42 +498,23 @@ static void renderSessionsPage() {
         // Glance rule: milestone line, live tool belongs to state surfaces.
         strncpy(rows[n].line, s.lastEventText[0] ? s.lastEventText : s.activity,
                 sizeof(rows[n].line));
-        rows[n].focused = sameSessionId(s.id, g_state.focusedSessionId);
+        rows[n].focused = sameSessionId(s.id, s_pinId[0] ? s_pinId : g_state.focusedSessionId);
         strncpy(s_sessionRowIds[n], s.id, sizeof(s_sessionRowIds[n]) - 1);
         n++;
-    }
-    for (uint8_t oi = n; oi < orderCount; oi++) {
-        const char* state = g_state.sessions[order[oi]].state;
-        if (strstr(state, "awaiting") != nullptr) hiddenInput++;
-        else if (strcmp(state, "processing") == 0) hiddenWork++;
-        else if (strcmp(state, "idle") == 0) hiddenIdle++;
-        else hiddenReady++;
     }
     s_sessionRowCount = n;
     unlockState();
 
-    char hidden[64] = "";
-    auto appendHidden = [&](uint8_t count, const char* label) {
-        if (!count) return;
-        size_t used = strlen(hidden);
-        snprintf(hidden + used, sizeof(hidden) - used, "%s%d %s",
-                 used ? " / " : "hidden: ", count, label);
-    };
-    appendHidden(hiddenInput, "input");
-    appendHidden(hiddenWork, "working");
-    appendHidden(hiddenIdle, "idle");
-    appendHidden(hiddenReady, "ready");
-
     if (n == 0) {
         ConnectionCard::render(
-            s_body, 480, BODY_H, "NO ACTIVE SESSIONS", "AgentDeck connected", true);
+            s_body, 480, BODY_H, s_waitingFilter ? "NO WAITING REQUESTS" : "NO ACTIVE SESSIONS", "AgentDeck connected", true);
         return;
     }
 
     for (uint8_t i = 0; i < n; i++) {
         Utf8::sanitizeLvglText(rows[i].projectName);
         Utf8::sanitizeLvglText(rows[i].line);
-        const int pitch = BODY_H / 3;
+        const int pitch = (BODY_H - 18) / 3;
         int y = 1 + i * pitch;
 
         if (rows[i].focused || strstr(rows[i].state, "awaiting") != nullptr) {
@@ -524,7 +549,7 @@ static void renderSessionsPage() {
 
         // The third row yields space to the category-specific roster summary.
         lv_obj_t* line = makeLabel(s_body, &font_kr_16, Theme::HUDDim, rows[i].line);
-        lv_obj_set_width(line, (hidden[0] && i == n - 1) ? 330 : 430);
+        lv_obj_set_width(line, 430);
         lv_label_set_long_mode(line, LV_LABEL_LONG_DOT);
         lv_obj_align(line, LV_ALIGN_TOP_LEFT, 30, y + 24);
 
@@ -537,12 +562,14 @@ static void renderSessionsPage() {
         lv_obj_align(st, LV_ALIGN_TOP_RIGHT, -12, y);
     }
 
-    // Three readable rows beat five tiny ones, but the disclosure says exactly
-    // what was collapsed instead of the ambiguous "+N more" pattern.
-    if (hidden[0]) {
-        lv_obj_t* m = makeLabel(s_body, &lv_font_montserrat_12, Theme::HUDFaint, hidden);
-        lv_obj_align(m, LV_ALIGN_BOTTOM_RIGHT, -12, -3);
+    if (s_sessionTotal > 3) {
+        char page[64];
+        snprintf(page, sizeof(page), "%u-%u / %u   TAP FOR NEXT", s_sessionOffset + 1,
+                 s_sessionOffset + n, s_sessionTotal);
+        auto* pager = makeLabel(s_body, &font_kr_12, Theme::StatusCyan, page);
+        lv_obj_align(pager, LV_ALIGN_BOTTOM_LEFT, 16, -1);
     }
+
 }
 
 // CAM page: live viewfinder on the left, explicit action chips on the right.
@@ -609,7 +636,7 @@ static void renderCameraPage() {
 
     bool flashOn = s_flashText[0] != '\0';
     lv_obj_t* hint = makeLabel(s_body, &lv_font_montserrat_12,
-                               flashOn ? Theme::StatusGreen : Theme::HUDFaint,
+                               flashOn ? Theme::HUDText : Theme::HUDFaint,
                                flashOn ? s_flashText
                                        : "BOOT or SNAP sends to the agent");
     lv_obj_align(hint, LV_ALIGN_TOP_LEFT, 262, 96);
@@ -627,6 +654,10 @@ void create() {
     lv_obj_set_size(topRail, 480, KEY_RAIL_H);
     lv_obj_set_style_bg_opa(topRail, LV_OPA_TRANSP, 0);
     lv_obj_align(topRail, LV_ALIGN_TOP_LEFT, 0, 0);
+    s_pinLabel = makeLabel(topRail, &font_kr_12, Theme::HUDDim, "PIN");
+    lv_obj_set_pos(s_pinLabel, 8, 1);
+    s_waitingLabel = makeLabel(topRail, &font_kr_12, Theme::HUDDim, "0 WAITING >");
+    lv_obj_set_pos(s_waitingLabel, 104, 1);
     // Upper pair, left → right: previous page, next page.
     s_hintPrev = makeKeyHint(topRail, "SESS", KEY_HINT_X, Theme::HUDDim);
     s_hintNext = makeKeyHint(topRail, "USAGE",
@@ -646,6 +677,10 @@ void create() {
     for (int i = 0; i < tabCount; i++) {
         s_tabs[i] = makeLabel(header, &lv_font_montserrat_14, Theme::HUDDim, tabNames[i]);
         lv_obj_set_pos(s_tabs[i], tabX[i], 7);
+    }
+    if (!Camera::present()) {
+        lv_obj_set_parent(s_waitingLabel, header);
+        lv_obj_set_pos(s_waitingLabel, 250, 7);
     }
     s_hdrBattery = makeLabel(header, &lv_font_montserrat_14, Theme::HUDDim, "");
     lv_obj_align(s_hdrBattery, LV_ALIGN_RIGHT_MID, -32, 0);
@@ -732,15 +767,14 @@ void primaryAction() {
         flash("focus");
         return;
     }
-    lockState();
-    int idx = pickFocusSession();
-    char sid[32] = {0};
-    if (idx >= 0) strncpy(sid, g_state.sessions[idx].id, sizeof(sid) - 1);
-    unlockState();
-    if (sid[0]) {
-        sendFocusSession(sid);
-        flash("focused");
+    if (s_pinId[0]) {
+        s_pinId[0] = 0; s_newResult = false;
+    } else if (s_visibleFocus.have && !s_visibleFocus.ended) {
+        Companion::copy(s_pinId, s_visibleFocus.id); s_capturePin = true;
+        sendFocusSession(s_pinId);
     }
+    s_lastSig[0] = 0;
+
 }
 
 void buttonFeedback(uint8_t button) {
@@ -760,11 +794,20 @@ void onTouch(const Input::TouchEvent& event) {
     }
     if (event.gesture != Input::TouchGesture::TAP) return;
 
+    if (event.y < KEY_RAIL_H && event.x < 240) {
+        if (event.x < 90) { if (s_page == 0) primaryAction(); else s_page = 0; }
+        else { s_waitingFilter = true; s_sessionOffset = 0; s_page = 2; }
+        s_lastSig[0] = 0;
+        return;
+    }
     // Header tabs are direct, generously spaced targets.
     if (event.y < BODY_Y) {
+        if (event.x >= 240 && event.x < 350 && !Camera::present()) {
+            s_page = 2; s_waitingFilter = true; s_sessionOffset = 0; s_lastSig[0] = 0; return;
+        }
         if (event.x < 74) s_page = 0;
         else if (event.x < 148) s_page = 1;
-        else if (event.x < 240) s_page = 2;
+        else if (event.x < 240) { s_page = 2; s_waitingFilter = false; s_sessionOffset = 0; }
         else if (event.x < 300 && Camera::present()) s_page = PAGE_CAM;
         return;
     }
@@ -799,43 +842,47 @@ void onTouch(const Input::TouchEvent& event) {
     }
 
     if (s_page == 2) {
-        int row = (event.y - BODY_Y) / (BODY_H / 3);
+        if (event.y >= BODY_Y + BODY_H - 18) {
+            if (s_sessionTotal > 3) s_sessionOffset = (s_sessionOffset + 3) % s_sessionTotal;
+            s_lastSig[0] = 0; return;
+        }
+        int row = (event.y - BODY_Y) / ((BODY_H - 18) / 3);
         if (row >= 0 && row < s_sessionRowCount && s_sessionRowIds[row][0]) {
-            sendFocusSession(s_sessionRowIds[row]);
+            Companion::copy(s_pinId, s_sessionRowIds[row]); s_capturePin = true;
+            sendFocusSession(s_pinId);
             s_page = 0;
-            flash("focused from sessions");
         }
         return;
     }
     if (s_page != 0) return;
+    if (event.y >= BODY_Y && event.y < BODY_Y + 42 && event.x < 368) { primaryAction(); return; }
 
     // Approval is only sent from the visible, explicit bottom action chips.
     // A stray tap or long press elsewhere can never answer a permission gate.
-    FocusSnap f = {};
-    lockState();
-    int idx = pickFocusSession();
-    if (idx >= 0) {
-        const SessionInfo& sess = g_state.sessions[idx];
-        f.have = true;
-        f.awaiting = strstr(sess.state, "awaiting") != nullptr;
-        strncpy(f.id, sess.id, sizeof(f.id));
-        strncpy(f.requestId, sess.requestId, sizeof(f.requestId));
+    if (s_pinId[0] && !s_visibleFocus.awaiting && event.y >= BODY_Y + 98) {
+        s_capturePin = true; s_lastSig[0] = 0; return;
     }
+    bool same = false, connected = false;
+    lockState();
+    connected = g_state.wsConnected;
+    for (uint8_t i = 0; i < g_state.sessionCount; ++i)
+        if (!strcmp(g_state.sessions[i].id, s_visibleFocus.id)) same = s_visibleRequest.matches(g_state.sessions[i]);
     unlockState();
-    if (!f.have) return;
-    if (f.awaiting && event.y >= BODY_Y + BODY_H - 44 && event.x >= 372) {
+    if (!connected || !same || !s_visibleFocus.canAnswer || s_visibleFocus.ended || s_flashText[0] || s_pendingReply.active) return;
+    const auto& f = s_visibleFocus;
+    if (f.awaiting && event.y >= BODY_Y + BODY_H - 44 && event.y < BODY_Y + BODY_H && event.x >= 372 && event.x < 468) {
         if (f.requestId[0]) sendPermissionDecision(f.requestId, true);
         else sendSelectOption(f.id, 0);
-        flash("sent: approve");
-    } else if (f.awaiting && event.y >= BODY_Y + BODY_H - 44 &&
+        s_pendingReply.begin(s_visibleRequest, millis());
+        flash("sent - waiting for update");
+    } else if (f.awaiting && event.y >= BODY_Y + BODY_H - 44 && event.y < BODY_Y + BODY_H &&
                event.x >= 272 && event.x < 364) {
         if (f.requestId[0]) sendPermissionDecision(f.requestId, false);
         else sendSessionEscape(f.id);
-        flash("sent: deny");
-    } else {
-        sendFocusSession(f.id);
-        flash("focused");
+        s_pendingReply.begin(s_visibleRequest, millis());
+        flash("sent - waiting for update");
     }
+
 }
 
 void update(float dt) {
@@ -867,18 +914,27 @@ void update(float dt) {
     bool flashOn = s_flashText[0] && (int32_t)(s_flashUntilMs - now) > 0;
     if (!flashOn) s_flashText[0] = '\0';
 
-    // A response-wait owns the strip: snap to the Focus page and hold there.
-    bool anyAwaitingNow = false;
     lockState();
-    for (uint8_t i = 0; i < g_state.sessionCount; i++) {
-        if (strstr(g_state.sessions[i].state, "awaiting") != nullptr) { anyAwaitingNow = true; break; }
-    }
+    if (g_state.wsConnected) s_waiting.refresh(g_state.sessions, g_state.sessionCount);
+    const SessionInfo* pending = nullptr;
+    for (uint8_t i = 0; i < g_state.sessionCount; ++i)
+        if (!strcmp(g_state.sessions[i].id, s_pendingReply.request.id)) pending = &g_state.sessions[i];
+    auto receipt = s_pendingReply.observe(pending, g_state.wsConnected, now);
     unlockState();
-    // The CAM page is exempt: yanking the strip away mid-framing loses the
-    // shot, and the user composing a photo is at the desk anyway.
-    if (anyAwaitingNow && s_page != 0 && s_page != PAGE_CAM) {
-        s_page = 0;
+    if (receipt == Companion::Receipt::StateUpdated) flash("state updated");
+    else if (receipt == Companion::Receipt::RequestChanged) flash("request changed - review again");
+    else if (receipt == Companion::Receipt::Unconfirmed) flash("not confirmed - check host");
+    char waitingText[24];
+    snprintf(waitingText, sizeof(waitingText), "%u WAIT >", s_waiting.count);
+    if (strcmp(waitingText, s_waitingText)) {
+        Companion::copy(s_waitingText, waitingText);
+        lv_label_set_text_static(s_waitingLabel, s_waitingText);
     }
+    lv_obj_set_style_text_color(s_waitingLabel, lv_color_hex(s_waiting.count ? Theme::StatusAmber : Theme::HUDDim), 0);
+    lv_label_set_text_static(s_pinLabel, s_pinId[0] ? "PINNED" : "PIN");
+    lv_obj_set_style_text_color(s_pinLabel, lv_color_hex(s_pinId[0] ? Theme::StatusCyan : Theme::HUDDim), 0);
+    // Navigation is owned by the user. New waits update the rail without
+    // taking away Usage, a Sessions list, or a result someone is reading.
 
     bool wifiUp = Net::wifiConnected();
     bool wsUp = Net::wsConnected();
@@ -886,7 +942,8 @@ void update(float dt) {
     Input::PowerStatus power = Input::powerStatus();
 
     // Focus snapshot (page 0 content)
-    FocusSnap focus = {};
+    static FocusSnap focus;
+    focus = {}; // Reused on the UI task; keep the bounded snapshot off its stack.
     {
         lockState();
         int idx = pickFocusSession();
@@ -894,6 +951,10 @@ void update(float dt) {
             const SessionInfo& sess = g_state.sessions[idx];
             focus.have = true;
             focus.awaiting = strstr(sess.state, "awaiting") != nullptr;
+            focus.canAnswer = focus.awaiting && (sess.optionCount == 0 || !strcmp(sess.promptType, "yes_no"));
+            s_frameRequest.capture(sess);
+            Companion::copy(focus.result, sess.lastEventText);
+            Companion::copy(focus.resultHm, sess.lastEventHm);
             strncpy(focus.id, sess.id, sizeof(focus.id));
             strncpy(focus.agentType, sess.agentType, sizeof(focus.agentType));
             strncpy(focus.projectName, sess.projectName, sizeof(focus.projectName));
@@ -912,7 +973,24 @@ void update(float dt) {
                 strncpy(focus.caption, "Ready for the next task", sizeof(focus.caption));
             focus.caption[sizeof(focus.caption) - 1] = '\0';
         }
+        if (s_pinId[0]) {
+            if (idx >= 0) {
+                if (s_capturePin) {
+                    Companion::copy(s_pinnedResult, focus.result);
+                    Companion::copy(s_pinnedResultHm, focus.resultHm);
+                    s_capturePin = false;
+                }
+                s_newResult = strcmp(s_pinnedResult, focus.result) || strcmp(s_pinnedResultHm, focus.resultHm);
+                Companion::copy(focus.result, s_pinnedResult);
+                Companion::copy(focus.resultHm, s_pinnedResultHm);
+                s_pinnedFocus = focus;
+            } else if (!strcmp(s_pinnedFocus.id, s_pinId)) {
+                focus = s_pinnedFocus; focus.ended = true; focus.awaiting = false; focus.canAnswer = false;
+                Companion::copy(focus.state, "ended"); Companion::copy(focus.caption, "Session no longer active");
+            }
+        } else s_newResult = false;
         unlockState();
+        Utf8::sanitizeLvglText(focus.result);
         Utf8::sanitizeLvglText(focus.projectName);
         Utf8::sanitizeLvglText(focus.caption);
     }
@@ -950,6 +1028,24 @@ void update(float dt) {
                  s_flashText,
                  focus.state, focus.projectName, focus.caption,
                  focused, sess);
+    }
+    {
+        uint32_t full = Companion::textHash(sig);
+        full = Companion::textHash(focus.caption, full);
+        full = Companion::textHash(focus.result, full);
+        full = Companion::textHash(focus.resultHm, full);
+        lockState();
+        for (uint8_t i = 0; i < g_state.sessionCount; ++i) {
+            const auto& row = g_state.sessions[i];
+            full = Companion::textHash(row.id, full);
+            full = Companion::textHash(row.state, full);
+            full = Companion::textHash(row.lastEventText, full);
+            full = Companion::textHash(row.requestId, full);
+            full = Companion::textHash(row.question, full);
+        }
+        unlockState();
+        snprintf(sig, sizeof(sig), "%lu|%s|%d%d%d%d|%u|%u", (unsigned long)full, s_pinId,
+                 s_newResult, s_waitingFilter, focus.ended, s_pendingReply.active, s_sessionOffset, s_waiting.count);
     }
     // Viewfinder frames stream outside the signature: the canvas buffer is
     // updated in place and invalidated, no widget churn.
@@ -1002,7 +1098,11 @@ void update(float dt) {
             ConnectionCard::render(
                 s_body, 480, BODY_H, "OFFLINE",
                 wifiUp ? "Searching for AgentDeck..." : "No WiFi · connect USB");
-        } else if (s_page == 0) renderFocusPage(focus, true);
+        } else if (s_page == 0) {
+            s_visibleFocus = focus;
+            s_visibleRequest = s_frameRequest;
+            renderFocusPage(focus, true);
+        }
         else if (s_page == 1) renderUsagePage();
         else if (s_page == PAGE_CAM) renderCameraPage();
         else renderSessionsPage();
@@ -1020,6 +1120,11 @@ void onPhotoResult(bool delivered, const char* detail) {
     flash(note);
 }
 
+#if defined(SIM_HOST)
+const char* displayedSessionId() { return s_visibleFocus.id; }
+bool isPinned() { return s_pinId[0]; }
+unsigned currentPage() { return s_page; }
+#endif
 }  // namespace Ticker
 
 #endif  // BOARD_T_DISPLAY_PRO
