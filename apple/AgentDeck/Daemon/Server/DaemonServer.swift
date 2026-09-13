@@ -1050,6 +1050,7 @@ final class DaemonServer {
     private var kiroApmeResponseBySession: [String: String] = [:]
     private let logStream = BridgeLogStream()
     private let usageAPI = UsageAPIClient.shared
+    private let codexAccountUsage = CodexAccountUsageClient()
     private var serialModule: SerialModule?
     private var pixooModule: PixooModule?
     private var pixooSettingsObserver: NSObjectProtocol?
@@ -3142,6 +3143,20 @@ final class DaemonServer {
             return await self.providerDisplayResponse(Self.jsonBody(request.body))
         }
 
+        // Normal authenticated HTTP gate applies; returns only request status.
+        // Fresh firmware values and their capture time are exposed in /health.
+        await httpServer.get("/esp32/serial/telemetry") { [weak self] request in
+            guard let self, let board = request.queryParams["board"], !board.isEmpty else {
+                return .json(["error": "board required"], status: 400)
+            }
+            // Serial writes may be busy with another board; the HTTP request
+            // must not inherit that device's I/O wait. Read capture time to
+            // verify completion instead of treating enqueue as a board reply.
+            let serial = await self.serialModule?.serial
+            serial?.requestDeviceTelemetry(board: board)
+            return .json(["queued": true], status: 202)
+        }
+
         await httpServer.get("/status") { [weak self] _ in
             let payload = await self?.buildStatusPayload().value
                 ?? ["status": "error", "error": "daemon unavailable"]
@@ -4846,6 +4861,7 @@ final class DaemonServer {
             return
         case "query_usage":
             Task {
+                await codexAccountUsage.refresh(credential: usageAPI.codexUsageCredential(), force: true)
                 await fetchUsageRelayed()
                 await DaemonActor.run { self.broadcastUsage() }
             }
@@ -8639,7 +8655,8 @@ final class DaemonServer {
         usageTickTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                guard let self, await self.wsServer.hasClients() else { continue }
+                // USB displays also consume this snapshot when no WS client exists.
+                guard let self else { return }
                 // TTL: keep last good cache, but mark it stale after 10 minutes.
                 // Retain diagnostic data; stale quota is omitted from display frames.
                 if self.cachedApiUsage != nil,
@@ -8650,6 +8667,7 @@ final class DaemonServer {
                         self.apiUsageStale = true
                     }
                 }
+                await self.codexAccountUsage.refresh(credential: self.usageAPI.codexUsageCredential())
                 self.broadcastUsage()
             }
         }
@@ -9752,7 +9770,9 @@ final class DaemonServer {
         // against another.
         let codexAccountPlan = codexAuth?.planType
         if let payload = Self.codexRateLimitsPayload(
-            usageAPI.codexRateLimits(accountPlan: codexAccountPlan), accountPlan: codexAccountPlan
+            codexAccountUsage.snapshot(
+                passive: usageAPI.codexRateLimits(accountPlan: codexAccountPlan),
+                credential: usageAPI.codexUsageCredential()), accountPlan: codexAccountPlan
         ) {
             e["codexRateLimits"] = payload
         }

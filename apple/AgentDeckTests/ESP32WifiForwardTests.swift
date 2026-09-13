@@ -13,6 +13,37 @@ import XCTest
 /// unshrunk / non-display events at ESP32 boards again, these fail.
 /// See memory `esp32-wifi-flap-broadcast-amplification`.
 final class ESP32WifiForwardTests: XCTestCase {
+    func testHeartbeatDeliversCodexResetWithoutClaudeQuota() throws {
+        let board = ESP32Serial.wifiDeviceInfo(["board": "ttgo_t_display"])
+        for percent in [86, 100, 0] {
+            let usage: [String: Any] = [
+                "type": "usage_update", "usageStale": true,
+                "codexRateLimits": ["secondary": [
+                    "usedPercent": percent, "windowMinutes": 10080
+                ]]
+            ]
+            let events = ESP32Serial.heartbeatEvents(
+                state: nil, usage: usage, sessions: nil, display: nil)
+            let delivered = ESP32Serial.prepareForSerial(try XCTUnwrap(events.first), deviceInfo: board)
+            let limits = try XCTUnwrap(delivered["codexRateLimits"] as? [String: Any])
+            let weekly = try XCTUnwrap(limits["secondary"] as? [String: Any])
+            XCTAssertEqual(weekly["usedPercent"] as? Int, percent)
+            XCTAssertNil(delivered["fiveHourPercent"])
+        }
+    }
+
+    func testHeartbeatDeliversRetirementAndPreservesOtherSnapshots() {
+        let events = ESP32Serial.heartbeatEvents(
+            state: ["type": "state_update"],
+            usage: ["type": "usage_update", "usageStale": true, "subscriptions": []],
+            sessions: ["type": "sessions_list", "sessions": []],
+            display: ["type": "display_state"])
+        XCTAssertEqual(events.compactMap { $0["type"] as? String },
+                       ["state_update", "usage_update", "sessions_list", "display_state"])
+        XCTAssertTrue(ESP32Serial.heartbeatEvents(
+            state: nil, usage: nil, sessions: nil, display: nil).isEmpty)
+    }
+
     func testCollaborationCensusOnlyEnhancesIPS10AndKeepsZero() throws {
         let event: [String: Any] = ["type": "sessions_list", "sessions": [[
             "id": "parent", "alive": true, "state": "idle",
