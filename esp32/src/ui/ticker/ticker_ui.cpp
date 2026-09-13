@@ -1042,6 +1042,13 @@ void update(float dt) {
             full = Companion::textHash(row.lastEventText, full);
             full = Companion::textHash(row.requestId, full);
             full = Companion::textHash(row.question, full);
+            full = Companion::textHash(row.promptType, full);
+            for (uint8_t j = 0; j < row.optionCount && j < SESSION_OPTIONS_CAP; ++j) {
+                full = Companion::textHash(row.options[j].label, full);
+                full = (full ^ row.options[j].index) * 16777619u;
+                full = (full ^ row.options[j].recommended) * 16777619u;
+            }
+            full = (full ^ row.optionCount) * 16777619u;
         }
         unlockState();
         snprintf(sig, sizeof(sig), "%lu|%s|%d%d%d%d|%u|%u", (unsigned long)full, s_pinId,

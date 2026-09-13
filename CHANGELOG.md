@@ -45,6 +45,48 @@ file's own rule forbids reconstructing its notes. The commit above is the
 record. `npm 1.0.16` (`37c674b8`) is a different case and needs nothing — it was
 bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
+## 2026-09-13 — ESP32 1.3.0, Apple 1.3.1, Android 1.3.1, npm 1.3.3
+
+### Small displays have distinct everyday roles
+
+- **TTGO T-Display:** starts as a usage meter. The left button (GPIO0) toggles
+  Usage and Terrarium; GPIO35 rotates the current mode. Missing quota windows
+  stay absent instead of appearing as empty gauges.
+- **T-Embed CC1101:** opens an arrival-ordered waiting queue with the actual
+  project and question. Turn to choose a request, press to open, then deliberately
+  select an action. All sessions, history, and voice remain available.
+- **T-Display-S3-Pro, landscape:** pin a project by ID, retain its last result
+  until tapped, and browse every waiting request through a persistent count and
+  paginated list. New activity does not steal the current page or result.
+  The camera model keeps its portrait Pocket interface.
+- Both interactive boards reject stale or disconnected replies and distinguish
+  a sent command from an observed state update. Changed requests clear the
+  selection; unconfirmed sends time out visibly.
+
+### Provider usage follows the available data
+
+Node and Swift retire stale Claude quota/subscription displays when no current
+provider data supports them. Apple, Android, and ESP32 layouts adapt to the
+available providers and windows. Compact subscription plan/date details live in
+provider rows; upstream provider choices persist rather than changing underneath
+an active dashboard.
+
+### E-ink and diagnostics
+
+ESP32 e-ink layouts retain session rows when recent work expands. ESP32 device
+readback includes the Codex window percentages actually held by the board, making
+missing-window diagnosis possible across serial and WiFi. Preview fixtures
+preserve absent usage windows too.
+
+### Apple approval queue recovery
+
+The Swift daemon now preserves a surviving exec/plugin approval after another
+approval resolves or expires, so a still-blocked request remains actionable.
+The Node equivalent already shipped in npm 1.3.2.
+
+Stream Deck and Ulanzi remain at 1.3.0: their only shared-source delta is optional
+ESP32 diagnostic type metadata, with no plugin runtime behavior change.
+
 ## 2026-09-13 — npm 1.3.2
 
 Three fixes from an adversarial review of the 1.3.0 delta, merged minutes after
