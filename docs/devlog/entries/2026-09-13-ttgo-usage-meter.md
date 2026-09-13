@@ -28,3 +28,15 @@ littlefs extension. Running the existing interpreter with `arch -arm64` fixed
 the build without changing shared dependencies. Native C6 simulation has no
 registered environment; the shared aquarium guard is checked by its actual
 firmware build instead.
+
+Deployment: the connected TTGO completed live WiFi OTA (2,740,528 bytes, 2,677
+chunks). Fresh serial readback reports build `6e0158db`, epoch `1789291118`,
+uptime 63 seconds, six sessions, Codex 7d 62%, absent 5h and absent Claude.
+Free heap is 112 KB, minimum 71 KB, largest block 33 KB. USB serial is the
+active data path and WiFi is parked. The daemon and other devices were not
+restarted or reflashed. Image SHA-256:
+`e0823be47fe90e0202736d794e6f9f7ee84b9f02be0b349bca4a2fd8ac15b4ab`.
+Public firmware version remains 1.2.3; this is a local feature build, not a
+published release. Physical button presses and panel optics remain unverified.
+The simulator's cold empty scene now initializes absent quota to -1, matching
+firmware instead of inventing four 0% windows after a zeroed fixture.

@@ -170,7 +170,9 @@ bool SimScenes::apply(const char* name) {
   }
   if (std::strcmp(name, "empty") == 0) {
     std::memset(&g_state, 0, sizeof(g_state));
-    g_state.dataReceived = false;   // pre-connection: idle aquarium, no creatures
+    g_state.fiveHourPercent = g_state.sevenDayPercent = -1;
+    g_state.codexPrimaryPercent = g_state.codexSecondaryPercent = -1;
+    g_state.dataReceived = false;   // pre-connection: no quota data or creatures
     return true;
   }
   if (std::strcmp(name, "offline") == 0) {
