@@ -154,6 +154,7 @@ import {
 } from './session-registry.js';
 import { isForeignDaemon } from './daemon-takeover.js';
 import { loadDaemonSettings } from './daemon-settings.js';
+import { dashboardProviders } from './dashboard-providers.js';
 import {
   resolveDaemonPort,
   describeDaemonPortSource,
@@ -345,6 +346,8 @@ interface WifiEsp32Device {
   alsReady?: boolean;
   repaintCount?: number;
   fullRefreshCount?: number;
+  usageCodex5H?: number;
+  usageCodex7D?: number;
   lastSeenMs: number;
 }
 const wifiEsp32Devices = new Map<string, WifiEsp32Device>();
@@ -770,6 +773,8 @@ function registerWifiEsp32(d: Record<string, unknown>, ws: WebSocket): void {
     touchDownSamples: typeof d.touchDownSamples === 'number' ? d.touchDownSamples : undefined,
     touchGestures: typeof d.touchGestures === 'number' ? d.touchGestures : undefined,
     alsReady: typeof d.alsReady === 'boolean' ? d.alsReady : undefined,
+    usageCodex5H: typeof d.usageCodex5H === 'number' ? d.usageCodex5H : undefined,
+    usageCodex7D: typeof d.usageCodex7D === 'number' ? d.usageCodex7D : undefined,
     repaintCount: typeof d.repaintCount === 'number' ? d.repaintCount : undefined,
     fullRefreshCount: typeof d.fullRefreshCount === 'number' ? d.fullRefreshCount : undefined,
     lastSeenMs: Date.now(),
@@ -1360,6 +1365,8 @@ function buildNodeModuleHealth(startedModules: DeviceModule[]): Record<string, u
         timelineCount: status.timelineCount,
         sessionCount: status.sessionCount,
         usageFiveH: status.usageFiveH,
+        usageCodex5H: status.usageCodex5H,
+        usageCodex7D: status.usageCodex7D,
         processingCount: status.processingCount,
         repaintCount: status.repaintCount,
         fullRefreshCount: status.fullRefreshCount,
@@ -2089,6 +2096,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       });
       return;
     }
+    // Display preference only: never changes provider observation or credentials.
+    if (pathname === '/dashboard/providers' && (req.method === 'GET' || req.method === 'POST')) {
+      void (async () => {
+        try {
+          const providers = dashboardProviders(req.method === 'POST' ? await readJsonBody(req, 4096) : undefined);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ providers: Array.isArray(providers) ? providers : null }));
+        } catch (error) {
+          res.writeHead(error instanceof TypeError ? 400 : 500); res.end('Unable to save provider display preferences');
+        }
+      })();
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/status') {
       const snap = core.stateMachine.getSnapshot();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -4386,6 +4407,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           version: d.version ?? null,
           stale: d.stale,
           serialActive: d.serialActive,
+          usageCodex5H: d.usageCodex5H ?? null,
+          usageCodex7D: d.usageCodex7D ?? null,
           repaintCount: d.repaintCount ?? null,
           fullRefreshCount: d.fullRefreshCount ?? null,
         })),

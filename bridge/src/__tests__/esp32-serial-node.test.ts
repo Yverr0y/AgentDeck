@@ -133,13 +133,15 @@ describe('handleSerialLine (source)', () => {
 
   it('parses device_info message and updates deviceInfo', () => {
     const conn = mockConn();
-    handleSerialLine(conn, '{"type":"device_info","board":"trmnl_75","version":"1.0.0","wifiConfigured":false,"wifiConnected":false,"repaintCount":2757,"fullRefreshCount":461}');
+    handleSerialLine(conn, '{"type":"device_info","board":"trmnl_75","version":"1.0.0","wifiConfigured":false,"wifiConnected":false,"repaintCount":2757,"fullRefreshCount":461,"usageCodex5H":-1,"usageCodex7D":37}');
 
     expect(conn.deviceInfo).not.toBeNull();
     expect(conn.deviceInfo!.board).toBe('trmnl_75');
     expect(conn.deviceInfo!.version).toBe('1.0.0');
     expect(conn.deviceInfo!.repaintCount).toBe(2757);
     expect(conn.deviceInfo!.fullRefreshCount).toBe(461);
+    expect(conn.deviceInfo!.usageCodex5H).toBe(-1);
+    expect(conn.deviceInfo!.usageCodex7D).toBe(37);
   });
 
   it('skips debug lines (non-JSON)', () => {

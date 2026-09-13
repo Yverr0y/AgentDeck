@@ -967,6 +967,21 @@ struct SettingsScreen: View {
             Divider()
             #endif
 
+            if !stateHolder.state.subscriptions.isEmpty {
+                Text("Subscriptions").font(.headline)
+                ForEach(Array(stateHolder.state.subscriptions.enumerated()), id: \.offset) { _, sub in
+                    HStack {
+                        Text(sub.name)
+                        Spacer()
+                        Text(sub.until.flatMap(TopologyRail.parseUntilDate)?.formatted(date: .long, time: .omitted) ?? "Date unavailable")
+                            .foregroundStyle(TerrariumHUD.subtext)
+                    }
+                }
+                Text("Reported subscription dates may be cached or estimated. They are separate from usage reset times.")
+                    .font(.caption).foregroundStyle(TerrariumHUD.subtext)
+                Divider()
+            }
+
             Text("Visible Panels")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(TerrariumHUD.subtext)
@@ -991,7 +1006,7 @@ struct SettingsScreen: View {
             Toggle("OpenClaw", isOn: $preferences.showOpenClawSection)
             Toggle("MLX", isOn: $preferences.showMLXSection)
             Toggle("OLLAMA", isOn: $preferences.showOllamaSection)
-            Toggle("Subscriptions", isOn: $preferences.showSubscriptionsSection)
+            Toggle("Subscription dates", isOn: $preferences.showSubscriptionsSection)
             Toggle("Antigravity", isOn: $preferences.showAntigravitySection)
                 .disabled(!preferences.antigravityAccessEnabled)
 

@@ -736,6 +736,9 @@ export interface DeviceInfoMessage {
    * this value collapsing while freeHeapKb stays comfortable.
    */
   largestFreeBlockKb?: number;
+  /** Board-held Codex window percentages; -1 means no window is displayed. */
+  usageCodex5H?: number;
+  usageCodex7D?: number;
   /** ESP-IDF reset reason as a stable diagnostic string, e.g. "brownout" or "panic". */
   resetReason?: string;
   /** Raw esp_reset_reason_t numeric code for cases not covered by resetReason. */

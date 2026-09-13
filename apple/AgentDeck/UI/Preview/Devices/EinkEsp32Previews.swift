@@ -146,8 +146,8 @@ private struct EinkScreenLayout: View {
         // Real Claude window in live-follow mode, else the placeholder gauge.
         let usage = selection.displayUsageRows.first
         return HStack(spacing: 4) {
-            einkGauge("5h", fill: CGFloat(usage?.p5 ?? 0.42))
-            einkGauge("7d", fill: CGFloat(usage?.p7 ?? 0.68))
+            if (usage?.p5 ?? 0.42) >= 0 { einkGauge("5h", fill: CGFloat(usage?.p5 ?? 0.42)) }
+            if (usage?.p7 ?? 0.68) >= 0 { einkGauge("7d", fill: CGFloat(usage?.p7 ?? 0.68)) }
         }
     }
 
@@ -328,8 +328,8 @@ private struct Esp32HudBar: View {
                     .foregroundStyle(brand)
             }
             HStack(spacing: 6) {
-                waterGauge(period: "5h", percent: p5)
-                waterGauge(period: "7d", percent: p7)
+                if p5 >= 0 { waterGauge(period: "5h", percent: p5, single: p7 < 0) }
+                if p7 >= 0 { waterGauge(period: "7d", percent: p7, single: p5 < 0) }
             }
         }
     }
@@ -337,7 +337,7 @@ private struct Esp32HudBar: View {
     /// Water-fill gauge — mirrors the firmware's `createGauge`: glass
     /// background, bottom-aligned tinted fill, period label at top,
     /// percentage in the center.
-    private func waterGauge(period: String, percent: CGFloat) -> some View {
+    private func waterGauge(period: String, percent: CGFloat, single: Bool) -> some View {
         let size: CGFloat = 36
         let color = percent >= 0.9 ? TerrariumHUD.ledRed
             : percent >= 0.7 ? TerrariumHUD.ledAmber
@@ -504,7 +504,8 @@ struct Esp32TtgoPreview: View {
                 .foregroundStyle(Color(red: 0x94 / 255.0, green: 0xA3 / 255.0, blue: 0xB8 / 255.0))
             Spacer(minLength: 0)
             if let usage {
-                Text("5h \(Int(usage.p5 * 100))% · 7d \(Int(usage.p7 * 100))%")
+                Text([usage.p5 >= 0 ? "5h \(Int(usage.p5 * 100))%" : nil,
+                      usage.p7 >= 0 ? "7d \(Int(usage.p7 * 100))%" : nil].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(Color(red: 0x94 / 255.0, green: 0xA3 / 255.0, blue: 0xB8 / 255.0))
             }
@@ -599,8 +600,8 @@ struct Esp32Ips10Preview: View {
         HStack(spacing: 4) {
             PreviewCreatureGlyph(agent: glyph, state: .idle, size: 11)
             VStack(alignment: .leading, spacing: 1.5) {
-                usageFill(label: "5H", pct: p5)
-                usageFill(label: "7D", pct: p7)
+                if p5 >= 0 { usageFill(label: "5H", pct: p5) }
+                if p7 >= 0 { usageFill(label: "7D", pct: p7) }
             }
         }
     }

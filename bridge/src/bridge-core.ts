@@ -398,7 +398,7 @@ export class BridgeCore {
   }): BridgeEvent {
     const snapshot = opts.snapshot ?? this.stateMachine.getSnapshot();
     const codexAuth = readCodexAuthStatus();
-    const subscriptions = buildSubscriptions(codexAuth, this.cachedApiUsage, snapshot.billingType);
+    const subscriptions = buildSubscriptions(codexAuth, this.cachedApiUsage, snapshot.billingType, this.cachedAntigravityStatus, this.claudeUsageStale);
 
     // Compute promptType
     let promptType: 'yes_no' | 'yes_no_always' | 'multi_select' | 'diff_review' | undefined;
@@ -491,6 +491,12 @@ export class BridgeCore {
    */
   lastBuiltCodexLiveFamilyAuthorityExpiresAtMs: number | null = null;
 
+  /** Read-time expiry also covers reconnects before the next usage tick. */
+  private get claudeUsageStale(): boolean {
+    return this.apiUsageStale ||
+      (this.lastApiFetchTime > 0 && Date.now() - this.lastApiFetchTime > BridgeCore.USAGE_STALE_TTL);
+  }
+
   /** Build and return a usage event */
   buildUsage(): BridgeEvent {
     const snapshot = this.stateMachine.getSnapshot();
@@ -512,7 +518,7 @@ export class BridgeCore {
       this.oauthConnected,
       this.cachedOllamaStatus,
       this.cachedMlxModels,
-      this.apiUsageStale,
+      this.claudeUsageStale,
       codexAuth,
       snapshot.billingType,
       this.cachedModelCatalog,
@@ -561,7 +567,7 @@ export class BridgeCore {
    * Handles billingType inference.
    *
    * `fresh` decides whether this counts as a LIVE reading. A false value still
-   * updates the numbers shown (they are the best available) but must NOT push
+   * retains the cache for diagnostics, but must NOT push
    * `lastApiFetchTime` forward or clear `apiUsageStale` — doing so is what made
    * a failed fetch indistinguishable from a successful one, disarming both the
    * `usageStale` wire flag and the `USAGE_STALE_TTL` backstop that exists to
@@ -742,7 +748,7 @@ export class BridgeCore {
 
   /**
    * Start periodic usage tick (session timer on displays).
-   * Also clears stale cache after USAGE_STALE_TTL.
+   * Also retires displayed quota after USAGE_STALE_TTL.
    */
   startUsageTick(intervalMs = 5000): void {
     this.addInterval(setInterval(() => {

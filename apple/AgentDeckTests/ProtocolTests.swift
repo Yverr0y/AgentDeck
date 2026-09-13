@@ -367,6 +367,35 @@ final class ProtocolTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testStaleClaudeQuotaClearsAllDisplayFieldsAndEmptySubscriptionsReplace() {
+        let holder = AgentStateHolder()
+        defer { holder.prepareForTermination() }
+        func deliver(_ json: String) {
+            guard let event = BridgeEventParser.parse(json) else { XCTFail("decode failed"); return }
+            holder.handleEvent(event)
+        }
+        let fresh = #"{"type":"usage_update","usageStale":false,"fiveHourPercent":42,"sevenDayPercent":12,"scopedLimits":[{"label":"model","percent":80}],"extraUsageEnabled":true,"extraUsageMonthlyLimit":100,"extraUsageUsedCredits":10,"extraUsageUtilization":10,"subscriptions":[{"name":"Claude"}],"codexRateLimits":{"primary":{"usedPercent":25}}}"#
+        deliver(fresh)
+        XCTAssertEqual(holder.state.fiveHourPercent, 42)
+        XCTAssertEqual(holder.state.subscriptions.count, 1)
+        deliver(#"{"type":"usage_update","usageStale":true,"fiveHourPercent":42,"extraUsageEnabled":true,"extraUsageMonthlyLimit":100,"subscriptions":[]}"#)
+        XCTAssertNil(holder.state.fiveHourPercent)
+        XCTAssertNil(holder.state.sevenDayPercent)
+        XCTAssertNil(holder.state.scopedLimits)
+        XCTAssertNil(holder.state.extraUsageEnabled)
+        XCTAssertNil(holder.state.extraUsageMonthlyLimit)
+        XCTAssertNil(holder.state.extraUsageUsedCredits)
+        XCTAssertNil(holder.state.extraUsageUtilization)
+        XCTAssertTrue(holder.state.subscriptions.isEmpty)
+        XCTAssertEqual(holder.state.codexRateLimits?.primary?.usedPercent, 25)
+        deliver(fresh)
+        XCTAssertEqual(holder.state.fiveHourPercent, 42)
+        XCTAssertEqual(holder.state.usageStale, false)
+        deliver(#"{"type":"state_update","state":"idle","subscriptions":[]}"#)
+        XCTAssertTrue(holder.state.subscriptions.isEmpty)
+    }
+
     // MARK: - Connection Event
 
     func testDecodeConnectionEvent() throws {

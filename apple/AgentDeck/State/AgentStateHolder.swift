@@ -1021,10 +1021,17 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             // latch a phantom cap (CLAUDE.md wire-flag rule).
             s.scopedLimits = e.scopedLimits
         }
-        s.extraUsageEnabled = e.extraUsageEnabled ?? s.extraUsageEnabled
-        s.extraUsageMonthlyLimit = e.extraUsageMonthlyLimit ?? s.extraUsageMonthlyLimit
-        s.extraUsageUsedCredits = e.extraUsageUsedCredits ?? s.extraUsageUsedCredits
-        s.extraUsageUtilization = e.extraUsageUtilization ?? s.extraUsageUtilization
+        if e.usageStale == true {
+            s.extraUsageEnabled = nil
+            s.extraUsageMonthlyLimit = nil
+            s.extraUsageUsedCredits = nil
+            s.extraUsageUtilization = nil
+        } else {
+            s.extraUsageEnabled = e.extraUsageEnabled ?? s.extraUsageEnabled
+            s.extraUsageMonthlyLimit = e.extraUsageMonthlyLimit ?? s.extraUsageMonthlyLimit
+            s.extraUsageUsedCredits = e.extraUsageUsedCredits ?? s.extraUsageUsedCredits
+            s.extraUsageUtilization = e.extraUsageUtilization ?? s.extraUsageUtilization
+        }
         s.oauthConnected = e.oauthConnected ?? s.oauthConnected
         // A fresh frame from an older producer also clears a prior auth error.
         let freshQuotaFrame = e.usageStale != true && (e.usageStale == false

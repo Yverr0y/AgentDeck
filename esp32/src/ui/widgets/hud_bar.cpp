@@ -572,6 +572,7 @@ static lv_obj_t* makeTankGroup(lv_obj_t* parent, const char* name, uint32_t bran
     lv_obj_set_style_pad_column(row, GAUGE_GAP, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     createGauge(row, b5, f5, p5, pe5, r5, "5h");
     createGauge(row, b7, f7, p7, pe7, r7, "7d");
     return grp;
@@ -1827,6 +1828,7 @@ void init(lv_obj_t* parent) {
     lv_obj_set_style_pad_column(panelRight, GAUGE_GAP, 0);
     lv_obj_clear_flag(panelRight, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(panelRight, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panelRight, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_flex_align(panelRight, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     // No header for round — save space
@@ -1926,6 +1928,7 @@ void init(lv_obj_t* parent) {
     lv_obj_set_style_pad_column(panelRight, GAUGE_GAP, 0);
     lv_obj_clear_flag(panelRight, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(panelRight, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panelRight, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     // Header (hidden per user request)
     lblTankHeader = lv_label_create(panelRight);

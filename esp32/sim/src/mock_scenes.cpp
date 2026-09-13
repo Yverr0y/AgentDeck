@@ -170,7 +170,9 @@ bool SimScenes::apply(const char* name) {
   }
   if (std::strcmp(name, "empty") == 0) {
     std::memset(&g_state, 0, sizeof(g_state));
-    g_state.dataReceived = false;   // pre-connection: idle aquarium, no creatures
+    g_state.fiveHourPercent = g_state.sevenDayPercent = -1;
+    g_state.codexPrimaryPercent = g_state.codexSecondaryPercent = -1;
+    g_state.dataReceived = false;   // pre-connection: no quota data or creatures
     return true;
   }
   if (std::strcmp(name, "offline") == 0) {
@@ -179,6 +181,30 @@ bool SimScenes::apply(const char* name) {
     g_state.dataReceived = true;  // previously connected, daemon now absent
     g_state.lastMessageMs = 1;
     g_state.sessionCount = 0;
+    return true;
+  }
+  if (std::strcmp(name, "usage-none") == 0 ||
+      std::strcmp(name, "usage-zero") == 0 ||
+      std::strcmp(name, "usage-stale") == 0) {
+    base(CreatureState::FLOATING);
+    g_state.fiveHourPercent = g_state.sevenDayPercent = -1;
+    if (std::strcmp(name, "usage-zero") == 0) g_state.codexPrimaryPercent = 0;
+    if (std::strcmp(name, "usage-stale") == 0) {
+      g_state.fiveHourPercent = 82;
+      g_state.usageStale = true;
+      g_state.codexSecondaryPercent = 37;
+    }
+    return true;
+  }
+  if (std::strcmp(name, "codex-only") == 0) {
+    base(CreatureState::FLOATING);
+    addSession("openclaw", "idle", "OpenClaw");
+    g_state.fiveHourPercent = g_state.sevenDayPercent = -1;
+    g_state.codexSecondaryPercent = 37;
+    setStr(g_state.codexSecondaryReset, sizeof(g_state.codexSecondaryReset), "6d 1h");
+    setStr(g_state.subscriptions[0].name, sizeof(g_state.subscriptions[0].name), "ChatGPT Pro");
+    addTimeline("chat_response", "s0-OpenClaw", "Long first line\nSecond line must stay within its row", nullptr);
+    addTimeline("chat_response", "s0-OpenClaw", "사용량 표시를 개선했습니다.\n다음 줄도 같은 행에 표시합니다.", nullptr);
     return true;
   }
   if (std::strcmp(name, "idle") == 0) {
@@ -340,6 +366,6 @@ bool SimScenes::apply(const char* name) {
 }
 
 const char* SimScenes::catalog() {
-  return "empty, idle, display-off, working, multi, crowd, crowded, dense, permission, attention, "
+  return "usage-none, usage-zero, usage-stale, codex-only, empty, idle, display-off, working, multi, crowd, crowded, dense, permission, attention, "
          "demo:<agent>:<state>";
 }

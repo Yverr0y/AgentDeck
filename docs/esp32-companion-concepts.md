@@ -238,3 +238,39 @@ work rather than hidden requirements of the current UI.
 | ~~No factory-firmware backup for the T-Display-S3-Pro~~ — closed 2026-07-25: 16 MB image captured and spot-verified | [`esp32/backups/MANIFEST.md`](../esp32/backups/MANIFEST.md) | Done |
 
 Design-system constraints carry over unchanged: status colors are semantic and only amber awaiting animates ([DESIGN.md](../DESIGN.md)); brand marks come from the generated masks, never redrawn; both boards would join the counted-surfaces derivation only at promotion time, which is when their spec-sheet rows change status and the surface matrix — not this document — becomes the source of truth.
+
+## Small-display roles — implemented 2026-09-13
+
+| Device | Primary job | Interaction |
+|---|---|---|
+| TTGO T-Display | Passive quota meter | Usage default, GPIO0 toggles terrarium, GPIO35 rotates |
+| T-Display-S3-Pro without camera | Stable work monitor | Tap the project or press the primary button to pin/unpin; tap NEW RESULT to refresh the retained result |
+| T-Embed CC1101 | One-handed answer remote | Waiting queue first; turn between requests, press to open, deliberately turn to select an action |
+
+### Focus Strip
+
+A pin follows the session ID across roster reorder. Current activity updates while
+the last result remains readable until tapped. A removed pinned session stays
+visible as ENDED. The persistent waiting count opens an arrival-ordered list;
+three readable rows and a next-page target make every waiting session reachable.
+New requests never steal the Usage or Sessions page. Selecting a session row pins
+it. The camera-equipped model retains its portrait Pocket role.
+
+### Companion Knob
+
+The waiting screen gives project, agent, and the actual question the main display
+area. The encoder cycles requests plus an All sessions destination; that secondary
+list retains the existing carousel, history, and voice access. Detail offers two
+readable option rows. Entering a request or receiving changed choices clears the
+cursor, requiring a deliberate turn before pressing.
+
+Both controllers compare the displayed request ID, question, prompt type, state,
+and option indices/labels with the current session immediately before sending.
+They reject stale or disconnected actions and suppress duplicate replies while
+waiting for a state update. A transport send is not proof of approval: an observed
+state update or changed request is reported explicitly; absence/disconnection
+cannot acknowledge the action, and after 15 seconds it is marked unconfirmed.
+
+Native interaction checks use the production LVGL renderers, covering queue
+reordering, changed options, offline input, pinned results, ended sessions, and
+pagination. These screens use bounded reusable request snapshots and queue state.

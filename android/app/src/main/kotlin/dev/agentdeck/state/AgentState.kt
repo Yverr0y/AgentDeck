@@ -247,6 +247,7 @@ class AgentStateHolder private constructor() {
                     event.data.copy(
                         fiveHourPercent = null,
                         sevenDayPercent = null,
+                        scopedLimits = null,
                         fiveHourResetsAt = null,
                         sevenDayResetsAt = null,
                         extraUsageEnabled = null,
