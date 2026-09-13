@@ -106,11 +106,11 @@ async function storeStatus() {
   const paths = [
     `${root}/appStoreVersions?limit=50&fields[appStoreVersions]=platform,versionString,appStoreState,releaseType`,
     `${root}/reviewSubmissions?limit=50&fields[reviewSubmissions]=platform,state,submittedDate`,
-    `${root}/builds?limit=20&sort=-uploadedDate&fields[builds]=version,processingState,uploadedDate,expired&include=preReleaseVersion&fields[preReleaseVersions]=version,platform`,
+    `/v1/builds?filter[app]=6784822497&limit=20&sort=-uploadedDate&fields[builds]=version,processingState,uploadedDate,expired,preReleaseVersion&include=preReleaseVersion&fields[preReleaseVersions]=version,platform`,
   ];
   for (const path of paths) {
     const response = await api(path);
-    console.log(JSON.stringify({resource: path.split('/')[4].split('?')[0], data: response.data, included: response.included ?? []}));
+    console.log(JSON.stringify({resource: path.split('?')[0].split('/').at(-1), data: response.data, included: response.included ?? []}));
   }
 }
 
