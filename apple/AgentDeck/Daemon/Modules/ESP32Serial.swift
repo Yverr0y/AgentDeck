@@ -862,6 +862,15 @@ actor ESP32Serial {
 
     // MARK: - Heartbeat
 
+    /// Missing providers supply no snapshot; a present empty usage snapshot
+    /// still retires old values. Provider-specific quota fields never gate it.
+    nonisolated static func heartbeatEvents(
+        state: [String: Any]?, usage: [String: Any]?,
+        sessions: [String: Any]?, display: [String: Any]?
+    ) -> [[String: Any]] {
+        [state, usage, sessions, display].compactMap { $0 }
+    }
+
     private func sendHeartbeat() {
         drainPendingReads()
         guard !connections.isEmpty else { return }
@@ -905,36 +914,12 @@ actor ESP32Serial {
             }
         }
 
-        if let event = stateProvider?() {
-            for i in connections.indices where connections[i].connected {
-                sendEvent(event, to: &connections[i])
-            }
-        }
-
-        if let event = usageProvider?(),
-           event["fiveHourPercent"] != nil {
-            for i in connections.indices where connections[i].connected {
-                sendEvent(event, to: &connections[i])
-            }
-        }
-
-        // Re-sync sessions_list every cycle for the same reason as display_state
-        // below: it is otherwise edge-triggered (on change + on connect), so a
-        // board that (re)connects during a quiet window — daemon handoff,
-        // half-open serial — sits on an empty roster ("no active sessions")
-        // until the next unrelated session change happens to broadcast. The
-        // firmware upserts idempotently.
-        if let event = sessionsListProvider?() {
-            for i in connections.indices where connections[i].connected {
-                sendEvent(event, to: &connections[i])
-            }
-        }
-
-        // Re-sync display_state every cycle. It is otherwise edge-triggered
-        // (on change + on connect); a board that misses the wake edge — half-
-        // open serial, daemon handoff — stays blacked out until power-cycled.
-        // The payload is tiny and the firmware handler is idempotent.
-        if let event = displayStateProvider?() {
+        // Re-send complete snapshots even when Claude quota is absent. A
+        // USB-only board receives usage here, independently of WS broadcasts.
+        for event in Self.heartbeatEvents(
+            state: stateProvider?(), usage: usageProvider?(),
+            sessions: sessionsListProvider?(), display: displayStateProvider?()
+        ) {
             for i in connections.indices where connections[i].connected {
                 sendEvent(event, to: &connections[i])
             }

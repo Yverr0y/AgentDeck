@@ -8639,7 +8639,8 @@ final class DaemonServer {
         usageTickTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
-                guard let self, await self.wsServer.hasClients() else { continue }
+                // USB displays also consume this snapshot when no WS client exists.
+                guard let self else { return }
                 // TTL: keep last good cache, but mark it stale after 10 minutes.
                 // Retain diagnostic data; stale quota is omitted from display frames.
                 if self.cachedApiUsage != nil,
