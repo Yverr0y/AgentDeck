@@ -45,6 +45,14 @@ file's own rule forbids reconstructing its notes. The commit above is the
 record. `npm 1.0.16` (`37c674b8`) is a different case and needs nothing — it was
 bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
+## 2026-09-13 — Apple 1.3.2
+
+Bounds Claude and Codex hook port-file discovery to 200 ms per read. A protected
+macOS app-container file can wait indefinitely for an OS access decision; hook
+startup now continues to the existing healthy-port/fallback path instead of
+blocking a real agent turn. Includes the provider-layout and approval-recovery
+improvements from Apple 1.3.1.
+
 ## 2026-09-13 — ESP32 1.3.0, Apple 1.3.1, Android 1.3.1, npm 1.3.3
 
 ### Small displays have distinct everyday roles
@@ -62,6 +70,14 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 - Both interactive boards reject stale or disconnected replies and distinguish
   a sent command from an observed state update. Changed requests clear the
   selection; unconfirmed sends time out visibly.
+
+### Hook discovery cannot block an agent indefinitely (npm)
+
+Claude and Codex hook port-file reads have a 200 ms deadline, including protected
+macOS container files. Existing Claude commands migrate automatically; all
+co-owned installers emit the same bounded lookup. OpenCode uses bounded async
+reads with at most one pending read per registry path, so an OS access prompt
+cannot stall its event loop or accumulate filesystem workers.
 
 ### Provider usage follows the available data
 
