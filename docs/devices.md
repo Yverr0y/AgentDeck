@@ -35,6 +35,18 @@ validators: [pnpm design-system:check]
 
 > **Daemon hub**: All dashboard clients connect exclusively to the daemon. Session bridges handle PTY + hooks only and do not serve external devices. Daemon port defaults to 9120; if occupied by non-daemon process, daemon falls back to next available port and records actual port in `~/.agentdeck/daemon.json`. Local clients read `daemon.json`; remote clients discover via mDNS (daemon only advertises `_agentdeck._tcp`).
 
+## TTGO T-Display (Usage Meter)
+
+The 135×240 panel boots into **usage-only** mode. The previously unused
+**GPIO0 / BTN2** button toggles Usage ↔ Terrarium; **GPIO35 / BTN1** keeps its
+90° rotation behavior. Mode survives a rotation but resets to Usage on reboot.
+Available Claude and Codex quota windows stay visible together, with used
+percentages and reset countdowns. Missing windows are omitted (real 0% remains
+visible); stale Claude usage never masks valid Codex data. One or two windows
+get larger figures, while denser layouts fit all four windows in either axis.
+Activity never temporarily replaces the usage screen. Terrarium animation is
+paused while Usage is selected. The host display-sleep policy still applies.
+
 ## T-Embed CC1101 (Companion Knob)
 
 **Shipping since 2026-07-25.** The LilyGO T-Embed CC1101 is the fleet's only board with a **rotary encoder**, and the only one you steer with rather than only read from — every other Shipping board is output-only apart from touch. Its UI (`esp32/src/ui/knob/`) is the Stream Deck's session-centric two-level grammar translated to an encoder: at list level rotate cycles sessions and press enters; at detail level rotate moves the option/command cursor, press commits (`select_option` / state command), and long-press backs out (`session_command{escape}`). Holding the encoder is push-to-talk — the board captures voice, the host transcribes, and the reply is spoken back through the board speaker.

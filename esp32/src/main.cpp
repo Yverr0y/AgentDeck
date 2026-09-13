@@ -1,3 +1,6 @@
+#if defined(BOARD_TTGO)
+#include "ui/widgets/ttgo_usage.h"
+#endif
 /**
  * AgentDeck ESP32 Display Client
  *
@@ -758,6 +761,9 @@ static void uiTask(void* param) {
     uint32_t btnLastMs = 0;
 #endif
 #if defined(BOARD_TTGO)
+    pinMode(BOARD_PIN_BTN2, INPUT_PULLUP);
+    bool modeBtnPrev = digitalRead(BOARD_PIN_BTN2);
+    uint32_t modeBtnLastMs = 0;
     uint32_t lastReassertMs = 0;   // 10s panel/backlight self-heal timer
 #endif
 
@@ -795,6 +801,17 @@ static void uiTask(void* param) {
             }
             btnPrev = btnNow;
         }
+#endif
+
+#if defined(BOARD_TTGO)
+        // The other (GPIO0) button toggles usage/terrarium, once per press.
+        const bool modeBtnNow = digitalRead(BOARD_PIN_BTN2);
+        if (modeBtnPrev && !modeBtnNow && now - modeBtnLastMs > 250) {
+            modeBtnLastMs = now;
+            TTGO::Usage::toggle();
+            Serial.printf("[Button] Display mode: %s\n", TTGO::Usage::active() ? "usage" : "terrarium");
+        }
+        modeBtnPrev = modeBtnNow;
 #endif
 
         // LVGL tick

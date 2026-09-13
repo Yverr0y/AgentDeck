@@ -10,6 +10,7 @@
 //
 // Usage (LCD):    sim [--scene NAME] [--frames N] [--out PATH] [--label NAME]
 //                 T-Display Pro also accepts --page focus|usage|sessions
+//                 TTGO accepts --page usage|terrarium and --landscape
 //                 sim --all [--frames N] [--outdir DIR] [--label NAME]
 // Usage (matrix): sim [--scene NAME] [--page usage|agents] [--scale N] [--out PATH]
 //                 sim --all [--outdir DIR] [--scale N]
@@ -105,6 +106,10 @@ int main(int argc, char** argv) {
 #include "ui/ticker/ticker_ui.h"
 #else
 #include "ui/screens/aquarium.h"
+#if defined(BOARD_TTGO)
+#include "ui/widgets/ttgo_usage.h"
+#include "ui/display.h"
+#endif
 #endif
 
 namespace {
@@ -187,7 +192,37 @@ int main(int argc, char** argv) {
   // flags — the sim IS that board minus hardware I/O. The tree builds the real
   // per-board composed screen (Terrarium+HUD / Office / TTGO overlay / knob /
   // ticker).
+#if defined(BOARD_TTGO)
+  if (flag(argc, argv, "--landscape")) {
+    g_screenW = SCREEN_H;
+    g_screenH = SCREEN_W;
+  }
+  if (flag(argc, argv, "--verify-mode")) {
+    // Startup default, repeated physical-mode transitions and screen lifetime:
+    // rotating rebuilds the tree without resetting the operator's mode.
+    if (!TTGO::Usage::active()) return 1;
+    SimDisplay::init(g_screenW, g_screenH);
+    treeCreate();
+    for (int i = 0; i < 12; ++i) {
+      TTGO::Usage::toggle();
+      const bool expected = (i % 2) != 0;
+      if (TTGO::Usage::active() != expected) return 1;
+      auto* old = lv_screen_active();
+      treeCreate();
+      lv_obj_delete(old);
+      if (TTGO::Usage::active() != expected) return 1;
+      SimScenes::apply("multi");
+      treeUpdate(FRAME_DT);
+      SimDisplay::refresh();
+    }
+    std::fprintf(stderr, "[sim] TTGO mode + 12 screen rebuilds: ok\n");
+    return 0;
+  }
+  if (std::strcmp(page, "terrarium") == 0) TTGO::Usage::toggle();
+  SimDisplay::init(g_screenW, g_screenH);
+#else
   SimDisplay::init(SCREEN_W, SCREEN_H);
+#endif
   treeCreate();
 
   if (flag(argc, argv, "--all")) {

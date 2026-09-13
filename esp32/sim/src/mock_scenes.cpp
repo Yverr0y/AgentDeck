@@ -181,6 +181,19 @@ bool SimScenes::apply(const char* name) {
     g_state.sessionCount = 0;
     return true;
   }
+  if (std::strcmp(name, "usage-none") == 0 ||
+      std::strcmp(name, "usage-zero") == 0 ||
+      std::strcmp(name, "usage-stale") == 0) {
+    base(CreatureState::FLOATING);
+    g_state.fiveHourPercent = g_state.sevenDayPercent = -1;
+    if (std::strcmp(name, "usage-zero") == 0) g_state.codexPrimaryPercent = 0;
+    if (std::strcmp(name, "usage-stale") == 0) {
+      g_state.fiveHourPercent = 82;
+      g_state.usageStale = true;
+      g_state.codexSecondaryPercent = 37;
+    }
+    return true;
+  }
   if (std::strcmp(name, "codex-only") == 0) {
     base(CreatureState::FLOATING);
     addSession("openclaw", "idle", "OpenClaw");
@@ -351,6 +364,6 @@ bool SimScenes::apply(const char* name) {
 }
 
 const char* SimScenes::catalog() {
-  return "codex-only,empty, idle, display-off, working, multi, crowd, crowded, dense, permission, attention, "
+  return "usage-none, usage-zero, usage-stale, codex-only, empty, idle, display-off, working, multi, crowd, crowded, dense, permission, attention, "
          "demo:<agent>:<state>";
 }

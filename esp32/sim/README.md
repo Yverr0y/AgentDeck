@@ -164,3 +164,13 @@ matrix → `mtx/`, e-ink → `eink/`).
 - The vendored `vendor/adafruit_gfx/` is the upstream Adafruit GFX core + four
   FreeFont headers (BSD/MIT, license headers retained), used only so the e-ink
   text renders with the exact production glyphs on the host.
+
+### TTGO usage meter
+
+TTGO defaults to usage-only, matching the firmware boot mode. Render the optional
+terrarium with `--page terrarium`, or swap the physical panel axes with
+`--landscape` when running `.pio/build/ttgo/program` directly. Quota edge scenes
+are `usage-none`, `usage-zero`, `usage-stale`, and `codex-only`; `multi` exercises
+all four windows. `--verify-mode` checks the default, repeated mode toggles, and
+mode retention across twelve screen rebuilds. Hardware GPIO debounce and panel
+rotation still require a physical button check.

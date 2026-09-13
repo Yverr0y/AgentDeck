@@ -238,3 +238,56 @@ work rather than hidden requirements of the current UI.
 | ~~No factory-firmware backup for the T-Display-S3-Pro~~ — closed 2026-07-25: 16 MB image captured and spot-verified | [`esp32/backups/MANIFEST.md`](../esp32/backups/MANIFEST.md) | Done |
 
 Design-system constraints carry over unchanged: status colors are semantic and only amber awaiting animates ([DESIGN.md](../DESIGN.md)); brand marks come from the generated masks, never redrawn; both boards would join the counted-surfaces derivation only at promotion time, which is when their spec-sheet rows change status and the surface matrix — not this document — becomes the source of truth.
+
+## Small-display role review — 2026-09-13 (proposal)
+
+TTGO now has an explicit **quota-meter** default. The other two boards already
+ship steering, history, shared focus, and pager attention; adding those again
+would not explain why a user should keep the devices on the desk. The next
+iteration should make the existing useful path immediately legible.
+
+| Device | Recommended primary job | First UI change to evaluate |
+|---|---|---|
+| TTGO T-Display | Passive quota meter | Implemented: Usage default, GPIO0 mode toggle, GPIO35 rotation |
+| T-Display-S3-Pro without camera | Stable work monitor beside the keyboard | Pinned project + current task + latest result, with a persistent waiting count |
+| T-Embed CC1101 | One-handed answer/approval remote | Waiting-item queue with question and explicit actions occupying the main screen |
+
+### Focus Strip: retain context, expose the next decision
+
+The current Focus page already prioritizes awaiting sessions; Sessions already
+shows three rows. The proposed improvement is **stable selection**, rather than
+another page or an additional tiny chart: retain the chosen project by session
+ID, show its current task and last completed result, and put `N waiting` in a
+persistent strip. Tapping that strip opens the ordered waiting list. Incoming
+activity must not replace a result the operator is reading. The existing
+Sessions and Usage pages remain secondary destinations, and Deny/Approve remain
+separate, labelled targets. For an unpinned display, new waiting work can still
+be the default focus.
+
+The camera-equipped unit keeps its portrait Pocket personality and image-input
+role. A camera delivery status with target session and receipt feedback is a
+more useful refinement there than forcing the landscape layout onto it.
+
+### Companion Knob: make the decision the center of the display
+
+Pager auto-focus, ID retention across roster reorder, observed-session Go-on
+suppression, and real option lists are already implemented. The next step is
+presentation and queue navigation: show project, actual question, and `2 / 4
+waiting` prominently, with a compact agent mark rather than a large carousel
+creature. In the waiting list, rotation moves between waiting sessions; press
+opens that request. In detail, rotation highlights an actual choice and press
+submits it. Keep browsing all sessions, history, and voice available through a
+secondary destination; do not overload the existing hold-to-talk/back gestures.
+
+After a command, show **sent / waiting for state update**, then resolved only
+when the matching request disappears or authoritative state confirms it. A
+transport send is not proof of approval. If the request changes while a choice
+is highlighted, rebuild and require a fresh deliberate selection rather than
+reusing an old option index. Keep another session's new alert in the footer
+while someone is already reading detail.
+
+Evaluate this direction first with concurrent waiting requests, a request that
+resolves elsewhere, roster reorder, reconnect, and Korean questions long enough
+to require a detail view. Do not add radio, NFC, or new voice modes just to fill
+the board's hardware capabilities. These refinements are **not implemented** by
+the TTGO change; they are the recommended scope for the next UI iteration.
