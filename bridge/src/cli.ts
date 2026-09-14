@@ -1185,6 +1185,9 @@ async function ensureLatestBuild(mode: BuildMode): Promise<void> {
   // dynamically import the NEW `daemon-server.js` a moment later. Start over.
   const scriptPath = fileURLToPath(import.meta.url);
   log(`Rebuilt (${before ?? 'unknown'} → ${after ?? 'unknown'}). Re-running with the new build…`);
+  // windows-hide-exempt: only a build-eligible run reaches this (a human at a
+  // terminal — the autostart launcher passes `--no-build`), so there is already
+  // a console to inherit, and stdio must stay attached to it.
   const rerun = spawnSync(process.execPath, [scriptPath, ...process.argv.slice(2), '--no-build'], {
     stdio: 'inherit',
   });

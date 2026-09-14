@@ -115,15 +115,20 @@ export function startAdbReversePolling(
 
     for (const serial of devices) {
       try {
-        // Check if reverse already exists — if not, set it up
+        // Check if reverse already exists — if not, set it up.
+        // windowsHide on both: this polls from inside the daemon, which has no
+        // console of its own (see windows-service.ts), so an adb.exe without it
+        // puts a console window on the desktop on every poll.
         const existing = execSync(`adb -s ${serial} reverse --list`, {
           stdio: 'pipe',
           timeout: 5000,
+          windowsHide: true,
         }).toString();
         if (!existing.includes(`tcp:${ANDROID_PORT}`)) {
           execSync(`adb -s ${serial} reverse tcp:${ANDROID_PORT} tcp:${port}`, {
             stdio: 'pipe',
             timeout: 5000,
+            windowsHide: true,
           });
           debug(TAG, `adb reverse re-established ${serial}: android:${ANDROID_PORT} → daemon:${port}`);
         }

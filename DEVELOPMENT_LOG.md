@@ -242,6 +242,39 @@ is running, and that instance was the old console-window daemon, still serving
 from the previous logon. So `daemon install` now ends a running instance before
 `/Run` — a no-op under the launcher action, a migration step exactly once.
 
+## The bill for a console-less daemon, paid the same day
+
+With the daemon running detached, the reporter saw an empty
+`C:\Windows\system32\taskkill.exe` window appear at random. That is the Codex
+rate-limit probe's cleanup kill (`codex-rate-limits-live.ts`, every five
+minutes): `codex.cmd` runs under `shell`, so the child is cmd.exe and the real
+server is its grandchild, hence a `taskkill /T` — spawned without
+`windowsHide`. A console-subsystem child of a console-LESS parent gets a brand
+new console, and a new console comes with a window. While the task's action was
+the daemon, the daemon had a console, children inherited it, and nothing was
+ever drawn; removing that window is what made the gap visible.
+
+Two-arm measurement from a console-less detached parent, 12 `taskkill` spawns
+each, sampling visible windows twice a second: **138 window sightings without
+`windowsHide`, 0 with it**. The opposite fix does not exist —
+a child spawned with `windowsHide` but *not* `detached` inherits the launcher's
+console (CREATE_NO_WINDOW is ignored when no new console is created) and dies
+with it, verified by a probe whose child never wrote its first log line. So the
+daemon stays console-less and the spawns are what change.
+
+An audit of all 138 `child_process` calls in `bridge/src` found two more real
+gaps — both `adb reverse` calls in the daemon's poll loop — while everything
+else either already hid its window or runs a binary with no Windows
+counterpart, where the spawn fails ENOENT and draws nothing.
+`bridge/src/__tests__/windows-child-window.test.ts` now gates this: a call must
+hide its window, name a POSIX-only binary, or carry an inline
+`windows-hide-exempt:` reason (five calls do — a POSIX login-shell branch, two
+terminal-attached build paths, and the macOS-only Foundation Models helper).
+The gate reads only calls reached through a real `child_process` import (two
+BLE managers define a local `spawnSync` of their own) and blanks comments
+first, after its own first run reported a `spawn()` out of a sentence about
+EBADARCH.
+
 ## Verified on the reporting machine
 
 After the third install: `Ended the previous 'AgentDeckDaemon' instance …`,
@@ -268,8 +301,14 @@ second one is what did the work.
   `startedBySupervisor`, `schtasksOwnsRegisteredDaemon`
 - `bridge/src/daemon-server.ts`, `bridge/src/session-registry.ts` — the
   `startedBy` stamp, written past the bind
+- `bridge/src/codex-rate-limits-live.ts`, `bridge/src/adb-reverse.ts` —
+  `windowsHide` on the spawns that were drawing windows
+- `bridge/src/check-deps.ts`, `bridge/src/daemon-build-identity.ts`,
+  `bridge/src/foundation-models-helper.ts`, `bridge/src/cli.ts` —
+  `windows-hide-exempt:` reasons for the calls a regex cannot clear
 - Tests: `bridge/src/__tests__/windows-service.test.ts`,
-  `bridge/src/__tests__/daemon-supervisor.test.ts`
+  `bridge/src/__tests__/daemon-supervisor.test.ts`,
+  `bridge/src/__tests__/windows-child-window.test.ts` (new gate)
 - Docs: `docs/daemon.md`, `docs/windows.md`,
   `.claude/rules/daemon-lifecycle.md`
 
