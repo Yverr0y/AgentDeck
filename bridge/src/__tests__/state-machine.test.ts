@@ -525,9 +525,9 @@ describe('StateMachine', () => {
       expect(sm.getState()).toBe(State.DISCONNECTED);
     });
 
-    it('tool activity re-arms the PROCESSING hang backstop for a hook-only session', () => {
+    it.each([true, false])('tool activity re-arms the PROCESSING backstop (toolActivityRecovery=%s)', (toolActivityRecovery) => {
       const tracker = new UsageTracker();
-      const sm = new StateMachine(tracker);
+      const sm = new StateMachine(tracker, { toolActivityRecovery });
       sm.handleHookEvent('SessionStart', {});
       sm.handleHookEvent('UserPromptSubmit', {});
       expect(sm.getState()).toBe(State.PROCESSING);

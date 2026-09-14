@@ -95,8 +95,9 @@ export class StateMachine extends EventEmitter {
   private inFlightTools = 0;
   /** False for the daemon hub's global machine: it multiplexes EVERY observed
    *  session's hooks, so an unrelated session's tool activity must never
-   *  dismiss an AWAITING prompt (e.g. a held OpenClaw approval) or reopen
-   *  IDLE. Session bridges own exactly one agent and keep this true. */
+   *  dismiss an AWAITING prompt (e.g. a held OpenClaw approval). Liveness
+   *  still recovers IDLE/DISCONNECTED and refreshes PROCESSING timers.
+   *  Session bridges own exactly one agent and keep this true. */
   private readonly toolActivityRecovery: boolean;
 
   constructor(usageTracker: UsageTracker, opts?: { toolActivityRecovery?: boolean }) {
@@ -546,7 +547,7 @@ export class StateMachine extends EventEmitter {
    *    multiplexes every observed session, so "some session used a tool"
    *    proves nothing about the prompt or turn this machine is displaying —
    *    but that only justifies refusing to *dismiss* what is on screen. The
-   *    guard therefore covers AWAITING_* and PROCESSING only. Blocking it
+   *    guard therefore covers AWAITING_* only. Blocking it
    *    from IDLE and DISCONNECTED too left the hub with no edge back to
    *    PROCESSING after any session's stop, any session's session_end (the
    *    wildcard → DISCONNECTED row), or the stuck timeout: session_start is
@@ -566,8 +567,6 @@ export class StateMachine extends EventEmitter {
    *  A dismissal skipped by any guard is retried by the next hook — a
    *  keyboard-answered prompt always produces later tool activity or a stop. */
   private recoverProcessingFromToolActivity(kind: 'start' | 'end'): void {
-    if (!this.toolActivityRecovery
-      && this.state !== State.IDLE && this.state !== State.DISCONNECTED) return;
     // Tool activity while already PROCESSING is not a transition (there is no
     // PROCESSING → PROCESSING row, so transition() would drop it), but it is
     // proof the turn is alive: re-arm the hang backstop exactly as
@@ -578,6 +577,8 @@ export class StateMachine extends EventEmitter {
       if (this.stuckTimer) this.armStuckTimer(STUCK_TIMEOUT_MS);
       return;
     }
+    if (!this.toolActivityRecovery
+      && this.state !== State.IDLE && this.state !== State.DISCONNECTED) return;
     const inAwaiting =
       this.state === State.AWAITING_PERMISSION ||
       this.state === State.AWAITING_OPTION ||

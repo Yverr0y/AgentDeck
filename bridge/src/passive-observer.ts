@@ -136,7 +136,7 @@ export interface ObservedSession extends EnrichedSession {
 const SCAN_INTERVAL_MS = 5_000;
 /**
  * Upper bound for the adaptive cooldown below. A host whose process table is
- * pathologically slow still gets rescanned at least this often.
+ * pathologically slow waits no longer than this after its scan completes.
  */
 const MAX_SCAN_INTERVAL_MS = 60_000;
 
@@ -244,11 +244,9 @@ export class CodexRolloutCache {
 }
 
 export class PassiveSessionObserver {
-  private lastScanAt = 0;
+  private nextScanAt = 0;
   private cached: ObservedSession[] = [];
   private scanInFlight = false;
-  /** Wall-clock cost of the last completed scan attempt; see nextScanIntervalMs(). */
-  private lastScanMs = 0;
   private codexRolloutCache = new CodexRolloutCache();
   private kiroSessionCache = new KiroSessionCache();
 
@@ -278,8 +276,7 @@ export class PassiveSessionObserver {
    */
   collect(managedSessions: EnrichedSession[]): ObservedSession[] {
     const now = Date.now();
-    if (now - this.lastScanAt >= nextScanIntervalMs(this.lastScanMs) && !this.scanInFlight) {
-      this.lastScanAt = now;
+    if (now >= this.nextScanAt && !this.scanInFlight) {
       this.scanInFlight = true;
       const startedAt = now;
       void this.scan(managedSessions)
@@ -289,7 +286,13 @@ export class PassiveSessionObserver {
         // repeatedly, that is a roster that flashes in and vanishes.
         .catch(() => { /* keep the last known roster */ })
         .finally(() => {
-          this.lastScanMs = Date.now() - startedAt;
+          const finishedAt = Date.now();
+          const durationMs = finishedAt - startedAt;
+          // Fast hosts keep the original start-to-start 5s cadence. Slow
+          // scans cool down AFTER completion, including failed attempts.
+          this.nextScanAt = durationMs <= SCAN_INTERVAL_MS
+            ? startedAt + SCAN_INTERVAL_MS
+            : finishedAt + nextScanIntervalMs(durationMs);
           this.scanInFlight = false;
         });
     }

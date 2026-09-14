@@ -896,4 +896,30 @@ describe('passive-observer scan resilience', () => {
     expect(nextScanIntervalMs(10 * 60_000)).toBe(60_000);
     expect(nextScanIntervalMs(Number.NaN)).toBe(5_000);
   });
+
+  it.each([
+    { duration: 200, cooldown: 4_800, rejects: false },
+    { duration: 11_000, cooldown: 11_000, rejects: false },
+    { duration: 30_000, cooldown: 30_000, rejects: true },
+    { duration: 70_000, cooldown: 60_000, rejects: false },
+  ])('schedules a $duration ms scan with $cooldown ms remaining (rejects=$rejects)', async ({ duration, cooldown, rejects }) => {
+    vi.useFakeTimers({ now: 100_000 });
+    const reader = vi.fn(() => new Promise<never[]>((resolve, reject) => {
+      setTimeout(() => rejects ? reject(new Error('scan unavailable')) : resolve([]), duration);
+    }));
+    const observer = new PassiveSessionObserver(reader);
+    observer.collect([]);
+    observer.collect([]);
+    expect(reader).toHaveBeenCalledTimes(1); // no overlapping scan
+    await vi.advanceTimersByTimeAsync(duration);
+    observer.collect([]);
+    expect(reader).toHaveBeenCalledTimes(1); // completion is not a new scan
+    await vi.advanceTimersByTimeAsync(cooldown - 1);
+    observer.collect([]);
+    expect(reader).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    observer.collect([]);
+    expect(reader).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(duration);
+  });
 });

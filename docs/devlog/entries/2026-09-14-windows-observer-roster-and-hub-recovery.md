@@ -40,3 +40,14 @@ and `/status` moved from `disconnected` to `processing`. The slow-WMI root
 cause is untouched — this accommodates it. Worth chasing separately: an
 elevated `winmgmt /verifyrepository`, and whether an AV/EDR product is hooking
 the `Win32_Process` provider.
+
+### Maintainer review
+
+The original contribution is preserved in PR #330. Behavioral tests reproduced
+two gaps: scheduling from the scan start permitted immediate slow rescans, and
+the hub's recovery guard skipped PROCESSING timer refresh. Slow scans now wait
+their measured duration after completion (cooldown capped at 60 seconds), while
+fast scans retain the 5-second start-to-start cadence. Tests exercise the real
+scheduler, including rejected scans and overlapping collect calls. Hub and
+session machines both refresh liveness during PROCESSING; held prompts remain
+protected. The timer regression now runs with both recovery configurations.
