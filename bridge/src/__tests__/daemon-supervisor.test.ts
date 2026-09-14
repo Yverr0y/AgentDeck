@@ -19,6 +19,8 @@ import {
   supervisorPosture,
   parseSystemdActive,
   parseSchtasksRunning,
+  composeSchtasksRunning,
+  startedBySupervisor,
   execFailureAnswered,
   supervisorLivenessProbe,
   classifySupervision,
@@ -233,6 +235,12 @@ describe('supervisorJobRunning / supervisorLivenessProbe', () => {
     // schtasks does not exist off Windows, so the lookup throws and returns
     // undefined — which must read as "keep waiting", not "it died". Absence of
     // an answer is not an answer.
+    //
+    // On Windows this same call reads the machine's real task and its real
+    // launch record, so the answer depends on whether a daemon is up right now
+    // — a fact no assertion here may depend on. The composed reading is pinned
+    // purely by `composeSchtasksRunning` below instead.
+    if (process.platform === 'win32') return;
     const probe = supervisorLivenessProbe({ kind: 'schtasks', label: 'AgentDeckDaemon' });
     expect(probe()).toBe(true);
   });
@@ -261,6 +269,32 @@ describe('supervisorJobRunning / supervisorLivenessProbe', () => {
     expect(parseSchtasksRunning('폴더: \\\n작업 이름: \\AgentDeckDaemon\n상태:  실행 중\n')).toBeUndefined();
     // English header, value we do not model (Queued / Could not start).
     expect(parseSchtasksRunning('Status:  Queued\n')).toBeUndefined();
+  });
+
+  it('a finished launcher defers to the daemon\'s own startedBy stamp', () => {
+    // The task's action is a launcher that exits by design, so `Ready` is the
+    // steady state of a healthy machine: it describes the launcher, not the
+    // daemon. Answering "not running" from it is what stops a healthy daemon.
+    expect(composeSchtasksRunning(false, () => true)).toBe(true);
+    expect(composeSchtasksRunning(false, () => false)).toBe(false);
+    // The other two readings answer on their own — a launcher in flight, or an
+    // action from a build before this change that still IS the daemon. Neither
+    // consults the stamp.
+    expect(composeSchtasksRunning(true, () => false)).toBe(true);
+    expect(composeSchtasksRunning(undefined, () => true)).toBeUndefined();
+  });
+
+  it('only a supervisor kind we recognise may come out of the environment', () => {
+    // This reads an env var, so an arbitrary string must not become a
+    // supervisor kind — and the daemon stamps whatever comes back into
+    // daemon.json, where `schtasksOwnsRegisteredDaemon` compares it.
+    expect(startedBySupervisor({ AGENTDECK_SUPERVISOR: 'schtasks' })).toBe('schtasks');
+    expect(startedBySupervisor({ AGENTDECK_SUPERVISOR: 'launchd' })).toBe('launchd');
+    expect(startedBySupervisor({ AGENTDECK_SUPERVISOR: 'systemd' })).toBe('systemd');
+    expect(startedBySupervisor({ AGENTDECK_SUPERVISOR: 'Schtasks' })).toBeUndefined();
+    expect(startedBySupervisor({ AGENTDECK_SUPERVISOR: 'cron' })).toBeUndefined();
+    expect(startedBySupervisor({ AGENTDECK_SUPERVISOR: '' })).toBeUndefined();
+    expect(startedBySupervisor({})).toBeUndefined();
   });
 
   it('only a command that ran and exited non-zero has answered', () => {

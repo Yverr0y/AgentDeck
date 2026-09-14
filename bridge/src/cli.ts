@@ -42,6 +42,8 @@ import {
   oneOffFlagsBlockingSupervisor,
   routeDaemonLifecycle,
   supervisorJobRunning,
+  schtasksStatus,
+  SUPERVISOR_ENV,
   classifySupervision,
   type SupervisorFacts,
 } from './daemon-supervisor.js';
@@ -378,10 +380,11 @@ async function stopDaemon(
  * Leave `daemon install` with the machine in the state it just promised.
  *
  * Registering the unit is not the same as the unit owning the daemon. The
- * job's ExecStart is `daemon start --foreground`, so when an unsupervised
- * daemon already holds the port the job exits 0 against the incumbent guard
- * and the install reports success over `state = not running` — the daemon on
- * this machine has no parent, and nothing brings it back until the next login.
+ * job ends in `daemon start --foreground` (directly on macOS and Linux, through
+ * the `daemon autostart` launcher on Windows), so when an unsupervised daemon
+ * already holds the port the job exits 0 against the incumbent guard and the
+ * install reports success over `state = not running` — the daemon on this
+ * machine has no parent, and nothing brings it back until the next login.
  * That is the same hole `daemon stop` and `daemon restart` already had, from a
  * third side, and it gets the same answer: hand the daemon to the unit.
  *
@@ -1188,6 +1191,61 @@ async function ensureLatestBuild(mode: BuildMode): Promise<void> {
   process.exit(rerun.status ?? 1);
 }
 
+/**
+ * The Windows Scheduled Task's action: start the daemon with no console, ever.
+ *
+ * Task Scheduler attaches a console to an interactive-token action and offers
+ * no way to suppress it, so a task whose action IS the daemon left a terminal
+ * window and a taskbar button on the desktop for the daemon's whole life. This
+ * command exists to be that action instead: it spawns the daemon DETACHED with
+ * `windowsHide` (DETACHED_PROCESS | CREATE_NO_WINDOW — no console at all, not a
+ * hidden one) and exits within a few hundred ms, before the terminal handoff
+ * paints anything. The measurements and the two rejected alternatives (`Hidden`
+ * in the task XML, an `S4U` principal) are in windows-service.ts.
+ *
+ * It is not `daemon start`'s background fork: that path routes through the
+ * supervisor, and the supervisor's job is this command — it would ask the task
+ * to start the task. This one only ever forks, which is also why it carries no
+ * `-p`/`--debug`: the unit has one fixed argv, and the posture flags baked into
+ * it are the only thing there is to forward.
+ *
+ * Hidden from `--help` because nobody should type it: a human wants `daemon
+ * start`, which already backgrounds itself.
+ */
+daemon
+  .command('autostart', { hidden: true })
+  .description('Internal: launch the daemon detached with no console (Windows scheduled task action)')
+  .option('--local', 'Disable all device modules (forwarded to the daemon)')
+  .option('--loopback', 'Bind 127.0.0.1 only (forwarded to the daemon)')
+  .option('--enterprise', 'Alias for --loopback')
+  .action(async (opts) => {
+    const logDir = join(homedir(), '.agentdeck');
+    const scriptPath = fileURLToPath(import.meta.url);
+    // `--no-build`: no human is attached to a logon start, so a stale checkout
+    // must not put a 30s tsc — or a broken build — in front of the daemon.
+    const args = [
+      scriptPath, 'daemon', 'start', '--foreground',
+      ...daemonPostureArgs(opts),
+      '--no-build',
+    ];
+    const [out, err] = await openDaemonLogs(logDir);
+    const child = spawn(process.execPath, args, {
+      detached: true,
+      stdio: ['ignore', out, err],
+      windowsHide: true,
+      // The task's own Status describes this launcher, which is about to exit,
+      // so it can no longer answer "does the unit own the daemon?". The daemon
+      // answers it instead: it stamps this into `daemon.json` once it has won
+      // the port (`startedBySupervisor`, daemon-supervisor.ts). Passing the
+      // claim rather than making it here is deliberate — a daemon that loses
+      // the bind race must not be able to claim ownership while it concedes.
+      env: { ...process.env, [SUPERVISOR_ENV]: 'schtasks' },
+    });
+    child.unref();
+    log(`Daemon launched detached (PID ${child.pid ?? 'unknown'}); logs in ${logDir}.`);
+    process.exit(0);
+  });
+
 daemon
   .command('start')
   .description('Start monitoring daemon (WS + mDNS + Gateway proxy)')
@@ -1635,8 +1693,15 @@ daemon
       log(`Daemon restarted (PID ${started.pid}) on port ${started.port}`);
     }
     if (startedBySupervisor) {
-      log(`(PID ${started.pid} is the ${describeSupervisor(supervisor as SupervisorFacts)}'s own process — `
-        + `it stays supervised.)`);
+      // On Windows the unit's action is a launcher that exits, so the daemon is
+      // its detached child rather than the task's own process — claiming
+      // otherwise would send the next reader looking for a pid the Task
+      // Scheduler does not have.
+      const who = describeSupervisor(supervisor as SupervisorFacts);
+      log(supervisor?.kind === 'schtasks'
+        ? `(PID ${started.pid} was launched by the ${who} and stays supervised — the task's action is a `
+          + `launcher, so this pid is its detached child and not the task's own process.)`
+        : `(PID ${started.pid} is the ${who}'s own process — it stays supervised.)`);
     } else if (!started.ours) {
       // Not a warning — a fact the user would otherwise have to reconstruct
       // from `ps`. The daemon SIGKILLs itself on /shutdown, every supervisor
@@ -1992,6 +2057,31 @@ daemon
         log('You can still run the daemon manually with: agentdeck daemon start');
         log('(or add a shortcut to shell:startup to autostart it yourself).');
         process.exit(1);
+      }
+      // An instance of the PREVIOUS action may still be running, and
+      // `MultipleInstancesPolicy=IgnoreNew` means `/Run` against it is ignored
+      // — silently, with rc 0 — so the action just registered would never
+      // execute. Measured 2026-09-14 installing over a task from a build whose
+      // action was the daemon itself: `Status: Running` (that daemon, from the
+      // previous logon), no launch record written, and the console-window
+      // daemon still serving after an install that reported success.
+      //
+      // Under the launcher action there is nothing to end — it exits in
+      // milliseconds — so this is a no-op in the steady state and a migration
+      // step exactly once. The daemon's own files are tmp+rename, so losing
+      // the instance without a graceful `/shutdown` is safe; `daemon stop`
+      // already ends the task the same way before it asks nicely.
+      // The RAW task status, not `supervisorJobRunning`: the composed answer is
+      // about the daemon (a `Ready` task with a stamped daemon reads `true`),
+      // and what has to be ended here is a task INSTANCE.
+      const hadRunningInstance = schtasksStatus({ kind: 'schtasks', label: TASK_NAME }) === true;
+      if (hadRunningInstance) {
+        try {
+          endWindowsTask();
+          log(`Ended the previous '${TASK_NAME}' instance so the newly registered action can start.`);
+        } catch {
+          log(`Warning: could not end the running '${TASK_NAME}' instance — the start below may be ignored.`);
+        }
       }
       // Start it now so the user does not have to log out/in (the singleton
       // guard makes a double-start a safe no-op).
