@@ -161,6 +161,20 @@ fun TabletSettingsDialog(
 
                 MacIntegrationsReadOnlyCard(dashState = dashState)
 
+                if (dashState.subscriptions.isNotEmpty()) {
+                    Text("Subscriptions", style = MaterialTheme.typography.titleMedium, color = dev.agentdeck.terrarium.TerrariumColors.HUDText)
+                    dashState.subscriptions.forEach { sub ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Text(sub.name, color = dev.agentdeck.terrarium.TerrariumColors.HUDText)
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(sub.until?.let(::parseUntilInstant)?.atZone(java.time.ZoneId.systemDefault())
+                                ?.format(java.time.format.DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.LONG)) ?: "Date unavailable", color = dev.agentdeck.terrarium.TerrariumColors.HUDSubtext)
+                        }
+                    }
+                    Text("Reported subscription dates may be cached or estimated. They are separate from usage reset times.",
+                        style = MaterialTheme.typography.bodySmall, color = dev.agentdeck.terrarium.TerrariumColors.HUDSubtext)
+                }
+
                 DashboardPanelsCard(
                     showSessionList = showSessionList,
                     showTankStatus = showTankStatus,

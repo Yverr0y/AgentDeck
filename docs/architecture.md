@@ -76,6 +76,8 @@ this table live in CLAUDE.md § Key Conventions ("Cross-platform rules are SSOT-
 
 | Canonical source | Generator | Gate / note |
 |---|---|---|
+| `shared/src/sample.ts` (`RelationEvent.relationId`) | Existing Node/Swift sample serializers | `shared/collaboration-identity-vectors.json` replayed through both collectors and stores (`apme-collector.test.ts`, `CollaborationIdentityPersistenceTests`); Swift projection checks that closing one of two identically named jobs leaves the other open. |
+| `bridge/src/dashboard-providers.ts` provider vocabulary | `node scripts/generate-dashboard-providers.mjs` | `dashboard-providers-sync.test.ts` checks native validators/order and complete menu coverage; persistence tests keep explicit empty membership across initialization. |
 | `shared/src/protocol.ts` | `pnpm generate-protocol` | vitest drift gate; Swift + Kotlin types |
 | `shared/src/terrarium-rules.ts` | `pnpm generate-terrarium-rules` | vitest drift gate; see below |
 | `shared/src/states.ts` (state-machine transition table) | `pnpm generate-state-transitions` | vitest drift gate. A row present in one daemon and absent in the other is a session that wedges in `AWAITING_*` on one platform and recovers on the other, with nothing in either log saying why. A transition's rationale rides the SSOT as its `note` field so the mirror cannot restate and then contradict it; the generated file carries `#if os(macOS)` because it lives under `Daemon/` |
@@ -86,7 +88,11 @@ this table live in CLAUDE.md § Key Conventions ("Cross-platform rules are SSOT-
 | `shared/src/model-provider.ts` (which company's endpoint answered) | `pnpm generate-model-provider` | vitest drift gate; Swift + Kotlin mirrors. A Claude Code session pointed at z.ai must read the same on every surface or the badge means nothing |
 | `shared/src/task-title.ts` + `shared/src/action-fold.ts` (Work-board display projections) | `pnpm generate-apme-display-rules` (emits the Swift `TaskTitleRules` / `ActionFoldRules`) | `apme-display-rules-sync.test.ts`; behavior additionally pinned by `shared/task-title-vectors.json` / `shared/action-fold-vectors.json`, replayed by both suites, since both daemons NAME tasks and serve the same Work board |
 | `shared/src/claude-permission-rules.ts` (PreToolUse hold predictor) | `pnpm generate-claude-permission-rules` (emits `ClaudePermissionRules.generated.swift`) | vitest byte gate + `shared/claude-permission-vectors.json` |
+| `shared/src/mlx-safety.ts` (resident-model selection, admission and failure cooldown) | `pnpm generate-mlx-safety` (emits `MlxSafetyRules.generated.swift`) | byte-for-byte generator drift gate plus `shared/mlx-safety-vectors.json` replayed by Vitest and XCTest. Node and Swift route MLX inference through one per-process endpoint gate. Server enforcement remains required across processes. |
+| `shared/src/apme-classifier-rules.ts` (LLM-assist `task_category` classifier: prompt, label vocabulary, output cap, timeout, backend try-order) | `pnpm generate-apme-classifier-rules` (emits `ApmeClassifierRules.generated.swift`) | `shared/src/__tests__/apme-classifier-rules-sync.test.ts`. `task_category` selects the judge rubric, so the two daemons disagreeing is a score difference — Swift's classifier used to route through `callConfiguredJudge`, i.e. whatever eval judge backend the user configured, including the paid `api`/`openai` legs (#299). The backend order is local-only by construction: `api`/`openai` are not members of the SSOT array |
 | `shared/src/pairing-code.ts` | `pnpm generate-pairing-code-rules` | vitest drift gate; Swift carries the whole evaluator, Kotlin a client mirror |
+| `shared/src/openclaw-approval.ts` (exec-approval parser/decision vocabulary) | `pnpm generate-openclaw-approval-rules` | `openclaw-approval-rules-sync.test.ts`; behavior additionally pinned by `shared/openclaw-approval-error-vectors.json`, replayed by both suites |
+| `shared/src/openclaw-plugin-approval.ts` (plugin-approval parser/decision vocabulary, issue #309) | `pnpm generate-openclaw-plugin-approval-rules` | `openclaw-plugin-approval-rules-sync.test.ts`. Reuses the exec mirror's `ExecApprovalDecision` Swift type rather than redeclaring the (identical) vocabulary — two independently-typed enums for one Gateway-validated union is exactly how one kind could silently accept the plain `"allow"` the other already excludes |
 | `shared/src/format-utils.ts` Codex snapshot freshness (`CODEX_SNAPSHOT_STALE_MS` + age-label bands) | `pnpm generate-codex-freshness-rules` | vitest drift gate; also emits Swift-only `CodexPlanRules` from `codexSnapshotMatchesAccountPlan`, since both daemons PRODUCE the wire snapshot but Android only consumes it |
 | `apmeDashboardHtml()` → `apple/AgentDeck/Resources/apme-dashboard.html` | `pnpm generate-apme-dashboard` | byte-gated in `apme-dashboard-html.test.ts`. As a hand copy it silently shipped App Store builds a whole feature behind |
 | creature / brand SVGs | `pnpm generate-creature-glyphs`, `pnpm generate-micro-glyphs` | ESP32 alpha-mask headers, Pixoo/Timebox/TC001 masks |
@@ -95,6 +101,10 @@ this table live in CLAUDE.md § Key Conventions ("Cross-platform rules are SSOT-
 
 Known hand-mirror debt: `shared/src/creature-layout.ts` band layout (3-way comment-discipline mirror, test parity only) — fold it into a generator when next touched. The idle-gap
 constant in `ApmeCollector` stays grep-pinned by `apme-display-rules-sync.test.ts`.
+`shared/src/timeline-icons.ts` is a 3-way hand mirror too (Apple `TimelineStripView.swift`, Android `TimelineIcons.kt`), with per-surface tests rather than a drift gate — and it has
+demonstrably diverged: on 2026-09-12 the Android mirror was found missing `error` from the `isRotatingEntry` completion list (so a failed turn kept spinning next to the error row that
+explained it) and missing the rotating-glyph swap entirely (so `task_start` rotated the static checklist). Both had been correct in TS and Swift for some time. Parallel tests do not
+catch an omission that exists in every surface's test alike; fold this into a generator when next touched.
 
 ## Terrarium rules SSOT (cross-platform behavior invariants)
 

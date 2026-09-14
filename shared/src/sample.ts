@@ -100,6 +100,13 @@ export interface ToolEvent extends TrajectoryEventBase {
   output?: unknown;
   error?: string | null;
   status?: ToolStatus;
+  /** True when the stored `sample_events` row's payload was reclaimed by
+   *  `agentdeck apme prune` (#302) — the row (and this event) still exists,
+   *  but `input`/`output` are unavailable, not genuinely empty. A consumer
+   *  that distinguishes "no arguments" from "arguments not retained" (a
+   *  churn/dedup scorer, a judge trajectory summary) should read this
+   *  before treating a missing `input` as a fact about the tool call. */
+  pruned?: boolean;
 }
 
 /** One child-agent lifecycle event attributed to the parent task. The child
@@ -133,6 +140,9 @@ export interface SubagentEvent extends TrajectoryEventBase {
  *  with only the name/pid the evidence itself carried. */
 export interface RelationEvent extends TrajectoryEventBase {
   kind: 'relation';
+  /** Producer identity, scoped to this task, relation and direction. Stable across
+   * open/closed observations; labels are never identities. Absent on older records. */
+  relationId?: string | null;
   relation: 'spawned' | 'messaged' | 'waiting_on';
   /** `out`: this session did it (spawned / sent / started); `in`: it was done to this session. */
   direction: 'in' | 'out';

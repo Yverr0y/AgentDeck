@@ -167,6 +167,8 @@ export interface SerialConnection {
     timelineCount?: number;
     sessionCount?: number;
     usageFiveH?: number;
+    usageCodex5H?: number;
+    usageCodex7D?: number;
     processingCount?: number;
     repaintCount?: number;
     fullRefreshCount?: number;
@@ -889,6 +891,8 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
           timelineCount: (msg as any).timelineCount,
           sessionCount: (msg as any).sessionCount,
           usageFiveH: (msg as any).usageFiveH,
+          usageCodex5H: (msg as any).usageCodex5H,
+          usageCodex7D: (msg as any).usageCodex7D,
           processingCount: (msg as any).processingCount,
           repaintCount: (msg as any).repaintCount,
           fullRefreshCount: (msg as any).fullRefreshCount,
@@ -1037,8 +1041,6 @@ async function openPort(port: string): Promise<SerialConnection | null> {
       const events = initialStateProvider();
       for (const event of events) {
         if (!FORWARDED_EVENTS.has(event.type)) continue;
-        // Skip usage_update without API data — would reset ESP32 to "no data"
-        if (event.type === 'usage_update' && (event as any).fiveHourPercent == null) continue;
         if ((event.type === 'usage_update' || event.type === 'sessions_list') && !hasLiveDeviceInfo(conn)) continue;
         sendToConnection(conn, JSON.stringify(prepareForSerial(event, conn)));
       }
@@ -1249,23 +1251,11 @@ function sendHeartbeat(): void {
     }
   }
 
-  // Send usage_update (so ESP32 always has fresh usage/reset times)
-  // Only send once SOME usage signal is present — Claude 5h/7d, Codex limits,
-  // or Antigravity credits — otherwise the ESP32 would reset its cached values
-  // to the "no data" sentinel before any provider has populated them.
+  // Usage snapshots are authoritative, including an empty snapshot that
+  // retracts retired limits. Presence of Claude 5H is not a delivery gate.
   if (usageProvider) {
     const event = usageProvider();
-    const u = event as any;
-    // "Has usage" means a real NUMBER exists somewhere, not that the Codex block
-    // is present: the daemon also emits a windowless `codexRateLimits` carrying
-    // only the account tier (a free ChatGPT plan has no rolling windows, and the
-    // block still has to ride the wire so clients can RETRACT a retired plan's
-    // gauge). Treating that as usage would let the first frame reach the board
-    // before any provider populated, wiping its cached values to the -1 sentinel.
-    const cx = u?.codexRateLimits;
-    const hasCodexWindow = cx != null && (cx.primary != null || cx.secondary != null);
-    const hasUsage = u && (u.fiveHourPercent != null || hasCodexWindow || u.antigravityStatus != null);
-    if (hasUsage && event) {
+    if (event) {
       for (const conn of connections) {
         if (!hasLiveDeviceInfo(conn)) continue;
         sendToConnection(conn, JSON.stringify(prepareForSerial(event, conn)));
@@ -1930,6 +1920,8 @@ export function getSerialConnectionStatus(): Array<{
   timelineCount?: number;
   sessionCount?: number;
   usageFiveH?: number;
+  usageCodex5H?: number;
+  usageCodex7D?: number;
   processingCount?: number;
   repaintCount?: number;
   fullRefreshCount?: number;
@@ -1964,6 +1956,8 @@ export function getSerialConnectionStatus(): Array<{
     timelineCount: c.deviceInfo?.timelineCount,
     sessionCount: c.deviceInfo?.sessionCount,
     usageFiveH: c.deviceInfo?.usageFiveH,
+    usageCodex5H: c.deviceInfo?.usageCodex5H,
+    usageCodex7D: c.deviceInfo?.usageCodex7D,
     processingCount: c.deviceInfo?.processingCount,
     repaintCount: c.deviceInfo?.repaintCount,
     fullRefreshCount: c.deviceInfo?.fullRefreshCount,

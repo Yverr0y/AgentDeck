@@ -38,7 +38,7 @@
 // fails CI when the firmware drifts ahead of this mirror. Update this view and
 // re-pin whenever the firmware layout changes.
 //
-// SYNC-HASH esp32/src/ui/eink/eink_display.cpp aa6862755d4268f57724ac32522676d906e36c42
+// SYNC-HASH esp32/src/ui/eink/eink_display.cpp d9e20d7546a441f260eed9aae64e7e73f2363645
 // SYNC-HASH esp32/src/ui/eink/eink_dashboard_layout.h 97b1d2a6f5c84e9cf733b3e5b3145ad45f3136e7
 
 import SwiftUI
@@ -409,6 +409,12 @@ struct Trmnl75Preview: View {
         // Real usage windows in live-follow mode; the placeholder gauges (Claude
         // by the session mix, Codex when a Codex session exists) otherwise.
         let rows = selection.displayUsageRows
+        let otherPlans = selection.live?.source.subscriptions.filter { sub in
+            !rows.contains { row in
+                (row.label == "CLAUDE" && sub.name.hasPrefix("Claude")) ||
+                (row.label == "CODEX" && (sub.name.hasPrefix("ChatGPT") || sub.name.hasPrefix("Codex")))
+            }
+        } ?? []
         return VStack(alignment: .leading, spacing: 4) {
             // 0 usage rows → no separator, no gauge band (usage.empty() in the
             // firmware layout); the session grid above reclaims the space and
@@ -419,11 +425,22 @@ struct Trmnl75Preview: View {
                     providerRow(glyphAgent: row.agent, label: row.label, plan: row.plan, p5: row.p5, p7: row.p7)
                 }
             }
+            if selection.state != .disconnected {
+                ForEach(Array(otherPlans.enumerated()), id: \.offset) { _, sub in
+                    HStack {
+                        Text("SUBSCRIPTION").font(.system(size: 8, weight: .bold))
+                        Spacer()
+                        Text([sub.name, sub.until ?? ""].filter { !$0.isEmpty }.joined(separator: " "))
+                            .font(.system(size: 8)).lineLimit(1)
+                    }.foregroundStyle(ink)
+                }
+                Text("RECENT").font(.system(size: 8, weight: .bold)).foregroundStyle(ink)
+            }
             // Recent-work strip — up to Snap::TICKER_ROWS (3) latest milestone
             // rows, newest first, gated on the live daemon link (a stale line
             // under the "searching…" screen read as if still connected).
             if selection.state != .disconnected {
-                ForEach(Array(workStripRows.enumerated()), id: \.offset) { _, row in
+                ForEach(Array(workStripRows.prefix(selection.sessionCount > 2 ? 2 : 3).enumerated()), id: \.offset) { _, row in
                     HStack(spacing: 5) {
                         Text(row.time)
                             .font(.system(size: 8, weight: .bold, design: .monospaced))
@@ -470,18 +487,18 @@ struct Trmnl75Preview: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
                     .font(.system(size: 8, weight: .bold))
-                Text(plan)
-                    .font(.system(size: 6.5, design: .monospaced))
-                    .foregroundStyle(ink.opacity(0.6))
+
             }
             .foregroundStyle(ink)
             .frame(width: 52, alignment: .leading)
-            // Present windows pack left (firmware: p5 at x=150, p7 next); a
-            // missing window is dropped, never shown as "--". The preview's
-            // sample rows always carry both, so both render here.
-            gaugeBar(tag: "5H", pct: p5)
-            gaugeBar(tag: "7D", pct: p7)
-            Spacer(minLength: 0)
+            // Present windows share the available width; an absent window
+            // leaves its space to the remaining gauge.
+            if p5 >= 0 { gaugeBar(tag: "5H", pct: p5) }
+            if p7 >= 0 { gaugeBar(tag: "7D", pct: p7) }
+            if !plan.isEmpty {
+                Text(plan).font(.system(size: 8)).foregroundStyle(ink)
+                    .frame(width: 90, alignment: .trailing).lineLimit(1)
+            }
         }
     }
 
@@ -490,16 +507,18 @@ struct Trmnl75Preview: View {
             Text(tag)
                 .font(.system(size: 7.5, weight: .bold, design: .monospaced))
                 .foregroundStyle(ink)
-            ZStack(alignment: .leading) {
+            GeometryReader { geometry in
+              ZStack(alignment: .leading) {
                 Rectangle()
                     .stroke(ink, lineWidth: 0.9)
                 Rectangle()
                     .fill(ink)
-                    .frame(width: 86 * pct)
+                    .frame(width: max(0, geometry.size.width - 3) * pct)
                     .padding(1.5)
                     .frame(maxWidth: .infinity, alignment: .leading)
+              }
             }
-            .frame(width: 90, height: 10)
+            .frame(height: 10)
             Text("\(Int(pct * 100))%")
                 .font(.system(size: 7.5, design: .monospaced))
                 .foregroundStyle(ink.opacity(0.8))

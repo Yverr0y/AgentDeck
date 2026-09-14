@@ -263,14 +263,13 @@ enum IntegrationStatusEvaluator {
         // flowing through the dashboard.
         let hooksOn = preferences.hooksInstalled
         let oauthOn = state.oauthConnected ?? false
-        if hooksOn && oauthOn {
-            return .connected(detail: "Pro/Max · hooks on")
-        }
-        if hooksOn {
-            return .connected(detail: "Hooks on")
-        }
-        if oauthOn {
-            return .connected(detail: "Pro/Max · hooks off")
+        if hooksOn || oauthOn {
+            let connection = hooksOn ? "Hooks on" : "Hooks off"
+            // Quota failures belong in integration diagnostics, independently
+            // of working session hooks. OAuth presence does not prove a plan.
+            let quota = state.claudeUsageIssue.map { " · \($0)" }
+                ?? (state.usageStale == false ? " · Usage available" : "")
+            return .connected(detail: connection + quota)
         }
         return .awaiting(detail: "Enable Claude Code Hooks below to relay live sessions.")
     }
@@ -676,10 +675,7 @@ enum ProviderRailEvaluator {
         let subtitle: String? = {
             if hooksInstalled && !oauthOn { return "Hooks on" }
             if oauthKnownDown             { return "Not connected" }
-            // An expired usage authorization is a quota fact, so it ranks
-            // BELOW "the provider is not connected at all" — otherwise the row
-            // talks about usage while the actual condition is no connection.
-            if let issue = state.claudeUsageIssue { return issue }
+            // Quota authorization details live in Settings, not the topology.
             return nil
         }()
         return RowState(status: status, subtitle: subtitle)

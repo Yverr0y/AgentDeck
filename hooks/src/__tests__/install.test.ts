@@ -143,6 +143,25 @@ describe('Hook Installer', () => {
       rmSync(home, { recursive: true, force: true });
     });
 
+    it.skipIf(process.platform === 'win32')('bounds a blocked daemon-file read before the hook can stall', () => {
+      const cmd = buildHookCommand('SessionStart');
+      const python = cmd.match(/python3 -c "([^"]+)"/)?.[1];
+      expect(python).toBeTruthy();
+      const home = mkdtempSync(join(tmpdir(), 'agentdeck-blocked-read-'));
+      const fifo = join(home, 'blocked.json');
+      try {
+        execFileSync('mkfifo', [fifo]);
+        // No writer: open() really blocks. Exercise the emitted Python itself,
+        // not a mock timeout or an assertion about the command's spelling.
+        const result = execFileSync('python3', ['-c', python!, fifo], {timeout: 2000, encoding: 'utf8'});
+        expect(result).toBe('');
+      } finally { rmSync(home, {recursive: true, force: true}); }
+      for (const file of ['setup/src/setup.ts', 'hooks/src/codex-install.ts',
+        'apple/AgentDeck/Daemon/Core/HookInstaller.swift', 'apple/AgentDeck/Daemon/Core/CodexConfigInstaller.swift']) {
+        expect(readFileSync(join(process.cwd(), file), 'utf8'), file).toContain(python!);
+      }
+    });
+
     it('bounds the fire-and-forget POST so a wedged daemon cannot stall session exit', () => {
       // SessionEnd hooks share one ~1.5s abort budget in Claude Code, and a
       // restarting daemon holds the socket open without replying. Without both

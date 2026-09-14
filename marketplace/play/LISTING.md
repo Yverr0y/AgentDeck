@@ -8,6 +8,17 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Nothing in the app changes between them.
 
+## 1.3.1 published (2026-09-13)
+
+Version **1.3.1 (17)** was uploaded as a signed production AAB, with English,
+Korean and Japanese release notes. Saving the release was followed by sending
+changes for review and confirming the final submission. Automatic checks passed;
+review then completed and the release list reports **Available on Google Play**,
+published **2026-09-13 at 21:08 KST**. Managed publishing is disabled, with a
+100% rollout and the existing 177-country coverage retained. The GitHub APK is
+available at [android-v1.3.1](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.3.1).
+The connected Lenovo tablet was upgraded in place and verified as versionCode 17.
+
 ## Account state — 1.2.0 live (2026-09-02)
 
 Both account verification steps are **done**, and AgentDeck **1.2.0

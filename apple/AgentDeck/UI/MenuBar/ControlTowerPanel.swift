@@ -876,11 +876,6 @@ struct ControlTowerPanel: View {
                     .font(.system(size: 9.5, weight: .bold))
                     .kerning(0.5)
                     .foregroundStyle(TerrariumHUD.subtext)
-                if stateHolder.state.usageStale == true {
-                    Text(stateHolder.state.claudeUsageBadge ?? "stale")
-                        .font(.system(size: 9))
-                        .foregroundStyle(DesignTokens.UI.attn)
-                }
                 Spacer()
             }
 
@@ -1047,18 +1042,13 @@ struct ControlTowerPanel: View {
             || (stateHolder.state.costLimit != nil && stateHolder.state.costLimit! > 0)
             || codexHasGauge
         let externalDaemonActive = daemonService.isUsingExternalDaemon
-        if hasGauges || externalDaemonActive {
+        if hasGauges || (externalDaemonActive && stateHolder.state.usageStale != true) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Text("RATE LIMITS")
                         .font(.system(size: 10, weight: .bold))
                         .kerning(0.5)
                         .foregroundColor(TerrariumHUD.subtext)
-                    if stateHolder.state.usageStale == true {
-                        Text(stateHolder.state.claudeUsageBadge ?? "stale")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.orange)
-                    }
                     Spacer()
                 }
                 let isApi = stateHolder.state.costLimit != nil && stateHolder.state.costLimit! > 0

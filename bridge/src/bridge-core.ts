@@ -17,7 +17,7 @@ import {
   codexRateLimitsWithLiveRefresh,
   getLiveCodexRateLimits,
 } from './codex-rate-limits-live.js';
-import { fetchMlxModels } from './mlx-probe.js';
+import { fetchMlxModels, fetchMlxResidency } from './mlx-probe.js';
 import { buildDisplayStateEvent } from './display-dim.js';
 import { foldCodexSessionsForDisplay, loadMlxSettings, sortSessions } from '@agentdeck/shared';
 import { probeGateway, checkGatewayHealth } from './gateway-probe.js';
@@ -138,6 +138,37 @@ export interface BridgeCoreOptions {
  *
  * Callers (startSession / startDaemon) wire adapters, voice, utility, etc.
  */
+/** Interval of the wake-detector tick. */
+export const WAKE_TICK_MS = 5_000;
+/** A tick this much later than scheduled is a discontinuity worth classifying. */
+export const WAKE_GAP_MS = 15_000;
+
+/** Monotonic milliseconds — excludes suspend on Darwin/Linux, which is the
+ *  property the wake detector depends on. */
+export function monotonicNowMs(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
+}
+
+/** Classify one wake-detector tick.
+ *
+ *  `wake`  — the wall clock advanced far more than the monotonic clock: the
+ *            machine was suspended (or, on win32 where the monotonic clock
+ *            keeps counting through sleep, a large gap on either clock).
+ *  `lag`   — both clocks advanced together past the gap: the event loop was
+ *            starved. Not a wake, and running the wake recovery here is what
+ *            starves the NEXT tick.
+ *  `normal` — on schedule.
+ *
+ *  Pure, so the two cases that look identical to a gap-only rule can be
+ *  driven side by side. */
+export function classifyClockTick(t: { wallDeltaMs: number; monoDeltaMs: number; platform: NodeJS.Platform }): 'wake' | 'lag' | 'normal' {
+  const gap = t.wallDeltaMs > WAKE_GAP_MS;
+  if (!gap) return 'normal';
+  if (t.platform === 'win32') return 'wake';
+  const drift = t.wallDeltaMs - t.monoDeltaMs;
+  return drift > WAKE_GAP_MS ? 'wake' : 'lag';
+}
+
 export class BridgeCore {
   // Core components
   readonly port: number;
@@ -163,6 +194,7 @@ export class BridgeCore {
   apiUsagePreAdjusted = false;
   cachedOllamaStatus: OllamaStatus | null = null;
   cachedMlxModels: string[] | null = null;
+  cachedMlxResidency = { known: false, models: [] as string[] };
   cachedAntigravityStatus = readAntigravityLocalStatus() ?? null;
   cachedGatewayAvailable = false;
   cachedGatewayConnected = false;
@@ -311,16 +343,41 @@ export class BridgeCore {
     });
     this.displayMonitor.start();
 
-    // Time-discontinuity safety net (python3 process may die during deep sleep)
-    let lastTick = Date.now();
+    // Time-discontinuity safety net (python3 process may die during deep sleep).
+    //
+    // A late timer is NOT a wake. This used to fire the wake handler whenever
+    // a 5 s tick landed more than 15 s after the previous one — which is what
+    // an event loop starved by load does routinely, sleep or no sleep. On
+    // 2026-09-10 (load average 13–17, `pmset -g log` showing ZERO sleep events
+    // all day) it fired 123 times, every one to four minutes, and each firing
+    // ran the whole device-recovery storm: mDNS republish, pairing re-arm on
+    // every ESP32 board, BLE workers restarted, a usage refetch. That work is
+    // what blocked the loop for the NEXT tick, so the detector fed itself —
+    // and each storm left `/health` unanswered long enough for the macOS app
+    // to read the daemon as gone, promote to a fallback port, and stand down
+    // again a minute later, three times in five minutes.
+    //
+    // The distinction that separates the two is which clocks advanced. Across
+    // a real sleep the wall clock jumps while the monotonic clock does not
+    // (Darwin and Linux CLOCK_MONOTONIC exclude suspend); under load both
+    // advance together. So the wake signal is the DRIFT between them, never
+    // the gap alone. Windows' monotonic clock keeps counting through sleep, so
+    // there the gap rule stays, documented as the weaker instrument it is.
+    let lastWall = Date.now();
+    let lastMono = monotonicNowMs();
     setInterval(() => {
-      const now = Date.now();
-      if (now - lastTick > 15_000) {
-        debug('core', `Time discontinuity (${now - lastTick}ms) — likely system wake`);
+      const wall = Date.now();
+      const mono = monotonicNowMs();
+      const verdict = classifyClockTick({ wallDeltaMs: wall - lastWall, monoDeltaMs: mono - lastMono, platform: process.platform });
+      if (verdict === 'wake') {
+        debug('core', `Time discontinuity (wall +${wall - lastWall}ms, monotonic +${Math.round(mono - lastMono)}ms) — system wake`);
         this._wakeHandler?.();
+      } else if (verdict === 'lag') {
+        debug('core', `Timer lag (${wall - lastWall}ms for a ${WAKE_TICK_MS}ms tick) — the loop is starved, not a wake`);
       }
-      lastTick = now;
-    }, 5000);
+      lastWall = wall;
+      lastMono = mono;
+    }, WAKE_TICK_MS);
   }
 
   /** Register a callback for system wake recovery. */
@@ -341,7 +398,7 @@ export class BridgeCore {
   }): BridgeEvent {
     const snapshot = opts.snapshot ?? this.stateMachine.getSnapshot();
     const codexAuth = readCodexAuthStatus();
-    const subscriptions = buildSubscriptions(codexAuth, this.cachedApiUsage, snapshot.billingType);
+    const subscriptions = buildSubscriptions(codexAuth, this.cachedApiUsage, snapshot.billingType, this.cachedAntigravityStatus, this.claudeUsageStale);
 
     // Compute promptType
     let promptType: 'yes_no' | 'yes_no_always' | 'multi_select' | 'diff_review' | undefined;
@@ -380,7 +437,8 @@ export class BridgeCore {
       remoteUrl: snapshot.remoteUrl ?? undefined,
       pairingUrl: this.wsUrl,
       ollamaStatus: this.cachedOllamaStatus ?? undefined,
-      mlxModels: this.cachedMlxModels ?? undefined,
+      mlxModels: this.cachedMlxModels ?? [],
+      mlxResidency: this.cachedMlxResidency,
       subscriptions: subscriptions ?? undefined,
       antigravityStatus: this.cachedAntigravityStatus ?? undefined,
       gatewayAvailable: this.cachedGatewayAvailable,
@@ -433,6 +491,12 @@ export class BridgeCore {
    */
   lastBuiltCodexLiveFamilyAuthorityExpiresAtMs: number | null = null;
 
+  /** Read-time expiry also covers reconnects before the next usage tick. */
+  private get claudeUsageStale(): boolean {
+    return this.apiUsageStale ||
+      (this.lastApiFetchTime > 0 && Date.now() - this.lastApiFetchTime > BridgeCore.USAGE_STALE_TTL);
+  }
+
   /** Build and return a usage event */
   buildUsage(): BridgeEvent {
     const snapshot = this.stateMachine.getSnapshot();
@@ -454,7 +518,7 @@ export class BridgeCore {
       this.oauthConnected,
       this.cachedOllamaStatus,
       this.cachedMlxModels,
-      this.apiUsageStale,
+      this.claudeUsageStale,
       codexAuth,
       snapshot.billingType,
       this.cachedModelCatalog,
@@ -472,6 +536,8 @@ export class BridgeCore {
       // suppress the live query that carries the only usable number.
       codexRateLimits,
     );
+    event.mlxModels = this.cachedMlxModels ?? [];
+    event.mlxResidency = this.cachedMlxResidency;
     this.lastBuiltCodexRateLimits = event.codexRateLimits ?? null;
     // "Is this block backed by a live answer", not "did the live answer win the
     // pick" — when the two agree on family the picker keeps the fresher rollout,
@@ -501,7 +567,7 @@ export class BridgeCore {
    * Handles billingType inference.
    *
    * `fresh` decides whether this counts as a LIVE reading. A false value still
-   * updates the numbers shown (they are the best available) but must NOT push
+   * retains the cache for diagnostics, but must NOT push
    * `lastApiFetchTime` forward or clear `apiUsageStale` — doing so is what made
    * a failed fetch indistinguishable from a successful one, disarming both the
    * `usageStale` wire flag and the `USAGE_STALE_TTL` backstop that exists to
@@ -588,7 +654,7 @@ export class BridgeCore {
 
     const probe = (): void => {
       const pin = loadMlxSettings().model;
-      fetchMlxModels(pin).then((models) => {
+      Promise.all([fetchMlxModels(pin), fetchMlxResidency()]).then(([models, residency]) => {
         const success = Array.isArray(models) && models.length > 0;
         if (success) {
           failureCount = 0;
@@ -598,7 +664,8 @@ export class BridgeCore {
           const wait = Math.min(intervalMs * 2 ** failureCount, MAX_INTERVAL);
           nextFireAt = Date.now() + wait;
         }
-        const changed = JSON.stringify(this.cachedMlxModels) !== JSON.stringify(models);
+        const changed = JSON.stringify(this.cachedMlxModels) !== JSON.stringify(models) || JSON.stringify(this.cachedMlxResidency) !== JSON.stringify(residency);
+        this.cachedMlxResidency = residency;
         this.cachedMlxModels = models;
         if (changed) this.stateMachine.emit('state_changed', this.stateMachine.getSnapshot());
       }).catch(() => {
@@ -652,13 +719,23 @@ export class BridgeCore {
     this.addInterval(setInterval(() => { poll().catch(() => {}); }, intervalMs));
   }
 
-  startGatewayHealthCheck(intervalMs = 30_000, delayMs = 5000): void {
+  /**
+   * `openclaw doctor` costs 8-9 s per run and opens its own Gateway connection,
+   * so the old 30 s cadence left the CLI running ~30% of the time and made this
+   * one check 99.5% of all Gateway RPC traffic (measured 2026-09-12: 9,958
+   * `channels.status` calls over four days, each on a fresh connection).
+   * OpenClaw's own health monitor runs on 300 s; match it.
+   */
+  startGatewayHealthCheck(intervalMs = 300_000, delayMs = 5000): void {
     const check = () => {
       if (!this.cachedGatewayAvailable) return;
-      checkGatewayHealth().then((hasError) => {
-        const changed = hasError !== this.cachedGatewayHasError;
-        this.cachedGatewayHasError = hasError;
+      checkGatewayHealth().then((verdict) => {
+        // "I could not look" is neither healthy nor broken — retain.
+        if (!verdict.known) return;
+        const changed = verdict.hasError !== this.cachedGatewayHasError;
+        this.cachedGatewayHasError = verdict.hasError;
         if (changed) {
+          debug('BridgeCore', `gatewayHasError -> ${verdict.hasError} (${verdict.reason}${verdict.detail ? `: ${verdict.detail}` : ''})`);
           this.stateMachine.emit('state_changed', this.stateMachine.getSnapshot());
         }
       }).catch(() => {});
@@ -671,7 +748,7 @@ export class BridgeCore {
 
   /**
    * Start periodic usage tick (session timer on displays).
-   * Also clears stale cache after USAGE_STALE_TTL.
+   * Also retires displayed quota after USAGE_STALE_TTL.
    */
   startUsageTick(intervalMs = 5000): void {
     this.addInterval(setInterval(() => {
@@ -839,12 +916,14 @@ export class BridgeCore {
       agentCapabilities?: AgentCapabilities;
       isAlive: boolean;
       extraEvents?: BridgeEvent[];
+      /** A caller-built first frame (the daemon hub stamps its own identity). */
+      stateEvent?: BridgeEvent;
     },
   ): void {
     const snapshot = this.stateMachine.getSnapshot();
 
     // State update (with capabilities for initial connect)
-    const stateEvent = this.buildStateEvent({
+    const stateEvent = opts.stateEvent ?? this.buildStateEvent({
       agentType: opts.agentType,
       agentCapabilities: opts.agentCapabilities,
       snapshot,

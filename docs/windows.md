@@ -25,22 +25,40 @@ pnpm install            # postinstall (scripts/postinstall.mjs) is a no-op on Wi
 pnpm build              # shared → bridge, plugin, hooks
 pnpm test               # optional: run the Vitest suite
 
-# Register Claude Code hooks (writes a PowerShell one-liner hook command)
-node hooks/dist/install.js
-
-# Link the CLI + Stream Deck plugin
+# Register daemon autostart and agent hooks from this checkout
 node bridge/dist/cli.js daemon install
+
+# Link the Stream Deck plugin (then restart the Stream Deck app)
 cd plugin; streamdeck link bound.serendipity.agentdeck.sdPlugin; cd ..   # then restart the Stream Deck app
 ```
 
+These checkout instructions call the built CLI directly through Node. They do
+not require `pnpm link --global`, which some pnpm versions reject
+([#304](https://github.com/puritysb/AgentDeck/pull/304)). Registering the daemon
+creates and starts its per-user Scheduled Task; it does **not** put an
+`agentdeck` command on `PATH`. The task keeps running after this terminal closes
+and starts again at logon. Keep the checkout in place because the task refers
+to its built CLI; after moving it or changing Node installations, rerun the
+installation command from the new location.
+
+For a normal installation without a source checkout, use
+`npx @agentdeck/setup`; that installer also makes the `agentdeck` command
+available. Daemon installation does not by itself diagnose a Stream Deck
+plugin that remains OFFLINE; that connectivity report is tracked separately
+in [#303](https://github.com/puritysb/AgentDeck/issues/303).
+
 ## Run
 
+From the repository root:
+
 ```powershell
-agentdeck daemon install # hooks + per-user Scheduled Task
-# In another terminal:
-claude                  # supported default: normal observed launch
-agentdeck claude        # legacy managed ConPTY compatibility path
+node bridge/dist/cli.js status # verify the installed daemon
+claude                        # supported default: normal observed launch
 ```
+
+For the legacy managed ConPTY path, use `node bridge/dist/cli.js claude`.
+Every `agentdeck <args>` command elsewhere in this documentation can be run as
+`node bridge/dist/cli.js <args>` from this checkout.
 
 ## Windows differences (intentional)
 

@@ -61,14 +61,15 @@ final class ProviderRailEvaluatorTests: XCTestCase {
         XCTAssertNil(row.subtitle)
     }
 
-    func testClaudeExpiredUsageExplainsMissingGaugeWithoutClaimingSessionFailure() {
+    func testClaudeExpiredUsageStaysInDiagnosticsWithoutClaimingSessionFailure() {
         var s = DashboardState()
         s.oauthConnected = true
         s.usageStale = true
         s.tokenStatus = "expired"
         let row = ProviderRailEvaluator.claude(state: s, hooksInstalled: true)
         XCTAssertEqual(row.status, .ok)
-        XCTAssertEqual(row.subtitle, "Usage authorization expired")
+        XCTAssertNil(row.subtitle)
+        XCTAssertEqual(s.claudeUsageIssue, "Usage authorization expired")
         s.usageStale = false
         s.tokenStatus = "valid"
         XCTAssertNil(ProviderRailEvaluator.claude(state: s, hooksInstalled: true).subtitle)

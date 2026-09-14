@@ -88,7 +88,7 @@ mode.
 |---|---|---|---|---|
 | TRMNL 7.5" / Seeed TRMNL 7.5 | **Push**; USB-powered and continuously reachable | Not used by current firmware | None (no microphone) | `KEY1` cycles durable pages; `KEY2` returns to the live AgentDeck board |
 | RockBase NM-EPD-420 | **Pull** by default; explicit tethered configuration may promote it to push | `BOOT` / GPIO0 | `BOOT` hold remains reserved until the ES8311 capture path is enabled. Playback is live: the codec answers at 0x18 (probed 2026-08-30) and the board advertises `audio_out`. | Home: `BOOT` opens/pages, `USER` returns home. Decision: `BOOT` advances the highlighted option; `USER` selects, then confirms it. |
-| LilyGo T5 ePaper S3 / EPD47 | **Pull** | User button / GPIO21; `BOOT` / GPIO0 is recovery fallback. Touch IRQ GPIO47 is not a wake source without a hardware reroute. | None (no onboard microphone) | Detected touch selects tabs/options; the owned unit answers at 0x5D once its P6 FPC is seated. Tabs render as plates and decision options drop their numeric prefix when a controller is present. If touch is unavailable, GPIO21 cycles `FOCUS → QUEUE → LIMITS`. |
+| LilyGo T5 ePaper S3 / EPD47 | **Pull** | User button / GPIO21; `BOOT` / GPIO0 is recovery fallback. Touch IRQ GPIO47 is not a wake source without a hardware reroute. | None (no onboard microphone) | Detected touch opens work/usage details from the stable home and selects options; the owned unit answers at 0x5D once its P6 FPC is seated. Decision options drop their numeric prefix when a controller is present. Without touch, a short GPIO21 press selects a home target; a hold opens it. In a detail, a short GPIO21 press returns home; holding a focused actionable request opens its decision. Decision input remains tap-next / hold-confirm. |
 
 On pull boards, a physical primary/wake action starts the eight-minute
 interactive lease. Outside that lease, `DECISION` and `ANSWER` are ineligible;
@@ -97,12 +97,25 @@ reserves a fresh `BOOT` hold for PTT but does not yet enable the ES8311 capture
 driver. Until capture lands, the retained footer documents only implemented
 short-press controls and does not advertise a non-working talk action.
 
-EPD47 specializes `GLANCE` into three touch tabs without changing the face
-priority contract: no active durable work selects `LIMITS`, one attention or
-processing session selects `FOCUS`, and two or more select `QUEUE`. A tab tap
-holds that page for eight minutes; expiry returns to the automatic selection.
-The controller is advertised as a `touch` capability only after a successful
-boot probe. GPIO21 becomes a deterministic tab-cycle fallback when touch is absent.
+EPD47 presents one stable `GLANCE` home: work and recent durable results on
+its left, actual usage windows and subscriptions on its right. Session counts
+never switch pages. Tapping work, all-work, or usage opens a detail for eight
+minutes; explicit Home or hold expiry returns to the same home. Work-list taps
+bind to the session identity painted in that row, not its current sort index.
+Only actual structured options admit an automatic decision face. Option sends
+are rejected if the current decision identity/content differs from the painted
+request. Displayed-page holds retain the existing face priority boundary.
+
+NM uses the full width for one durable summary, with a compact census above it
+and actual usage windows below. Up to four windows reclaim space from the
+summary/recent-result band rather than overprinting it. The standard tri-color
+SKU retains the stock full-color refresh waveform and coalescing policy; it
+never uses the EPD47 touch navigation or experimental BW partial updates.
+
+TRMNL reserves a readable subscription column alongside actual quota windows.
+A plan with no quota windows gets a subscription row rather than tiny corner
+text. Dates retain the producer's meaning; a date alone does not authorize a
+renewal label or an invented subscription-period progress bar.
 
 The NM audio path is deliberately half-duplex at the product level: codec and
 speaker amplifier stay disabled during capture, then may be enabled for a short

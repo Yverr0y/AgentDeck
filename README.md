@@ -153,7 +153,7 @@ to the same daemon and can be added in any order:
 | **iOS / Android AgentDeck Companion** | iPhone/iPad use the same [App Store listing](https://apps.apple.com/app/id6784822497); Android installs from [Google Play](https://play.google.com/store/apps/details?id=dev.agentdeck). Both pair with a daemon over the LAN. |
 | **AgentDeck ESP32 Dashboard Firmware** | Flash LCD panels and the TRMNL 7.5" e-ink from [**puritysb.github.io/AgentDeck/flash/**](https://puritysb.github.io/AgentDeck/flash/) or run `agentdeck esp32 flash <board>`. After the first USB flash, supported boards update over Wi-Fi OTA. |
 | **Official Stream Deck integration** | Install for Stream Deck / Mini / XL / Plus / + XL from the [Elgato Marketplace](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464). |
-| **Official Ulanzi integration** | Install from the [Ulanzi Studio Marketplace](https://ugc.ulanzistudio.com/contentView/1141). Version 1.0.3 is live for D200H; 1.0.4 is under review and adds D200X LCD-key support. D200X encoders remain unsupported. See the [listing/review status](marketplace/ulanzi/LISTING.md) or [build it yourself](plugin-ulanzi/VERIFY.md). |
+| **Official Ulanzi integration** | Install from the [Ulanzi Studio Marketplace](https://ugc.ulanzistudio.com/contentView/1141). Version 1.2.0 is live; 1.3.0 was submitted for review on 2026-09-12. Both cover D200H keys and D200X LCD keys. D200X encoders remain unsupported. See the [listing/review status](marketplace/ulanzi/LISTING.md) or [build it yourself](plugin-ulanzi/VERIFY.md). |
 | **Official device integrations** | Pixoo64, TC001, Timebox, and iDotMatrix are driven by the daemon — see [docs/devices.md](docs/devices.md). |
 
 > **Android, Stream Deck, and Ulanzi are companion surfaces.** They talk to the
@@ -356,27 +356,27 @@ builds on [Releases](https://github.com/puritysb/AgentDeck/releases).
 
 Any two numeric `X.Y.Z` artifacts are mutually compatible exactly when their
 major `X` matches — a 1.0 device keeps working against a 1.2 daemon and vice
-versa. The table records each artifact's version in the current coordinated
-cut; matching minors are a coincidence of this round, never a requirement.
+versa. The table records publicly available versions; store review candidates are
+identified separately below. Matching minor versions are never a requirement.
 
-| Artifact | Current cut | Connects to |
+| Artifact | Publicly available | Connects to |
 |---|---|---|
-| npm CLI + daemon (`@agentdeck/*`) | 1.2.0 | — (the hub every client dials) |
-| Apple app (macOS · iPhone/iPad) | 1.2.0 | its built-in Swift daemon, or any 1.x daemon |
-| Android app | 1.2.0 | any 1.x daemon |
+| npm CLI + daemon (`@agentdeck/*`) | 1.3.3 | — (the hub every client dials) |
+| Apple app (macOS · iPhone/iPad) | 1.3.0 | its built-in Swift daemon, or any 1.x daemon |
+| Android app | 1.3.1 APK / Play | any 1.x daemon |
 | Stream Deck plugin | 1.2.0 | any 1.x daemon |
 | Ulanzi D200H/D200X plugin | 1.2.0 | any 1.x daemon |
-| ESP32 firmware (12 boards) | 1.2.0 | any 1.x daemon (serial or Wi-Fi) |
+| ESP32 firmware (12 boards) | 1.3.0 | any 1.x daemon (serial or Wi-Fi) |
 
 | Channel | Tag | Status |
 |---|---|---|
-| **npm** — `@agentdeck/setup` | `npm-v*` | [1.2.0](https://github.com/puritysb/AgentDeck/releases/tag/npm-v1.2.0) live on the registry — all four packages (`shared`, `hooks`, `bridge`, `setup`) report exact version 1.2.0, read from the registry itself on 2026-09-02 (OIDC trusted publish, registry-verified in the release workflow) |
-| **Apple App Store** — macOS + iPhone/iPad | `apple-v*` | **1.2.0 live on both platforms** (build 5801). iPhone/iPad released 2026-09-02T07:12Z per Apple's lookup API; [macOS](https://apps.apple.com/app/id6784822497?platform=mac) released 2026-09-04 (the public Mac page read `Version 1.2.0 · 5h ago` at 2026-09-05T01:41Z, while the iPhone page read `2d ago` — the two platforms' dates are read separately) after a same-day rejection on 2026-09-02 (2.3.10 What's New named Android; 5.2.5 asked for physical-Mac proof of the WeatherKit mark — root cause was the App ID's WeatherKit App Services toggle, fixed without a new binary, see RELEASING.md) and a resubmission on 2026-09-03. `apple-v1.1.0` produced no build (GitHub-side outage window on 2026-08-26); its content ships in 1.2.0 |
-| **Elgato Marketplace** — Stream Deck plugin | `streamdeck-v*` | [1.2 live](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464) — approved 2026-09-02T09:31Z, released by hand from Maker Console on 2026-09-03 KST — the payload stamps `publish_date: 2026-09-02T21:39:41Z` (Versions tab → `Release`; the row flipped to *Published* with no confirmation step). The DRM review loop was skipped on the owner's call; if an encoder misbehaves on the Marketplace build, that is the first thing to check |
-| **Ulanzi Marketplace** — D200H / D200X plugin | `ulanzi-v*` | [1.2.0 live](https://ugc.ulanzistudio.com/contentView/1141) — the public listing reads `Version：1.2.0` (measured 2026-09-03; the page is client-rendered, so read it in a browser, not with curl). It went from *Edit review work* on 2026-09-02 to published within a day, replacing 1.0.3 — the first Ulanzi update since the initial listing, after 1.0.4 and 1.0.5 spent their whole lives in review ([details](marketplace/ulanzi/LISTING.md)) |
-| **GitHub Release** — Android APK | `android-v*` | [1.2.0](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.2.0) — versionCode 15, published 2026-09-02 |
-| **GitHub Release** — ESP32 firmware | `esp32-v*` | [1.2.0](https://github.com/puritysb/AgentDeck/releases/tag/esp32-v1.2.0) — 62 assets published 2026-09-02: for each of the 12 boards in `shared/src/esp32-boards.ts` (EPD47 and NM-EPD-420 join here) a merged factory image written at `0x0` plus the four loose parts, and a `manifest.json` + `SHA256SUMS.txt` whose sizes and hashes are computed from the artifacts |
-| **Google Play** — Android AAB | `android-v*` | [1.2.0 live](https://play.google.com/store/apps/details?id=dev.agentdeck) (versionCode 15, published 2026-09-02 at 100% across 177 countries — the console's production track reads `최신 출시 버전: 15 (1.2.0)` and the public page's *Updated on* is Sep 2, 2026). Listing copy, assets and the console runbook are in [marketplace/play/](marketplace/play/LISTING.md) |
+| **npm** — `@agentdeck/setup` | `npm-v*` | [1.3.3](https://github.com/puritysb/AgentDeck/releases/tag/npm-v1.3.3) live — all four packages (`shared`, `hooks`, `bridge`, `setup`) and `latest` independently registry-verified on 2026-09-13. Fixes protected registry-file reads blocking agent startup. Installed Swift-only, CLI-only and coexistence checks passed ([delivery record](https://github.com/puritysb/AgentDeck/issues/314#issuecomment-5653078997)). |
+| **Apple App Store** — macOS + iPhone/iPad | `apple-v*` | **1.3.0 live; 1.3.2 (6801) submitted on both platforms on 2026-09-13.** App Store Connect API verifies `WAITING_FOR_REVIEW` and `AFTER_APPROVAL` for each platform. English, Korean and Japanese notes saved; existing processed screenshots and previews retained. 1.3.1 (6701) was superseded before submission. |
+| **Elgato Marketplace** — Stream Deck plugin | `streamdeck-v*` | [1.2 live](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464); **1.3 pending review** since 2026-09-12. The manifest is `1.3.0.0`; Elgato trims trailing zeros in the UI. Official CI artifact submitted with SDK 3 and DRM enabled; publication after approval is authorized without an additional DRM encoder gate; automatic publication remains off because the pending-review console did not save the setting change ([record](marketplace/elgato/LISTING.md)). |
+| **Ulanzi Marketplace** — D200H / D200X plugin | `ulanzi-v*` | [1.2.0 live](https://ugc.ulanzistudio.com/contentView/1141); **1.3.0 submitted for review** on 2026-09-12. Reopened the submitted record to verify all seven locale pairs, supported devices/OS flags and Dial off; downloaded CDN ZIP matches the local package ([record](marketplace/ulanzi/LISTING.md)). |
+| **GitHub Release** — Android APK | `android-v*` | [1.3.1](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.3.1) — versionCode 17, published 2026-09-13. |
+| **GitHub Release** — ESP32 firmware | `esp32-v*` | [1.3.0](https://github.com/puritysb/AgentDeck/releases/tag/esp32-v1.3.0) — 62 assets published 2026-09-13 for all 12 boards. All 60 firmware binaries were downloaded and verified against SHA256SUMS and manifest size/hash fields. Adds TTGO Usage default, T-Embed approval queue and T-Display-S3-Pro pinned-session/waiting-list interaction. |
+| **Google Play** — Android AAB | `android-v*` | [1.3.1 live](https://play.google.com/store/apps/details?id=dev.agentdeck) — versionCode 17, published 2026-09-13 at 21:08 KST after review. Console reports “Available on Google Play”; 100% rollout and 177-country coverage retained. Listing assets and runbook: [marketplace/play/](marketplace/play/LISTING.md). |
 
 ---
 

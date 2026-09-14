@@ -647,8 +647,9 @@ void smartTextAt(int16_t x, int16_t y, const char* s, const GFXfont* f) {
 
 // Fit-with-ellipsis that is UTF-8 safe and font-smart.
 void smartFitText(char* out, size_t outLen, const char* s, int16_t maxW, const GFXfont* f) {
-    if (isAsciiOnly(s)) { fitText(out, outLen, s, maxW, f); return; }
+    if (outLen == 0) return;
     strncpy(out, s, outLen - 1); out[outLen - 1] = '\0';
+    Utf8::singleLine(out);
     if (smartWidth(out, f) <= maxW) return;
     size_t len = strlen(out);
     while (len > 1) {
@@ -906,35 +907,24 @@ void drawBrandHeader(const Snap& s, const AgentDeckEink::Layout& layout) {
         textRight(chipX - 14, 38, cnt, countFont);
     }
 
-#if defined(AGENTDECK_TRMNL_75_UI)
-    // These are the only two front-panel actions. Keep them visible on every
-    // dashboard face instead of relying on a manual or hidden button cycle.
-    textAt(286, 58, "KEY1 VIEW  |  KEY2 HOME", CLASSIC_FONT);
-#endif
-
     // Double rule (print-style)
     display.fillRect(0, 62, W, 2, GxEPD_BLACK);
     display.drawFastHLine(0, 66, W, GxEPD_BLACK);
 }
 
-// One gauge block: "5H [▓▓▓░░] 42% · 1h 23m". Bar kept narrow (140px) so the
-// value+reset text breathes before the next block starts.
-void drawGaugeBar(int16_t x, int16_t y, const char* tag, float pct, const char* reset) {
-    constexpr int16_t barW = 140, barH = 16;
-    textAt(x, y + barH - 2, tag, &FreeSansBold9pt7b);
-    int16_t bx = x + 30;
+// Reserve label/value space, then let the bar fill its available window slot.
+void drawGaugeBar(int16_t x, int16_t y, const char* tag, float pct, const char* reset, int16_t slotW) {
+    constexpr int16_t barH = 12;
+    const int16_t barW = max((int16_t)24, (int16_t)(slotW - 92));
+    textAt(x, y + 13, tag, &FreeSansBold9pt7b);
+    const int16_t bx = x + 30;
     display.drawRect(bx, y, barW, barH, GxEPD_BLACK);
-    char val[36];
-    if (pct >= 0.0f) {
-        float p = pct > 100.0f ? 100.0f : pct;
-        int fill = (int)((barW - 4) * p / 100.0f);
-        display.fillRect(bx + 2, y + 2, fill, barH - 4, GxEPD_BLACK);
-        if (reset[0]) snprintf(val, sizeof(val), "%d%% · %s", (int)pct, reset);
-        else snprintf(val, sizeof(val), "%d%%", (int)pct);
-    } else {
-        strncpy(val, "--", sizeof(val));
-    }
-    textAt(bx + barW + 8, y + barH - 2, val, &FreeSans9pt7b);
+    const float p = min(100.0f, max(0.0f, pct));
+    display.fillRect(bx + 2, y + 2, (int16_t)((barW - 4) * p / 100.0f), barH - 4, GxEPD_BLACK);
+    char val[12]; snprintf(val, sizeof(val), "%d%%", (int)p);
+    textAt(bx + barW + 6, y + 13, val, &FreeSans9pt7b);
+    if (reset[0]) textAt(bx, y + 30, reset, &FreeSans9pt7b);
+
 }
 
 // Provider row (28px): mini glyph + label (+ subscription plan sub-line in the
@@ -946,19 +936,24 @@ void drawGaugeBar(int16_t x, int16_t y, const char* tag, float pct, const char* 
 bool drawProviderUsage(int16_t y, const char* agentType, const char* label,
                        const char* plan, float p5, const char* r5,
                        float p7, const char* r7, bool stale) {
-    if (p5 < 0.0f && p7 < 0.0f) return false;
+    if (p5 < 0.0f && p7 < 0.0f && !plan[0]) return false;
     drawAgentGlyph(agentType, 14, y + 2, 22);
     char lbl[24];
     snprintf(lbl, sizeof(lbl), "%s%s", label, stale ? "*" : "");
     textAt(44, y + 13, lbl, &FreeSansBold9pt7b);
-    if (plan[0]) {
-        char pf[24];
-        fitText(pf, sizeof(pf), plan, 100, CLASSIC_FONT);
-        textAt(44, y + 26, pf, CLASSIC_FONT);  // "Max 20x ~7/12" under the label
+    // A readable subscription column shares the width with actual windows.
+    const int16_t planW = plan[0] ? 190 : 0;
+    const int16_t planX = W - 12 - planW;
+    if (planW) {
+        display.drawFastVLine(planX, y + 2, 28, GxEPD_BLACK);
+        char fitted[40];
+        smartFitText(fitted, sizeof(fitted), plan, planW - 20, &FreeSans9pt7b);
+        smartTextAt(planX + 12, y + 20, fitted, &FreeSans9pt7b);
     }
     int16_t slotX = 150;
-    if (p5 >= 0.0f) { drawGaugeBar(slotX, y + 2, "5H", p5, r5); slotX = 490; }
-    if (p7 >= 0.0f) drawGaugeBar(slotX, y + 2, "7D", p7, r7);
+    const int16_t slotW = (planX - slotX - 8) / ((p5 >= 0 && p7 >= 0) ? 2 : 1);
+    if (p5 >= 0.0f) { drawGaugeBar(slotX, y + 2, "5H", p5, r5, slotW); slotX += slotW; }
+    if (p7 >= 0.0f) drawGaugeBar(slotX, y + 2, "7D", p7, r7, slotW);
     return true;
 }
 
@@ -966,19 +961,26 @@ bool drawProviderUsage(int16_t y, const char* agentType, const char* label,
 // above). This count feeds the shared geometry engine used by TRMNL 7.5" + XTeink.
 static int usageRowCount(const Snap& s) {
     int n = 0;
-    if (s.fiveH >= 0.0f || s.sevenD >= 0.0f) n++;
-    if (s.codexP >= 0.0f || s.codexS >= 0.0f) n++;
+    if (s.fiveH >= 0.0f || s.sevenD >= 0.0f || s.claudePlan[0]) n++;
+    if (s.codexP >= 0.0f || s.codexS >= 0.0f || s.codexPlan[0]) n++;
+    if (s.agPlan[0]) n++;
     return n;
 }
 
+static uint8_t dashboardActivityRows(const Snap& s) {
+    if (!s.bridgeConnected) return 0;
+    // Preserve two readable card rows when several sessions share the page.
+    return min(s.tickerCount, (uint8_t)(s.rowCount > 2 ? 2 : Snap::TICKER_ROWS));
+}
+
 AgentDeckEink::Layout dashboardLayout(const Snap& s) {
-    uint8_t activityRows = s.bridgeConnected && s.tickerCount > 0 ? s.tickerCount : 1;
+    uint8_t activityRows = dashboardActivityRows(s);
     return AgentDeckEink::makeLayout(AgentDeckEink::LayoutInput{
         W, H,
         68,  // product header + double rule
         0,   // TRMNL 7.5" has no persistent button-hint bar
-        28, 21,
-        (uint8_t)usageRowCount(s), activityRows,
+        36, 28,
+        (uint8_t)usageRowCount(s), (uint8_t)(activityRows > 0 ? activityRows + 1 : 0),
         s.rowCount, 2,
     });
 }
@@ -988,39 +990,27 @@ AgentDeckEink::Layout dashboardLayout(const Snap& s) {
 // 800x480 offsets), and X3/X4 consume that same band contract through the
 // mirrored geometry header.
 //
-// What is NOT responsive is the horizontal composition *inside* a band: the
-// wordmark, glyph, label and the two gauge slots below use absolute x constants
-// tuned for this panel's 800px width (drawBrandHeader, drawProviderUsage). That
-// is fine — this renderer only ever runs on TRMNL 7.5"'s 800x480 — but it means
-// rendering this file at another width is not a preview of that panel. The
-// esp32/sim `xteink_x3`/`xteink_x4` diagnostic envs do exactly that to inspect
-// the shared *geometry*; their squashed header and off-panel second gauge are
-// this renderer's constants, not a fault in the layout SSOT and not what the
-// XTeink fork draws (it has its own GfxRenderer). Measured 2026-08-05: bands
-// are clean at 800x480 / 528x792 / 480x800; the 2nd gauge slot (x=490, ~288px
-// wide) simply does not exist on a 480px panel. Make these width-derived only
-// when a second e-ink size actually ships — it moves TRMNL 7.5"'s shipped pixels.
+// Available usage windows divide the remaining row width equally.
 void drawUsageFooter(const Snap& s, bool showIdentity, const AgentDeckEink::Layout& layout) {
     if (!layout.usage.empty()) {
         display.fillRect(0, layout.usage.y, W, 2, GxEPD_BLACK);
         int16_t y = layout.usage.y + layout.gap;
         bool any = false;
         if (drawProviderUsage(y, "claude-code", "CLAUDE", s.claudePlan, s.fiveH, s.fiveReset,
-                              s.sevenD, s.sevenReset, s.usageStale)) { y += 28; any = true; }
+                              s.sevenD, s.sevenReset, s.usageStale)) { y += 36; any = true; }
         if (drawProviderUsage(y, "codex-cli", "CODEX", s.codexPlan, s.codexP, s.codexPReset,
-                              s.codexS, s.codexSReset, false)) { y += 28; any = true; }
+                              s.codexS, s.codexSReset, false)) { y += 36; any = true; }
+        if (s.agPlan[0]) {
+            textAt(44, y + 20, "SUBSCRIPTION", &FreeSansBold9pt7b);
+            smartTextAt(240, y + 20, s.agPlan, &FreeSans9pt7b);
+            any = true;
+        }
         if (!any) textAt(16, y + 16, "usage: waiting for data", &FreeSans9pt7b);
     }
 
     // AGY subscription chip — smallest possible footprint (classic font,
     // bottom-right corner), only when the daemon resolves the account.
     int16_t agW = 0;
-    if (s.agPlan[0]) {
-        char agf[28];
-        fitText(agf, sizeof(agf), s.agPlan, 130, CLASSIC_FONT);
-        agW = textWidth(agf, CLASSIC_FONT) + 14;
-        textRight(W - layout.pad, H - 6, agf, CLASSIC_FONT);
-    }
     if (showIdentity) {
         // Searching screen only: build identity (flash verification aid)
         char tag[64];
@@ -1035,10 +1025,11 @@ void drawUsageFooter(const Snap& s, bool showIdentity, const AgentDeckEink::Layo
     // were still connected. Only the bottom row shares its width with the AGY
     // chip / identity tag pinned at y≈474.
     if (s.bridgeConnected && s.tickerCount > 0) {
-        constexpr int16_t rowH = 21;
-        for (uint8_t i = 0; i < s.tickerCount; i++) {
-            int16_t ty = layout.activity.y + 16 + (int16_t)i * rowH;
-            bool bottomRow = (i == s.tickerCount - 1);
+        textAt(layout.pad, layout.activity.y + 16, "RECENT", &FreeSansBold9pt7b);
+        constexpr int16_t rowH = 28;
+        for (uint8_t i = 0; i < dashboardActivityRows(s); i++) {
+            int16_t ty = layout.activity.y + 44 + (int16_t)i * rowH;
+            bool bottomRow = (i == dashboardActivityRows(s) - 1);
             textAt(layout.pad, ty, s.tickerTime[i], &FreeSansBold9pt7b);
             char tf[108];
             int16_t textX = layout.pad + 58;
@@ -1252,14 +1243,7 @@ enum class PaperFace : uint8_t { Glance, Decision, Answer, Digest, Roster };
 PaperFace renderFace = PaperFace::Glance;
 PaperFace manualFace = PaperFace::Glance;
 #if defined(AGENTDECK_EPD47_UI)
-AgentDeckEpd47::Page epd47Page = AgentDeckEpd47::Page::Limits;
-// Hysteresis for the autonomous tab. A page swap costs a retained-frame erase
-// plus a complete draw, so it must be rarer than a repaint — settle at two
-// repaint windows, which guarantees the panel actually shows a page's content
-// before it can change again. See AgentDeckEpd47::arbitratePage for the
-// measurement behind this.
-constexpr uint32_t EPD47_PAGE_SETTLE_MS = 2UL * MIN_REFRESH_INTERVAL_MS;
-AgentDeckEpd47::PageArbiter epd47Arbiter;
+AgentDeckEpd47::Page epd47Page = AgentDeckEpd47::Page::Home;
 // Post-interaction anti-ghost sweep (see epd47_refresh_policy.h). 12s of touch
 // silence: longer than the gap between taps in one session, well under the
 // 60s ambient interval — chosen, not measured.
@@ -1267,8 +1251,12 @@ constexpr uint32_t EPD47_POST_TOUCH_SWEEP_QUIET_MS = 12000;
 uint32_t epd47LastTouchMs = 0;
 bool epd47PostTouchSweepDue = false;
 uint32_t epd47PageHoldUntilMs = 0;
-AgentDeckEpd47::Page lastPhysicalEpd47Page = AgentDeckEpd47::Page::Limits;
+AgentDeckEpd47::Page lastPhysicalEpd47Page = AgentDeckEpd47::Page::Home;
 bool physicalEpd47PageReady = false;
+// Reused identity buffers bind taps to the rows actually painted, not a reordered snapshot.
+char epd47FocusedId[32] = {};
+char epd47PaintedRows[7][32] = {};
+uint8_t epd47HomeSelection = 0;
 uint8_t epd47DecisionSelection = 0;
 uint32_t epd47SelectionDecisionHash = 0;
 #if defined(BOARD_LILYGO_EPD47)
@@ -1379,10 +1367,13 @@ int primarySession(const Snap& s) {
     return i >= 0 ? i : (s.rowCount ? 0 : -1);
 }
 
+uint32_t displayedDecisionHash = 0;
+
 uint32_t decisionHash(const Snap& s) {
     uint32_t h = 2166136261u;
     for (uint8_t i = 0; i < s.rowCount; i++) {
         if (!isAwaiting(s.rows[i].state)) continue;
+        h = fnvStr(h, s.rows[i].id);
         h = fnvStr(h, s.rows[i].name);
         h = fnvStr(h, s.rows[i].state);
         h = fnvStr(h, s.rows[i].question);
@@ -1393,7 +1384,8 @@ uint32_t decisionHash(const Snap& s) {
 
 bool sendDecisionSelection(const Snap& s, uint8_t selection) {
     const int awaiting = primarySession(s, AgentDeckEink::StatusKind::Attention);
-    if (awaiting < 0 || s.optionCount == 0 || selection >= s.optionCount) return false;
+    if (awaiting < 0 || s.optionCount == 0 || selection >= s.optionCount ||
+        !displayedDecisionHash || decisionHash(s) != displayedDecisionHash) return false;
     char command[112];
     snprintf(command, sizeof(command),
              "{\"type\":\"select_option\",\"index\":%u,\"sessionId\":\"%s\"}",
@@ -1570,26 +1562,10 @@ void drawEp47Chrome(const Snap& s, AgentDeckEpd47::Page selected) {
     drawAgentDeckMark(20, 14, 38);
     textAt(72, 45, "AgentDeck", &FreeSansBold18pt7b);
 
-    for (uint8_t i = 0; i < EPD47_TAB_COUNT; i++) {
-        const auto page = static_cast<AgentDeckEpd47::Page>(i);
-        const int16_t x = tabX + i * tabW;
-        const char* label = AgentDeckEpd47::pageName(page);
-        const int16_t tw = textWidth(label, &FreeSansBold9pt7b);
-        // A tappable tab has to look like a target. Three faint plates say
-        // "these are controls" without adding a stroke that competes with the
-        // selected tab's underline; on a unit with no touch controller the tabs
-        // are not targets at all, so the plates are omitted there.
-        if (epd47TouchAvailable())
-            display.fillRoundRect(x + 6, 18, tabW - 12, 34, 5, EINK_INK_TINT);
-        {
-            // The selected tab is the only black label; the other two recede.
-            // On a 1-bit panel this had to be carried by the underline alone.
-            InkScope ink(page == selected ? GxEPD_BLACK : EINK_INK_MUTED);
-            textAt(x + (tabW - tw) / 2, 42, label, &FreeSansBold9pt7b);
-        }
-        if (page == selected) display.fillRect(x + 14, 58, tabW - 28, 6, GxEPD_BLACK);
+    if (selected != AgentDeckEpd47::Page::Home || renderFace != PaperFace::Glance) {
+        display.drawRoundRect(EPD47_TAB_X, 14, EPD47_TAB_W, 48, 4, GxEPD_BLACK);
+        textAt(EPD47_TAB_X + 24, 45, "HOME", &FreeSansBold12pt7b);
     }
-
     // Exception-based, like the paper header: silence means healthy.
     if (!s.bridgeConnected) {
         textRight(W - 20, 42, "OFFLINE", &FreeSansBold9pt7b);
@@ -1597,8 +1573,7 @@ void drawEp47Chrome(const Snap& s, AgentDeckEpd47::Page selected) {
     display.drawFastHLine(20, headerH, W - 40, EINK_INK_RULE);
 }
 
-void drawEp47Footer(const Snap& s) {
-    constexpr int16_t y = 492;
+void drawEp47Footer(const Snap& s, int16_t y = 492) {
     display.drawFastHLine(20, y - 14, W - 40, EINK_INK_RULE);
     // No arbitration chrome. "HELD / 8m · QUEUE READY" narrated the page
     // arbiter's internal state — a question nobody asked — and collided with
@@ -1612,10 +1587,12 @@ void drawEp47Footer(const Snap& s) {
     // edge. Bold 9pt in full black is the same weight the QUEUE state column
     // reads at across a desk, and two lines of it fit with real gaps —
     // baselines 498/520 leave the rule (478) and the edge (540) alone.
-    const uint8_t tickerLines = s.tickerCount > 1 ? 2 : s.tickerCount;
+    const bool spacious = y < 492;
+    if (spacious) textAt(20, y + 6, "RECENT", &FreeSansBold9pt7b);
+    const uint8_t tickerLines = min(s.tickerCount, (uint8_t)(spacious ? 3 : 2));
     for (uint8_t ti = 0; ti < tickerLines; ti++) {
         char event[116];
-        const int16_t lineY = y + 6 + (int16_t)ti * 22;
+        const int16_t lineY = y + (spacious ? 34 : 6) + (int16_t)ti * 22;
         smartFitText(event, sizeof(event), s.tickerText[ti],
                      ti == 0 ? 660 : (int16_t)(W - 40), &FreeSansBold9pt7b);
         smartTextAt(20, lineY, event, &FreeSansBold9pt7b);
@@ -1648,12 +1625,11 @@ void drawEp47Window(int16_t x, int16_t y, int16_t w, const char* label,
     textAt(x, y + 78, resetLine, &FreeSans9pt7b);
 }
 
-void drawEp47ProviderCard(int16_t x, const char* agentType, const char* name,
+void drawEp47ProviderCard(int16_t x, int16_t w, const char* agentType, const char* name,
                           const char* plan, float first, const char* firstReset,
                           float second, const char* secondReset, bool stale) {
     constexpr int16_t y = 104;
-    constexpr int16_t w = 444;
-    constexpr int16_t h = 356;
+    const int16_t h = first >= 0 && second >= 0 ? 356 : 244;
     display.drawRoundRect(x, y, w, h, 8, EINK_INK_RULE);
     drawAgentGlyph(agentType, x + 24, y + 24, 54);
     textAt(x + 96, y + 55, name, &FreeSansBold18pt7b);
@@ -1684,21 +1660,31 @@ void drawEp47ProviderCard(int16_t x, const char* agentType, const char* name,
 
 void drawEp47Limits(const Snap& s) {
     drawEp47Chrome(s, AgentDeckEpd47::Page::Limits);
-    drawEp47ProviderCard(24, "claude-code", "CLAUDE", s.claudePlan,
+    const bool claude = s.fiveH >= 0 || s.sevenD >= 0;
+    const bool codex = s.codexP >= 0 || s.codexS >= 0;
+    const int16_t cardW = claude && codex ? (W - 72) / 2 : W - 48;
+    if (claude) drawEp47ProviderCard(24, cardW, "claude-code", "CLAUDE", s.claudePlan,
                          s.fiveH, s.fiveReset, s.sevenD, s.sevenReset, s.usageStale);
-    drawEp47ProviderCard(492, "codex-cli", "CODEX", s.codexPlan,
+    if (codex) drawEp47ProviderCard(claude ? 48 + cardW : 24, cardW, "codex-cli", "CODEX", s.codexPlan,
                          s.codexP, s.codexPReset, s.codexS, s.codexSReset, false);
-    drawEp47Footer(s);
+    if (!claude && !codex) {
+        textAt(44, 180, "No usage limits available", &FreeSansBold18pt7b);
+        textAt(44, 220, "Usage appears here when your account reports a limit.", &FreeSans9pt7b);
+    }
+    const bool twoWindows = (s.fiveH >= 0 && s.sevenD >= 0) || (s.codexP >= 0 && s.codexS >= 0);
+    drawEp47Footer(s, twoWindows ? 492 : 380);
 }
 
 void drawEp47Focus(const Snap& s) {
     drawEp47Chrome(s, AgentDeckEpd47::Page::Focus);
-    const int i = primarySession(s);
+    int i = epd47FocusedId[0] ? -1 : primarySession(s);
+    for (uint8_t n = 0; n < s.rowCount; n++)
+        if (strcmp(epd47FocusedId, s.rows[n].id) == 0) { i = n; break; }
     if (i < 0) {
         drawAgentDeckMark(46, 148, 92);
         textAt(172, 188, "QUIET PAPER", &FreeSansBold18pt7b);
         InkScope ink(EINK_INK_BODY);
-        textAt(172, 224, "No active work. LIMITS is the automatic resting page.",
+        textAt(172, 224, "No active work. Return HOME for recent results.",
                &FreeSans9pt7b);
         drawEp47Footer(s);
         return;
@@ -1717,7 +1703,7 @@ void drawEp47Focus(const Snap& s) {
         ? (r.question[0] ? r.question
                          : (epd47TouchAvailable()
                              ? "Decision waiting. Tap this card to open it."
-                             : "Decision waiting. Press GPIO21 to open it."))
+                             : "Decision waiting. Hold GPIO21 to respond."))
         : (r.work[0] ? r.work : (r.activity[0] ? r.activity : "Work is in progress."));
     drawParagraph(154, top + 112, 520, 28, 5, body, &FreeSansBold12pt7b);
     if (r.tool[0] && !awaiting) {
@@ -1755,7 +1741,8 @@ void drawEp47Focus(const Snap& s) {
         drawMiniUsage(752, gaugeY, 174, "Claude", s.fiveH, 46);
         gaugeY += 48;
     }
-    if (s.codexP >= 0) drawMiniUsage(752, gaugeY, 174, "Codex", s.codexP, 46);
+    if (s.codexP >= 0 || s.codexS >= 0) drawMiniUsage(752, gaugeY, 174,
+        s.codexP >= 0 ? "Codex 5H" : "Codex 7D", s.codexP >= 0 ? s.codexP : s.codexS, 46);
     if (awaiting) {
         textAt(752, 430,
                epd47TouchAvailable() ? "TAP CARD · DECIDE" : "GPIO21 · DECIDE",
@@ -1799,8 +1786,10 @@ void drawEp47Queue(const Snap& s) {
     uint8_t order[MAX_ROWS];
     const uint8_t count = epd47ActiveOrder(s, order);
     const uint8_t shown = count < EPD47_QUEUE_ROWS ? count : EPD47_QUEUE_ROWS;
+    memset(epd47PaintedRows, 0, sizeof(epd47PaintedRows));
     for (uint8_t row = 0; row < shown; row++) {
         const RowSnap& r = s.rows[order[row]];
+        strncpy(epd47PaintedRows[row], r.id, sizeof(epd47PaintedRows[row]) - 1);
         const int16_t y = EPD47_QUEUE_TOP + row * (EPD47_QUEUE_ROW + EPD47_QUEUE_GAP);
         const bool awaiting = isAwaiting(r.state);
         // Zebra tint instead of a drawn card per row: seven outlined boxes read
@@ -1836,7 +1825,7 @@ void drawEp47Queue(const Snap& s) {
     if (shown == 0) {
         textAt(36, 168, "No active queue.", &FreeSansBold18pt7b);
         InkScope ink(EINK_INK_BODY);
-        textAt(36, 204, "LIMITS is the automatic resting page.", &FreeSans9pt7b);
+        textAt(36, 204, "Return HOME for usage and recent results.", &FreeSans9pt7b);
     } else if (count > shown) {
         char more[32]; snprintf(more, sizeof(more), "+%u MORE", (unsigned)(count - shown));
         InkScope ink(EINK_INK_MUTED);
@@ -1865,17 +1854,136 @@ void drawEp47Queue(const Snap& s) {
     drawEp47Footer(s);
 }
 
+// The home stays in place as sessions start/stop. Only explicit input opens details.
+void drawEp47Home(const Snap& s) {
+    drawEp47Chrome(s, AgentDeckEpd47::Page::Home);
+    constexpr int16_t split = 562, right = 590, rightW = 346;
+    display.drawFastVLine(split, 92, 414, EINK_INK_RULE);
+    textAt(24, 108, "WORK", &FreeSansBold9pt7b);
+    textAt(right, 108, "USAGE", &FreeSansBold9pt7b);
+    const int i = primarySession(s);
+    if (i >= 0) {
+        const auto& r = s.rows[i];
+        char name[64]; smartFitText(name, sizeof(name), r.name, 480, &FreeSansBold18pt7b);
+        smartTextAt(24, 148, name, &FreeSansBold18pt7b);
+        const char* body = r.work[0] ? r.work : r.activity[0] ? r.activity :
+            AgentDeckEink::classifyStatus(r.state) == AgentDeckEink::StatusKind::Processing ? "Working. Waiting for the next result." : "Standing by.";
+        drawParagraph(24, 181, 500, 26, 3, body, &FreeSansBold12pt7b);
+        textAt(24, 268, "Open work >", &FreeSans9pt7b);
+    } else {
+        textAt(24, 158, "No active work", &FreeSansBold18pt7b);
+    }
+    textAt(24, 312, "RECENT RESULTS", &FreeSansBold9pt7b);
+    for (uint8_t ti = 0; ti < min(s.tickerCount, (uint8_t)3); ti++) {
+        char event[116]; smartFitText(event, sizeof(event), s.tickerText[ti], 500, &FreeSans9pt7b);
+        smartTextAt(24, 346 + ti * 38, event, &FreeSans9pt7b);
+    }
+    if (s.rowCount > 1) textAt(24, 496, "All work >", &FreeSans9pt7b);
+    const int windowCount = (s.fiveH >= 0) + (s.sevenD >= 0) + (s.codexP >= 0) + (s.codexS >= 0);
+    int16_t y = 140;
+    auto provider = [&](const char* name, const char* plan, float a, const char* ar, float b, const char* br) {
+        if (a < 0 && b < 0 && !plan[0]) return;
+        textAt(right, y, name, &FreeSansBold12pt7b); y += 12;
+        auto window = [&](const char* label, float pct, const char* reset) {
+            if (windowCount <= 2) {
+                drawEp47Window(right, y, rightW, label, pct, reset);
+                y += 90;
+            } else {
+                textAt(right, y + 14, label, &FreeSansBold9pt7b);
+                char value[12]; snprintf(value, sizeof(value), "%d%%", (int)pct);
+                textRight(right + rightW, y + 14, value, &FreeSansBold9pt7b);
+                display.drawRect(right + 40, y + 2, rightW - 100, 12, GxEPD_BLACK);
+                display.fillRect(right + 42, y + 4, (int16_t)((rightW - 104) * min(100.0f, max(0.0f, pct)) / 100.0f), 8, GxEPD_BLACK);
+                if (reset[0]) textAt(right, y + 36, reset, &FreeSans9pt7b);
+                y += 52;
+            }
+        };
+        if (a >= 0) window("5H", a, ar);
+        if (b >= 0) window("7D", b, br);
+        if (plan[0]) { smartTextAt(right, y + 8, plan, &FreeSans9pt7b); y += 28; }
+        y += 22;
+    };
+    provider("CLAUDE", s.claudePlan, s.fiveH, s.fiveReset, s.sevenD, s.sevenReset);
+    provider("CODEX", s.codexPlan, s.codexP, s.codexPReset, s.codexS, s.codexSReset);
+    if (y == 140) { textAt(right, y, "No usage limits", &FreeSansBold12pt7b); y += 44; }
+    if (s.agPlan[0] && y < 470) smartTextAt(right, y, s.agPlan, &FreeSans9pt7b);
+    textAt(right, 496, "Usage details >", &FreeSans9pt7b);
+    if (!epd47TouchAvailable()) {
+        const char* choices[] = {"Work", "All work", "Usage"};
+        char hint[64]; snprintf(hint, sizeof(hint), ">%s  /  Tap next, hold open", choices[epd47HomeSelection]);
+        textAt(24, 530, hint, &FreeSans9pt7b);
+    }
+}
+
 void drawEp47Glance(const Snap& s) {
     switch (epd47Page) {
         case AgentDeckEpd47::Page::Focus: drawEp47Focus(s); break;
         case AgentDeckEpd47::Page::Queue: drawEp47Queue(s); break;
-        default:                          drawEp47Limits(s); break;
+        case AgentDeckEpd47::Page::Limits: drawEp47Limits(s); break;
+        default: drawEp47Home(s); break;
     }
 }
 #endif
 
 void drawGlanceFace(const Snap& s) {
     drawPaperHeader(s, PaperFace::Glance);
+#if defined(AGENTDECK_NM_UI)
+    {
+    uint8_t attention = 0, working = 0;
+    for (uint8_t n = 0; n < s.rowCount; n++) {
+        const auto kind = AgentDeckEink::classifyStatus(s.rows[n].state);
+        if (kind == AgentDeckEink::StatusKind::Attention) attention++;
+        if (kind == AgentDeckEink::StatusKind::Processing) working++;
+    }
+    char summary[48]; snprintf(summary, sizeof(summary), "%u needs you  /  %u working", attention, working);
+    { InkScope ink(attention ? accentColor() : GxEPD_BLACK);
+      textAt(14, 72, summary, &FreeSansBold9pt7b); }
+    const int windowCount = (s.fiveH >= 0) + (s.sevenD >= 0) + (s.codexP >= 0) + (s.codexS >= 0);
+    const int16_t usageTop = windowCount > 2 ? 158 : 192;
+    const int i = primarySession(s);
+    if (i >= 0) {
+        const auto& r = s.rows[i];
+        char name[64]; smartFitText(name, sizeof(name), r.name, W - 28, &FreeSansBold12pt7b);
+        smartTextAt(14, 104, name, &FreeSansBold12pt7b);
+        const char* body = r.work[0] ? r.work : r.activity[0] ? r.activity :
+            AgentDeckEink::classifyStatus(r.state) == AgentDeckEink::StatusKind::Processing ? "Working. Waiting for the next result." : "Standing by.";
+        drawParagraph(14, 128, W - 28, 23, windowCount > 2 ? 1 : 2, body, &FreeSans9pt7b);
+    } else textAt(14, 110, "No active work", &FreeSansBold12pt7b);
+    display.drawFastHLine(14, usageTop - 10, W - 28, GxEPD_BLACK);
+    int16_t y = usageTop;
+    auto window = [&](const char* label, float pct, const char* reset) {
+        if (pct < 0) return;
+        textAt(14, y + 14, label, &FreeSans9pt7b);
+        display.drawRect(114, y + 2, 136, 12, GxEPD_BLACK);
+        display.fillRect(116, y + 4, (int16_t)(132 * min(100.0f, max(0.0f, pct)) / 100.0f), 8, GxEPD_BLACK);
+        char value[12]; snprintf(value, sizeof(value), "%d%%", (int)pct);
+        textRight(306, y + 14, value, &FreeSans9pt7b);
+        textRight(W - 14, y + 12, reset, CLASSIC_FONT);
+        y += 23;
+    };
+    window("Claude 5H", s.fiveH, s.fiveReset);
+    window("Claude 7D", s.sevenD, s.sevenReset);
+    window("Codex 5H", s.codexP, s.codexPReset);
+    window("Codex 7D", s.codexS, s.codexSReset);
+    if (!windowCount) { textAt(14, y + 12, "No usage limits", &FreeSans9pt7b); y += 23; }
+    const char* plan = s.codexPlan[0] ? s.codexPlan : s.claudePlan[0] ? s.claudePlan : s.agPlan;
+    if (plan[0] && y < 266) {
+        if (s.claudePlan[0] && s.codexPlan[0]) {
+            char left[40], right[40];
+            smartFitText(left, sizeof(left), s.claudePlan, 176, &FreeSans9pt7b);
+            smartFitText(right, sizeof(right), s.codexPlan, 176, &FreeSans9pt7b);
+            smartTextAt(14, y + 14, left, &FreeSans9pt7b);
+            smartTextAt(210, y + 14, right, &FreeSans9pt7b);
+        } else smartTextAt(14, y + 14, plan, &FreeSans9pt7b);
+        y += 23;
+    }
+    if (s.tickerCount && y < 266) {
+        char recent[116]; smartFitText(recent, sizeof(recent), s.tickerText[0], W - 28, &FreeSans9pt7b);
+        smartTextAt(14, 285, recent, &FreeSans9pt7b);
+    }
+    return;
+    }
+#endif
     const int16_t top = W <= 420 ? 62 : 82;
     const int16_t pad = W <= 420 ? 12 : 22;
     const int16_t sideW = W <= 420 ? 104 : 190;
@@ -2478,7 +2586,23 @@ void update(float /*dt*/) {
         epd47DecisionButtonTracking = false;
         static Snap decisionSnap;
         snapshot(decisionSnap);
-        if (renderFace == PaperFace::Decision && !Input::touchReady()) {
+        if (renderFace == PaperFace::Glance && !Input::touchReady()) {
+            if (epd47Page == AgentDeckEpd47::Page::Focus && heldMs >= 850 &&
+                decisionSnap.optionCount > 0 && primarySession(decisionSnap, AgentDeckEink::StatusKind::Attention) >= 0 &&
+                (!epd47FocusedId[0] || strcmp(epd47FocusedId, decisionSnap.rows[primarySession(decisionSnap, AgentDeckEink::StatusKind::Attention)].id) == 0)) {
+                manualFace = PaperFace::Decision;
+            } else if (epd47Page != AgentDeckEpd47::Page::Home) epd47Page = AgentDeckEpd47::Page::Home;
+            else if (heldMs >= 850) {
+                epd47FocusedId[0] = '\0';
+                epd47Page = epd47HomeSelection == 0 ? AgentDeckEpd47::Page::Focus :
+                    epd47HomeSelection == 1 ? AgentDeckEpd47::Page::Queue : AgentDeckEpd47::Page::Limits;
+            } else epd47HomeSelection = (epd47HomeSelection + 1) % 3;
+            epd47PageHoldUntilMs = now + FACE_HOLD_MS;
+            faceHoldUntilMs = now + FACE_HOLD_MS;
+            interactiveLeaseUntilMs = now + FACE_HOLD_MS;
+            forceRefresh = true;
+            lastHash = 0;
+        } else if (renderFace == PaperFace::Decision && !Input::touchReady()) {
             if (decisionSnap.optionCount == 0) {
                 suppressedDecisionHash = lastDecisionHash;
                 manualFace = PaperFace::Glance;
@@ -2511,7 +2635,7 @@ void update(float /*dt*/) {
         bool keepEpd47PageHold = false;
         bool refreshAfterPress = true;
 #if defined(BOARD_LILYGO_EPD47)
-        if (key1Pressed && renderFace == PaperFace::Decision && !Input::touchReady()) {
+        if (key1Pressed && (renderFace == PaperFace::Decision || renderFace == PaperFace::Glance) && !Input::touchReady()) {
             // In button-only mode selection happens on release so a long hold
             // can confirm without also advancing the highlighted option.
             epd47DecisionButtonDownMs = now;
@@ -2584,7 +2708,7 @@ void update(float /*dt*/) {
             // becomes a deterministic tab-cycle fallback.
 #if defined(BOARD_LILYGO_EPD47)
             if (!Input::touchReady() && renderFace == PaperFace::Glance) {
-                const uint8_t next = ((uint8_t)epd47Page + 1u) % 3u;
+                const uint8_t next = ((uint8_t)epd47Page + 1u) % 4u;
                 epd47Page = static_cast<AgentDeckEpd47::Page>(next);
                 epd47PageHoldUntilMs = now + FACE_HOLD_MS;
                 manualFace = PaperFace::Glance;
@@ -2640,11 +2764,7 @@ void update(float /*dt*/) {
             const int offset = (touch.y - 298) % stride;
             const int awaiting = primarySession(touchSnap, AgentDeckEink::StatusKind::Attention);
             if (index >= 0 && index < touchSnap.optionCount && offset < optionH && awaiting >= 0) {
-                char command[112];
-                snprintf(command, sizeof(command),
-                         "{\"type\":\"select_option\",\"index\":%d,\"sessionId\":\"%s\"}",
-                         index, touchSnap.rows[awaiting].id);
-                Net::queueOutbound(command);
+                if (!sendDecisionSelection(touchSnap, (uint8_t)index)) return;
                 suppressedDecisionHash = decisionHash(touchSnap);
                 epd47Page = epd47AutomaticPage(touchSnap);
                 epd47PageHoldUntilMs = now + FACE_HOLD_MS;
@@ -2655,28 +2775,39 @@ void update(float /*dt*/) {
             }
         }
 
-        if (!handled && touch.y >= EPD47_TAB_TOP && touch.y <= EPD47_TAB_BOTTOM &&
-            touch.x >= EPD47_TAB_X &&
-            touch.x < EPD47_TAB_X + EPD47_TAB_W * EPD47_TAB_COUNT) {
-            const uint8_t tab = (uint8_t)((touch.x - EPD47_TAB_X) / EPD47_TAB_W);
-            epd47Page = static_cast<AgentDeckEpd47::Page>(
-                tab < EPD47_TAB_COUNT ? tab : EPD47_TAB_COUNT - 1);
-            epd47PageHoldUntilMs = now + FACE_HOLD_MS;
+        if (!handled && touch.y >= 14 && touch.y <= 62 &&
+            touch.x >= EPD47_TAB_X && touch.x < EPD47_TAB_X + EPD47_TAB_W) {
+            epd47Page = AgentDeckEpd47::Page::Home;
+            if (renderFace == PaperFace::Decision) suppressedDecisionHash = lastDecisionHash;
             manualFace = PaperFace::Glance;
-            faceHoldUntilMs = now + FACE_HOLD_MS;
-            interactiveLeaseUntilMs = now + FACE_HOLD_MS;
+            handled = true;
+        } else if (!handled && renderFace == PaperFace::Glance &&
+                   epd47Page == AgentDeckEpd47::Page::Home && touch.y > 86 && touch.y < 520) {
+            epd47Page = touch.x >= 562 ? AgentDeckEpd47::Page::Limits :
+                (touch.y >= 470 ? AgentDeckEpd47::Page::Queue : AgentDeckEpd47::Page::Focus);
+            epd47FocusedId[0] = '\0';
+            manualFace = PaperFace::Glance;
+            handled = true;
+        } else if (!handled && renderFace == PaperFace::Glance &&
+                   epd47Page == AgentDeckEpd47::Page::Queue && touch.y >= EPD47_QUEUE_TOP) {
+            const int row = (touch.y - EPD47_QUEUE_TOP) / (EPD47_QUEUE_ROW + EPD47_QUEUE_GAP);
+            if (row < EPD47_QUEUE_ROWS && epd47PaintedRows[row][0]) {
+                strncpy(epd47FocusedId, epd47PaintedRows[row], sizeof(epd47FocusedId) - 1);
+                epd47Page = AgentDeckEpd47::Page::Focus;
+                manualFace = PaperFace::Glance;
+                handled = true;
+            }
+        } else if (!handled && renderFace == PaperFace::Glance &&
+                   epd47Page == AgentDeckEpd47::Page::Focus && touch.y > 86 && touch.y < 470 &&
+                   touchSnap.optionCount > 0 && primarySession(touchSnap, AgentDeckEink::StatusKind::Attention) >= 0 &&
+                   (!epd47FocusedId[0] || strcmp(epd47FocusedId, touchSnap.rows[primarySession(touchSnap, AgentDeckEink::StatusKind::Attention)].id) == 0)) {
+            manualFace = PaperFace::Decision;
             handled = true;
         }
-
-        if (!handled && renderFace == PaperFace::Glance &&
-            epd47Page != AgentDeckEpd47::Page::Limits &&
-            touch.y > 86 && touch.y < 470 &&
-            primarySession(touchSnap, AgentDeckEink::StatusKind::Attention) >= 0) {
-            manualFace = PaperFace::Decision;
+        if (handled) {
+            epd47PageHoldUntilMs = now + FACE_HOLD_MS;
             faceHoldUntilMs = now + FACE_HOLD_MS;
             interactiveLeaseUntilMs = now + FACE_HOLD_MS;
-            epd47PageHoldUntilMs = 0;
-            handled = true;
         }
 
         if (handled) {
@@ -2719,23 +2850,7 @@ void render() {
                           (int32_t)(epd47PageHoldUntilMs - now) > 0;
     if (!pageHeld) {
         epd47PageHoldUntilMs = 0;
-        uint8_t attention = 0, processing = 0;
-        epd47Counts(s, attention, processing);
-        // Manual selections (touch tab, GPIO21) move epd47Page directly; adopt
-        // that as the arbiter's baseline so a user choice is never treated as an
-        // unsettled candidate and immediately overridden.
-        epd47Arbiter.current = epd47Page;
-        const auto change = AgentDeckEpd47::arbitratePage(
-            epd47Arbiter, attention, processing, now, EPD47_PAGE_SETTLE_MS);
-        if (change != AgentDeckEpd47::PageChange::None) {
-            epd47Page = epd47Arbiter.current;
-            // paperHash() mixes epd47Page on GLANCE, so a settled swap is picked
-            // up by the next scheduled repaint and still erases the retained
-            // prior frame. Only attention earns forceFull, which also bypasses
-            // the coalesce window — granting that to every swap is what turned
-            // a jittery count into a refresh every few seconds.
-            if (change == AgentDeckEpd47::PageChange::Urgent) forceFull = true;
-        }
+        epd47Page = AgentDeckEpd47::Page::Home;
     }
 #endif
     const int awaiting = primarySession(s, AgentDeckEink::StatusKind::Attention);
@@ -2776,7 +2891,7 @@ void render() {
         // is announced in the footer but does not steal the user's page.
         renderFace = manualFace;
 #endif
-    } else if (awaiting >= 0 && lastDecisionHash != suppressedDecisionHash && leaseActive) {
+    } else if (awaiting >= 0 && s.optionCount > 0 && lastDecisionHash != suppressedDecisionHash && leaseActive) {
         renderFace = PaperFace::Decision;
     } else if (!searching && faceHoldUntilMs != 0 && (int32_t)(faceHoldUntilMs - now) > 0) {
         renderFace = manualFace;
@@ -2870,6 +2985,7 @@ void render() {
     physicalFaceReady = true;
 #endif
 
+    displayedDecisionHash = renderFace == PaperFace::Decision ? decisionHash(s) : 0;
     lastHash = h;
     lastDrawMs = now;
     firstDraw = false;

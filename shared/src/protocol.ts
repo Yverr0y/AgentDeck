@@ -92,9 +92,18 @@ export interface OllamaModel {
   sizeVram: number;
 }
 
+/** A completed residency observation. Unknown is explicit; [] with known=true means none. */
+export interface ModelResidency {
+  known: boolean;
+  models: string[];
+}
+
 export interface OllamaStatus {
   available: boolean;
   models: OllamaModel[];
+  /** Optional additive metadata; old producers cannot prove non-residency. */
+  residency?: ModelResidency;
+  installedModelsKnown?: boolean;
 }
 
 export interface SubscriptionInfo {
@@ -210,6 +219,7 @@ export interface StateUpdateEvent {
   ollamaStatus?: OllamaStatus;
   /** MLX local server model list */
   mlxModels?: string[];
+  mlxResidency?: ModelResidency;
   /** Subscription-backed authenticated services */
   subscriptions?: SubscriptionInfo[];
   /** Local Antigravity IDE quota summary, when available */
@@ -315,6 +325,7 @@ export interface UsageEvent {
   // Local model/runtime summaries
   modelCatalog?: ModelCatalogEntry[];
   mlxModels?: string[];
+  mlxResidency?: ModelResidency;
   subscriptions?: SubscriptionInfo[];
   antigravityStatus?: AntigravityStatusInfo;
 }
@@ -725,6 +736,9 @@ export interface DeviceInfoMessage {
    * this value collapsing while freeHeapKb stays comfortable.
    */
   largestFreeBlockKb?: number;
+  /** Board-held Codex window percentages; -1 means no window is displayed. */
+  usageCodex5H?: number;
+  usageCodex7D?: number;
   /** ESP-IDF reset reason as a stable diagnostic string, e.g. "brownout" or "panic". */
   resetReason?: string;
   /** Raw esp_reset_reason_t numeric code for cases not covered by resetReason. */

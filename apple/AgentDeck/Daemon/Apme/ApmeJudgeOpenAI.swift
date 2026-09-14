@@ -62,7 +62,7 @@ enum ApmeJudgeOpenAI {
 
     /// Resolve a model id when the user left it unset. Ollama → /api/tags,
     /// everything else → /v1/models.
-    static func resolveModel(base: String, apiKey: String?, configured: String) async -> String {
+    static func resolveModel(base: String, apiKey: String?, configured: String) async throws -> String {
         if !configured.isEmpty && configured != "default" && configured != "qwen3-30b" { return configured }
         func authed(_ url: URL) -> URLRequest {
             var r = URLRequest(url: url); r.timeoutInterval = 3
@@ -74,6 +74,7 @@ enum ApmeJudgeOpenAI {
            (resp as? HTTPURLResponse)?.statusCode == 200,
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let models = json["models"] as? [[String: Any]],
+           Set(models.compactMap({ $0["name"] as? String })).count == 1,
            let name = models.compactMap({ $0["name"] as? String }).first {
             return name
         }
@@ -83,11 +84,10 @@ enum ApmeJudgeOpenAI {
                   (resp as? HTTPURLResponse)?.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let models = json["data"] as? [[String: Any]] else { continue }
-            for m in models {
-                if let id = m["id"] as? String, !id.lowercased().contains("nanollava") { return id }
-            }
+            let names = Set(models.compactMap { $0["id"] as? String }.filter { !$0.isEmpty })
+            if names.count == 1, let id = names.first, !id.lowercased().contains("nanollava") { return id }
         }
-        return configured.isEmpty ? "default" : configured
+        throw MlxSafetyError.refused("OpenAI-compatible judge needs an explicit model or a singleton catalog")
     }
 
     /// Best-effort variant for the automatic pipeline — nil on any failure.
@@ -96,40 +96,66 @@ enum ApmeJudgeOpenAI {
     }
 
     /// Throwing variant for the on-demand REVIEW path (surfaces the real error).
+    ///
+    /// Sends `response_format: {"type":"json_object"}`, mirroring
+    /// `callOpenAICompatible` in bridge/src/apme/runner.ts (added #299 item 1
+    /// — this leg sent no such field at all before). A server that refuses the
+    /// FIELD (400/422) is retried once WITHOUT it, per request, remembering
+    /// nothing: an earlier design that remembered a refusal per endpoint for
+    /// the life of the process produced a HIGH/MEDIUM defect in four
+    /// consecutive adversarial review rounds and defended against a server
+    /// never once observed on this fleet. Deliberately NO `repetition_penalty`
+    /// here — this adapter serves OpenRouter and any other OpenAI-compatible
+    /// endpoint, several of which honour that field, so sending it would
+    /// silently change sampling for a judge the user pays per call on evidence
+    /// measured only against a local model. That is a documented scope, not an
+    /// omission — see `ApmeJudgeMlx.judge`, the leg that DOES send it.
     static func judgeThrowing(prompt: String, config: ApmeJudgeConfig) async throws -> String {
         guard let endpoint = config.endpoint, !endpoint.isEmpty else { throw JudgeError.noEndpoint }
         let b = base(endpoint)
-        let model = await resolveModel(base: b, apiKey: config.apiKey, configured: config.model)
+        let model = try await resolveModel(base: b, apiKey: config.apiKey, configured: config.model)
         LastResolvedModel.set(model)
         guard let url = URL(string: chatURL(endpoint)) else { throw JudgeError.noEndpoint }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let k = config.apiKey, !k.isEmpty { request.setValue("Bearer \(k)", forHTTPHeaderField: "Authorization") }
-        request.timeoutInterval = 90
-        var body: [String: Any] = [
-            "model": model,
-            "messages": [
-                ["role": "system", "content": "You are an exacting code evaluator. Reply with strict JSON only."],
-                ["role": "user", "content": prompt],
-            ],
-            "temperature": 0,
-            "max_tokens": 1024,
-        ]
-        // `apme.judge.reasoningEffort` was Node-only: both daemons read the
-        // same settings.json and call the same user-configured endpoint, so a
-        // user who set `none` to stop a local model emitting thinking tokens
-        // got it obeyed on one daemon and ignored on the other — and the
-        // ignored request then spent the 1,024-token cap on thinking and came
-        // back `finish_reason: "length"`.
-        if let effort = config.reasoningEffort, !effort.isEmpty {
-            body["reasoning_effort"] = effort
+        func makeRequest(jsonMode: Bool) -> URLRequest {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let k = config.apiKey, !k.isEmpty { request.setValue("Bearer \(k)", forHTTPHeaderField: "Authorization") }
+            request.timeoutInterval = 90
+            var body: [String: Any] = [
+                "model": model,
+                "messages": [
+                    ["role": "system", "content": "You are an exacting code evaluator. Reply with strict JSON only."],
+                    ["role": "user", "content": prompt],
+                ],
+                "temperature": 0,
+                "max_tokens": 1024,
+            ]
+            // `apme.judge.reasoningEffort` was Node-only: both daemons read the
+            // same settings.json and call the same user-configured endpoint, so a
+            // user who set `none` to stop a local model emitting thinking tokens
+            // got it obeyed on one daemon and ignored on the other — and the
+            // ignored request then spent the 1,024-token cap on thinking and came
+            // back `finish_reason: "length"`.
+            if let effort = config.reasoningEffort, !effort.isEmpty {
+                body["reasoning_effort"] = effort
+            }
+            if jsonMode { body["response_format"] = ["type": "json_object"] }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            return request
         }
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
-            let (data, code) = try await send(request)
+            var (data, code) = try await send(makeRequest(jsonMode: true))
+            // A 400/422 to a request carrying `response_format` is the server
+            // refusing the FIELD. Every other status is about the request or
+            // the account (401, 429, 5xx) and must surface unchanged —
+            // retrying those without JSON mode would hide an auth failure
+            // behind a second identical failure.
+            if code == 400 || code == 422 {
+                (data, code) = try await send(makeRequest(jsonMode: false))
+            }
             // 200–299, mirroring `resp.ok` in bridge/src/apme/runner.ts. The
             // sibling MLX leg was widened for exactly this reason and this one
             // was left behind: a proxy answering 201 or 202 is a verdict on the

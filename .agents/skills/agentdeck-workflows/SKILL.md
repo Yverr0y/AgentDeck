@@ -10,7 +10,7 @@ Use this skill when the user asks to build, run dev mode, link/package the Strea
 ## Required Context
 
 1. Read `CLAUDE.md` before running workflow commands.
-2. Read the top of `DEVELOPMENT_LOG.md`, then search it for the subsystem you are touching instead of loading the full file.
+2. Read the top of `DEVELOPMENT_LOG.md` (generated from `docs/devlog/entries/`), then search it for the subsystem you are touching instead of loading the full file; older months are in `docs/devlog/YYYY-MM.md`, one at a time.
 3. Preserve App Store invariants from `CLAUDE.md` and `AGENTS.md` when touching Apple UI, daemon, setup, or diagnostics.
 
 ## Workflow Map
@@ -23,7 +23,7 @@ Use this skill when the user asks to build, run dev mode, link/package the Strea
 ## Execution Rules
 
 - Treat the workflow file as the canonical command sequence for that task.
-- If a command requires network, GUI access, device access, or writes outside the workspace, request the scoped approval required by the current Codex sandbox.
+- Follow `CLAUDE.md` Agent working agreements for existing authorization and execution-policy failures.
 - For Apple/Xcode diagnostics, capture repository-side diagnostics before editing code when the issue was reproduced from Xcode.
 - Keep generated diagnostics under `diagnostics/`; do not commit them.
 - Report which workflow file was used and the verification result.

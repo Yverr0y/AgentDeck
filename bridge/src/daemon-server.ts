@@ -138,6 +138,7 @@ import {
   findExistingDaemon,
   probeDaemonHealth,
   requestDaemonShutdown,
+  requestDaemonStandDown,
   scanDaemonPortWindow,
   shouldConcedePortToOccupant,
   waitForDaemonExit,
@@ -153,6 +154,7 @@ import {
 } from './session-registry.js';
 import { isForeignDaemon } from './daemon-takeover.js';
 import { loadDaemonSettings } from './daemon-settings.js';
+import { dashboardProviders } from './dashboard-providers.js';
 import {
   resolveDaemonPort,
   describeDaemonPortSource,
@@ -190,6 +192,8 @@ import { enableDebugLog, debug, debugThrottled } from './logger.js';
 import { LegacyRearmLedger } from './legacy-rearm-ledger.js';
 import { CodexOtelTracker, CODEX_OTEL_TRACES_PATH, spanNameSummary } from './codex-otel.js';
 import { HookCodexSessions, buildCodexPermissionQuestion } from './hook-codex-sessions.js';
+import { HubStateDriverTracker, resolveHubFrameIdentity, shapeHubFrame } from './hub-state-identity.js';
+import { CodexAmbientSessions } from './codex-ambient-hooks.js';
 import { ObservedTurnWatchdogs } from './observed-turn-watchdogs.js';
 import {
   getApmeInitFailure,
@@ -214,7 +218,7 @@ import { OpenClawTimelineFeed, OPENCLAW_FEED_INTERVAL_MS } from './openclaw-time
 import {
   DeviceVoiceReplyRouter, speakableReply, spokenDigest, pcmFromWav, type ReplySink,
 } from './device-voice-reply.js';
-import { rawSessionId, type StateSnapshot } from '@agentdeck/shared';
+import { rawSessionId, type AgentType, type StateSnapshot } from '@agentdeck/shared';
 import { codexTurnOutcomeFromRollout, codexTurnOutcomeFromRolloutPath, lastAgentMessageFromCodexRollout } from './codex-rollout-response.js';
 import { callFoundationModelsHelper } from './foundation-models-helper.js';
 import {
@@ -342,6 +346,8 @@ interface WifiEsp32Device {
   alsReady?: boolean;
   repaintCount?: number;
   fullRefreshCount?: number;
+  usageCodex5H?: number;
+  usageCodex7D?: number;
   lastSeenMs: number;
 }
 const wifiEsp32Devices = new Map<string, WifiEsp32Device>();
@@ -767,6 +773,8 @@ function registerWifiEsp32(d: Record<string, unknown>, ws: WebSocket): void {
     touchDownSamples: typeof d.touchDownSamples === 'number' ? d.touchDownSamples : undefined,
     touchGestures: typeof d.touchGestures === 'number' ? d.touchGestures : undefined,
     alsReady: typeof d.alsReady === 'boolean' ? d.alsReady : undefined,
+    usageCodex5H: typeof d.usageCodex5H === 'number' ? d.usageCodex5H : undefined,
+    usageCodex7D: typeof d.usageCodex7D === 'number' ? d.usageCodex7D : undefined,
     repaintCount: typeof d.repaintCount === 'number' ? d.repaintCount : undefined,
     fullRefreshCount: typeof d.fullRefreshCount === 'number' ? d.fullRefreshCount : undefined,
     lastSeenMs: Date.now(),
@@ -1357,6 +1365,8 @@ function buildNodeModuleHealth(startedModules: DeviceModule[]): Record<string, u
         timelineCount: status.timelineCount,
         sessionCount: status.sessionCount,
         usageFiveH: status.usageFiveH,
+        usageCodex5H: status.usageCodex5H,
+        usageCodex7D: status.usageCodex7D,
         processingCount: status.processingCount,
         repaintCount: status.repaintCount,
         fullRefreshCount: status.fullRefreshCount,
@@ -1405,6 +1415,31 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // what this daemon is allowed to do.
   const posture = resolveDaemonPosture({ local: opts.local, loopback: opts.loopback });
 
+  // Evict an app-owned Swift in-process daemon so this CLI daemon can take over.
+  //
+  // `/stand-down` first, `/shutdown` only as the fallback for app builds that
+  // predate the endpoint — and the difference is not politeness. `/stand-down`
+  // TELLS the app which port to become a client of (its canonical one, the one
+  // we are about to bind); `/shutdown` leaves the app resolving that port from
+  // a registry that is empty at exactly this moment — our daemon.json row is
+  // being torn down and the incoming daemon has not bound yet. That resolution
+  // failing is what left the macOS app daemonless and clientless for 23 hours
+  // (#305, measured 2026-09-09; same signature 09-07 and 09-10). The app side
+  // is fixed too, but this path was ALSO asking the wrong question of it.
+  //
+  // One helper rather than the four copies this rule used to have here: the
+  // CLI's own takeover (`negotiateIncumbentDaemon`) has preferred stand-down
+  // since it was written, and these four sites — the ones that actually run
+  // inside `daemon start --foreground` — never learned it.
+  const evictSwiftDaemon = async (port: number, where: string): Promise<void> => {
+    log(`[agentdeck] Swift daemon detected ${where}. Requesting stand-down to take over...`);
+    if (!(await requestDaemonStandDown(port))) {
+      log(`[agentdeck] Stand-down was not acknowledged — falling back to /shutdown.`);
+      await requestDaemonShutdown(port);
+    }
+    await waitForDaemonExit(port);
+  };
+
   // ===== Singleton guard + port allocation =====
   // 1. Check daemon.json and sessions.json for existing daemon
   const existingInfo = readDaemonInfo();
@@ -1413,9 +1448,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     const health = await probeDaemonHealth(probePort);
     if (health?.mode === 'daemon') {
       if (health.isSwift) {
-        log(`[agentdeck] Swift daemon detected on port ${probePort}. Requesting shutdown to take over...`);
-        await requestDaemonShutdown(probePort);
-        await waitForDaemonExit(probePort);
+        await evictSwiftDaemon(probePort, `on port ${probePort}`);
         // …and until the socket is actually released. NWListener.cancel()
         // returns before the port is free, so "stopped answering" alone would
         // let the bind below land on a fallback port.
@@ -1435,9 +1468,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     const health = await probeDaemonHealth(existingSession.port);
     if (health?.mode === 'daemon') {
       if (health.isSwift) {
-        log(`[agentdeck] Swift daemon detected on port ${existingSession.port}. Requesting shutdown to take over...`);
-        await requestDaemonShutdown(existingSession.port);
-        await waitForDaemonExit(existingSession.port);
+        await evictSwiftDaemon(existingSession.port, `on port ${existingSession.port}`);
         removeDaemonSession(existingSession);
       } else {
         log(`[agentdeck] Daemon already running on port ${existingSession.port} (PID ${existingSession.pid}).`);
@@ -1473,9 +1504,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       port = await findAvailablePort();
     } else if (preferredOccupant.mode === 'daemon') {
       if (preferredOccupant.isSwift) {
-        log(`[agentdeck] Swift daemon detected on port ${requestedPort} via /health. Requesting shutdown to take over...`);
-        await requestDaemonShutdown(requestedPort);
-        await waitForDaemonExit(requestedPort);
+        await evictSwiftDaemon(requestedPort, `on port ${requestedPort} via /health`);
         await waitForPortBindable(requestedPort);
       } else {
         // Daemon alive but not in our registry — race condition or stale state
@@ -1508,9 +1537,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       continue;
     }
     if (stray.health.isSwift) {
-      log(`[agentdeck] Swift daemon detected on fallback port ${stray.port}. Requesting shutdown to take over...`);
-      await requestDaemonShutdown(stray.port);
-      await waitForDaemonExit(stray.port);
+      await evictSwiftDaemon(stray.port, `on fallback port ${stray.port}`);
     } else if (shouldConcedePortToOccupant(stray.health, process.pid)) {
       log(`[agentdeck] Daemon already running on port ${stray.port} (detected via port scan).`);
       process.exit(0);
@@ -1596,6 +1623,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // Codex sessions known only from `codex_*` hooks — the backstop for when the
   // process scan can't see one (lsof timeout, no rollout held open).
   const hookCodexSessions = new HookCodexSessions();
+  // Who last moved the hub's global state machine — see hub-state-identity.ts.
+  const hubDriver = new HubStateDriverTracker();
+  // Codex Desktop ambient-suggestions threads — see codex-ambient-hooks.ts.
+  const codexAmbientSessions = new CodexAmbientSessions();
   const hookOpenCodeSessions = new HookOpenCodeSessions();
   // Declared before the HTTP server: the PreToolUse route reads it to decide
   // whether this daemon can type into a session's terminal, and hooks start
@@ -1711,11 +1742,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
    * session on both decks. Keeping the model out of the shared slot means the
    * Gateway's own events have to carry it explicitly, which is what this does.
    */
-  const gatewaySnapshot = (base?: StateSnapshot): StateSnapshot => ({
-    ...(base ?? core.stateMachine.getSnapshot()),
-    modelName: gatewayModelName ?? null,
-  });
-
   // Wi-Fi WebSocket e-ink panels (XTeink X3/X4 CrossPoint fork) self-register
   // their device roster via `client_register{clientType:"eink-device"}` — the
   // same volunteer model as the Stream Deck plugin. This handler lived ONLY in
@@ -2070,6 +2096,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       });
       return;
     }
+    // Display preference only: never changes provider observation or credentials.
+    if (pathname === '/dashboard/providers' && (req.method === 'GET' || req.method === 'POST')) {
+      void (async () => {
+        try {
+          const providers = dashboardProviders(req.method === 'POST' ? await readJsonBody(req, 4096) : undefined);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify({ providers: Array.isArray(providers) ? providers : null }));
+        } catch (error) {
+          res.writeHead(error instanceof TypeError ? 400 : 500); res.end('Unable to save provider display preferences');
+        }
+      })();
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/status') {
       const snap = core.stateMachine.getSnapshot();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2975,6 +3015,31 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // A Codex/OpenCode Interrupt is the user's Ctrl+C: the turn ended with
         // no Stop, and the collector must not read it as a normal stop.
         if (/_interrupt$/.test(eventName)) json.interrupted = true;
+        // Codex Desktop ambient-suggestions threads fire the user-global hooks
+        // for prompts the user never typed. Drop them before any pipeline sees
+        // them, and retract what the thread's `codex_session_start` (~90 ms
+        // earlier, not yet identifiable) already created.
+        const ambient = codexAmbientSessions.classify(eventName, json);
+        if (ambient.ambient) {
+          if (ambient.firstSeen && ambient.sessionId) {
+            const sid = ambient.sessionId;
+            log(`[agentdeck] Codex ambient-suggestions thread ${sid.slice(0, 8)}: background prompt, its hooks are not recorded`);
+            hookCodexSessions.forget(sid);
+            subagentTimeline?.forget(sid);
+            coordination.forget(sid);
+            hookSessionsSeen.delete(sid);
+            hookSessionLastSeenAt.delete(sid);
+            const runId = apme?.collector.getRunId(sid);
+            if (apme && runId) {
+              apme.collector.releaseRun(runId);
+              try { apme.store.deleteRun(runId); }
+              catch (err) { debug('APME', `deleteRun for ambient thread ${sid.slice(0, 8)} failed: ${String(err)}`); }
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ received: true, background: true }));
+          return;
+        }
         const earlyHookSid = typeof json.session_id === 'string' && json.session_id
           ? json.session_id : 'daemon-hook';
         const earlyHookCwd = (typeof json.cwd === 'string' ? json.cwd
@@ -3056,7 +3121,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             title: typeof json.title === 'string' ? json.title : undefined,
           });
         }
-        // State machine
+        // State machine. The hub's global frame is stamped by whoever moved the
+        // machine (hub-state-identity.ts): an observed session's hook labels
+        // the broadcasts it causes with that session, never with the Gateway.
+        const drivesMachine = mapped === 'session_start' || mapped === 'session_end'
+          || mapped === 'user_prompt_submit' || mapped === 'stop'
+          || mapped === 'tool_start' || mapped === 'tool_end';
+        if (drivesMachine) {
+          hubDriver.noteHook({
+            sessionId: earlyHookSid === 'daemon-hook' ? undefined : earlyHookSid,
+            agentType: hookAgentType,
+            projectName: earlyHookProject,
+          });
+        }
         if (mapped === 'session_start') core.stateMachine.handleHookEvent('SessionStart', json);
         else if (mapped === 'session_end') core.stateMachine.handleHookEvent('SessionEnd', json);
         else if (mapped === 'user_prompt_submit') core.stateMachine.handleHookEvent('UserPromptSubmit', json);
@@ -3066,6 +3143,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         } else if (mapped === 'tool_end') {
           core.stateMachine.handleHookEvent('PostToolUse', json);
         }
+        // The ended session's identity must not ride on later broadcasts.
+        if (mapped === 'session_end' && earlyHookSid !== 'daemon-hook') hubDriver.noteSessionEnd(earlyHookSid);
         // Per-session awaiting overlay for observed/direct-`claude` sessions.
         // Permission prompts stay Notification-driven and display-only unless
         // the precision PreToolUse gate below owns a real requestId.
@@ -4093,6 +4172,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       const active = new Set<string>();
       for (const [sid, at] of hookSessionLastSeenAt) {
         if (now - at <= TURN_WATCHDOG_SILENCE_MS) active.add(sid);
+        // A session that went silent this long is gone (SessionEnd has a
+        // 1.5 s budget and is routinely lost) — its identity must not keep
+        // labelling the hub frame. Unless it is the driver of a turn the
+        // machine still holds open: a tool or think longer than three minutes
+        // sends no hooks in between, and that open turn is proof of life.
+        // Only PROCESSING counts — it is bounded (the machine's stuck timer
+        // and the observed-stop watchdog both end it), whereas AWAITING_* has
+        // no wall-clock backstop by design and would pin a dead session's
+        // identity for as long as the desk stayed quiet.
+        else {
+          const driverSid = sid === 'daemon-hook' ? undefined : sid;
+          const driver = hubDriver.current();
+          const liveTurn = driver?.kind === 'hook' && driver.sessionId === driverSid
+            && core.stateMachine.getSnapshot().state === State.PROCESSING;
+          if (!liveTurn) hubDriver.noteSessionEnd(driverSid);
+        }
       }
       const closed = core.bridgeTimeline.reapOrphanChatStarts(
         TURN_WATCHDOG_SILENCE_MS, now, active,
@@ -4134,33 +4229,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   };
 
   /**
-   * Stamp a *Gateway-specific* state event — one whose payload really is the
-   * Gateway's (its parser events, its connection transitions), as opposed to the
-   * hub broadcasts above that merely get labelled `openclaw` while the Gateway is
-   * alive.
-   *
-   * These name their own row (`sessionId`), which is the honest attribution and
-   * the reason a client never has to guess: an event carrying the Gateway's model
-   * now says so. The focus ack rides only when the Gateway IS the focused row —
-   * otherwise this event would claim to describe a Claude session, which is
-   * precisely how `GLM-5.2 (1M)` became that session's model on both decks. The
-   * ack still reaches the Apple app through every hub broadcast.
+   * The hub's own `state_update`: the global machine labelled by its DRIVER
+   * (hub-state-identity.ts), not by whether the Gateway happens to be alive.
+   * While the Gateway sat idle this frame used to read "OpenClaw · processing ·
+   * Bash `cd …`" for every observed Claude turn, on every surface.
    */
-  const attachGatewayEvent = <T extends BridgeEvent>(event: T): T => {
-    if ((event as any).type !== 'state_update') return event;
-    return {
-      ...(event as any),
-      sessionId: OPENCLAW_SESSION_ID,
-      focusedSessionId: userFocusedSessionId === OPENCLAW_SESSION_ID ? OPENCLAW_SESSION_ID : '',
-    } as T;
+  const buildHubStateEvent = (snapshot?: StateSnapshot): BridgeEvent => {
+    const gwAlive = gatewayAdapter?.isAlive() ?? false;
+    // A deck that focused the Gateway row reads this frame as that row's live
+    // state (observed-sessions rule), so while OpenClaw is focused the frame
+    // is Gateway-owned regardless of which hook session last moved the machine.
+    const driver = gwAlive && userFocusedSessionId === OPENCLAW_SESSION_ID
+      ? { kind: 'gateway' as const }
+      : hubDriver.current();
+    const identity = resolveHubFrameIdentity(driver, gwAlive, OPENCLAW_CAPABILITIES);
+    const raw = core.buildStateEvent({
+      agentType: identity.agentType as AgentType,
+      agentCapabilities: identity.agentCapabilities,
+      snapshot: snapshot ?? core.stateMachine.getSnapshot(),
+    }) as unknown as Record<string, unknown>;
+    const event = shapeHubFrame(raw, identity, { state: gatewaySessionState, modelName: gatewayModelName });
+    return attachFocusedSessionId(event as unknown as BridgeEvent);
   };
   const broadcastFocusedState = () => {
-    const gwAlive = gatewayAdapter?.isAlive() ?? false;
-    const stateEvent = attachFocusedSessionId(core.buildStateEvent({
-      agentType: gwAlive ? 'openclaw' : 'daemon' as any,
-      agentCapabilities: gwAlive ? OPENCLAW_CAPABILITIES : undefined,
-      snapshot: core.stateMachine.getSnapshot(),
-    }));
+    const stateEvent = buildHubStateEvent();
     lastStateEvent = stateEvent;
     core.wsServer.broadcast(stateEvent);
   };
@@ -4196,11 +4288,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       core.cachedModelCatalog = merged;
       debug('daemon', `Model catalog merged from sibling: ${merged.length} models total`);
       const snap = core.stateMachine.getSnapshot();
-      const stateEvent = attachFocusedSessionId(core.buildStateEvent({
-        agentType: gatewayAdapter?.isAlive() ? 'openclaw' : 'daemon' as any,
-        agentCapabilities: gatewayAdapter?.isAlive() ? OPENCLAW_CAPABILITIES : undefined,
-        snapshot: snap,
-      }));
+      const stateEvent = buildHubStateEvent(snap);
       lastStateEvent = stateEvent;
       core.broadcast(stateEvent);
       core.broadcastUsage();
@@ -4230,6 +4318,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         gatewayConnected: core.cachedGatewayConnected,
         gatewayAuthStatus: core.cachedGatewayAuthStatus,
         ollamaStatus: core.cachedOllamaStatus,
+        mlxModels: core.cachedMlxModels ?? [],
+        mlxResidency: core.cachedMlxResidency,
         gatewayHasError: (evt as any).gatewayHasError ?? core.cachedGatewayHasError,
         moduleHealth: moduleHealthProvider(),
       };
@@ -4254,12 +4344,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // `resolveRelayedUsageEvent`. It was inlined here until issue #253: this is
       // the daemon's most flicker-sensitive path, its whole history is about not
       // clobbering the dashboard, and an inline branch had no test seam.
-      core.wsServer.broadcast(resolveRelayedUsageEvent({
+      core.wsServer.broadcast({ ...resolveRelayedUsageEvent({
         relayed: u,
         ownCodexRateLimits: core.lastBuiltCodexRateLimits,
         ownLiveFamilyAuthorityExpiresAtMs: core.lastBuiltCodexLiveFamilyAuthorityExpiresAtMs,
         buildOwnUsage: () => core.buildUsage() as UsageEvent,
-      }));
+      }), ollamaStatus: core.cachedOllamaStatus ?? undefined,
+      mlxModels: core.cachedMlxModels ?? [], mlxResidency: core.cachedMlxResidency });
     } else {
       // prompt_options — relay as-is
       core.wsServer.broadcast(evt);
@@ -4316,6 +4407,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           version: d.version ?? null,
           stale: d.stale,
           serialActive: d.serialActive,
+          usageCodex5H: d.usageCodex5H ?? null,
+          usageCodex7D: d.usageCodex7D ?? null,
           repaintCount: d.repaintCount ?? null,
           fullRefreshCount: d.fullRefreshCount ?? null,
         })),
@@ -4880,6 +4973,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     adapter.on('event', (evt: AdapterEvent) => {
       switch (evt.source) {
         case 'hook':
+          hubDriver.noteGateway();
           if (evt.event === 'SessionStart') core.stateMachine.handleHookEvent('SessionStart', {});
           else if (evt.event === 'SessionEnd') core.stateMachine.handleHookEvent('SessionEnd', {});
           break;
@@ -4890,7 +4984,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // model written here by the Gateway is read as that session's own
           // (GLM on a Claude row). It lives in `gatewayModelName` instead, and
           // `gatewaySnapshot()` puts it back on the Gateway's own events.
-          if (evt.event !== 'model_info') core.stateMachine.handleParserEvent(evt.event, evt.data);
+          if (evt.event !== 'model_info') {
+            hubDriver.noteGateway();
+            core.stateMachine.handleParserEvent(evt.event, evt.data);
+          }
           // Gateway-local activity state for the virtual session row (mirror of
           // Swift `gatewaySessionState`). Kept separate from the global
           // `core.stateMachine` above so the OpenClaw row reflects only the
@@ -4933,12 +5030,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             const models = evt.data?.models as ModelCatalogEntry[] | undefined;
             if (models) {
               core.cachedModelCatalog = models;
-              const snap = core.stateMachine.getSnapshot();
-              const stateEvent = attachGatewayEvent(core.buildStateEvent({
-                agentType: 'openclaw',
-                agentCapabilities: OPENCLAW_CAPABILITIES,
-                snapshot: gatewaySnapshot(snap),
-              }));
+              // Catalog metadata is not Gateway activity: the frame keeps its
+              // current driver, and the catalog rides it either way.
+              const stateEvent = buildHubStateEvent();
               lastStateEvent = stateEvent;
               core.broadcast(stateEvent);
               core.broadcastUsage();
@@ -5021,13 +5115,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             if (core.stateMachine.getSnapshot().state === 'disconnected') {
               core.stateMachine.handleHookEvent('SessionStart', {});
             }
-            // Force full state broadcast
-            const snap = core.stateMachine.getSnapshot();
-            const gwStateEvent = attachGatewayEvent(core.buildStateEvent({
-              agentType: 'openclaw',
-              agentCapabilities: OPENCLAW_CAPABILITIES,
-              snapshot: gatewaySnapshot(snap),
-            }));
+            // Force full state broadcast — through the hub builder, so a
+            // reconnect mid-Claude-turn announces the Gateway's own (idle)
+            // state rather than the machine's `processing` + foreign tool.
+            hubDriver.noteGateway();
+            const gwStateEvent = buildHubStateEvent();
             lastStateEvent = gwStateEvent;
             core.wsServer.broadcast(gwStateEvent);
             core.broadcastUsage();
@@ -5038,6 +5130,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             // Reset activity to idle; gatewayModelName is preserved across brief
             // disconnects (Swift parity) so a flap doesn't blank the model chip.
             gatewaySessionState = 'idle';
+            hubDriver.noteGatewayGone();
             bridgeLogStream.stop();
             log('[agentdeck] OpenClaw Gateway disconnected');
             core.stateMachine.emit('state_changed', core.stateMachine.getSnapshot());
@@ -5096,6 +5189,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     core.cachedGatewayAuthStatus = 'gateway_not_found';
     core.cachedModelCatalog = null;
     gatewaySessionState = 'idle';
+    hubDriver.noteGatewayGone();
     if (wasAlive) core.stateMachine.handleHookEvent('SessionEnd', {});
     else core.stateMachine.emit('state_changed', core.stateMachine.getSnapshot());
     // Do NOT broadcast connection:disconnected — that would make WS clients
@@ -5161,12 +5255,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
 
   // ===== State changed → broadcast =====
   core.stateMachine.on('state_changed', (snapshot) => {
-    const gwAlive = gatewayAdapter?.isAlive() ?? false;
-    const stateEvent = attachFocusedSessionId(core.buildStateEvent({
-      agentType: gwAlive ? 'openclaw' : 'daemon' as any,
-      agentCapabilities: gwAlive ? OPENCLAW_CAPABILITIES : undefined,
-      snapshot,
-    }));
+    const stateEvent = buildHubStateEvent(snapshot);
     lastStateEvent = stateEvent;
     core.wsServer.broadcast(stateEvent);
     core.maybeBroadcastSessionsList();
@@ -5543,13 +5632,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       focusRelay.unfocus(); // Clear session focus on agent switch
       const target = (cmd as any).agent as string;
       if (target === 'openclaw' && gatewayAdapter?.isAlive()) {
-        // Force broadcast OpenClaw state to all clients
-        const snap = core.stateMachine.getSnapshot();
-        const gwStateEvent = attachGatewayEvent(core.buildStateEvent({
-          agentType: 'openclaw',
-          agentCapabilities: OPENCLAW_CAPABILITIES,
-          snapshot: gatewaySnapshot(snap),
-        }));
+        // Force broadcast OpenClaw state to all clients — the Gateway's own,
+        // not whatever a Claude session left in the shared machine.
+        hubDriver.noteGateway();
+        const gwStateEvent = buildHubStateEvent();
         lastStateEvent = gwStateEvent;
         core.wsServer.broadcast(gwStateEvent);
       } else if (target === 'claude-code') {
@@ -6582,6 +6668,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         agentType: gwAlive ? 'openclaw' : 'daemon' as any,
         agentCapabilities: gwAlive ? OPENCLAW_CAPABILITIES : undefined,
         isAlive: true,
+        // The first frame a client sees obeys the same driver rule as every
+        // broadcast — otherwise a reconnecting deck re-learns the stale label.
+        stateEvent: buildHubStateEvent(),
       });
 
       // Fetch usage on connect if stale

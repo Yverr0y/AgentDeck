@@ -55,6 +55,7 @@ actor ESP32Serial {
         var connected = true
         var readBuffer = ""
         var deviceInfo: DeviceInfo?
+        var deviceInfoCapturedAt: Date?
         var provisionSent = false
         /// Pairing token most recently pushed over THIS connection, so a re-arm
         /// costs one write per board per token rather than one per device_info
@@ -87,6 +88,8 @@ actor ESP32Serial {
         var wifiConnected: Bool?
         var repaintCount: Int?
         var fullRefreshCount: Int?
+        var usageCodex5H: Int?
+        var usageCodex7D: Int?
     }
 
     private struct PortFailure {
@@ -144,6 +147,7 @@ actor ESP32Serial {
     }
     private let pendingReadsLock = NSLock()
     nonisolated(unsafe) private var pendingReads: [PendingRead] = []
+    nonisolated(unsafe) private var pendingTelemetryBoards: Set<String> = []
 
     private nonisolated func enqueuePendingRead(port: String, data: String) {
         pendingReadsLock.lock()
@@ -244,6 +248,7 @@ actor ESP32Serial {
                     "lastReadAt": conn.lastReadAt.map { Int($0.timeIntervalSince1970 * 1000) } as Any,
                     "lastWriteAt": conn.lastWriteAt.map { Int($0.timeIntervalSince1970 * 1000) } as Any,
                     "deviceInfoRequestsSent": conn.deviceInfoRequestsSent,
+                    "deviceInfoCapturedAt": conn.deviceInfoCapturedAt.map { Int($0.timeIntervalSince1970 * 1000) } as Any,
                     "writeBackpressureCount": conn.writeBackpressureCount,
                     "deviceInfo": [
                         "board": conn.deviceInfo?.board as Any,
@@ -253,6 +258,8 @@ actor ESP32Serial {
                         "wifiConnected": conn.deviceInfo?.wifiConnected as Any,
                         "repaintCount": conn.deviceInfo?.repaintCount as Any,
                         "fullRefreshCount": conn.deviceInfo?.fullRefreshCount as Any,
+                        "usageCodex5H": conn.deviceInfo?.usageCodex5H as Any,
+                        "usageCodex7D": conn.deviceInfo?.usageCodex7D as Any,
                     ] as [String: Any],
                 ] as [String: Any]
             },
@@ -842,8 +849,11 @@ actor ESP32Serial {
                     wifiConfigured: msg["wifiConfigured"] as? Bool,
                     wifiConnected: msg["wifiConnected"] as? Bool,
                     repaintCount: msg["repaintCount"] as? Int,
-                    fullRefreshCount: msg["fullRefreshCount"] as? Int
+                    fullRefreshCount: msg["fullRefreshCount"] as? Int,
+                    usageCodex5H: msg["usageCodex5H"] as? Int,
+                    usageCodex7D: msg["usageCodex7D"] as? Int
                 )
+                connections[idx].deviceInfoCapturedAt = Date()
                 failedPorts.removeValue(forKey: port)
                 if !hadDeviceInfo {
                     sendInitialState(to: &connections[idx])
@@ -861,6 +871,15 @@ actor ESP32Serial {
     }
 
     // MARK: - Heartbeat
+
+    /// Missing providers supply no snapshot; a present empty usage snapshot
+    /// still retires old values. Provider-specific quota fields never gate it.
+    nonisolated static func heartbeatEvents(
+        state: [String: Any]?, usage: [String: Any]?,
+        sessions: [String: Any]?, display: [String: Any]?
+    ) -> [[String: Any]] {
+        [state, usage, sessions, display].compactMap { $0 }
+    }
 
     private func sendHeartbeat() {
         drainPendingReads()
@@ -905,38 +924,27 @@ actor ESP32Serial {
             }
         }
 
-        if let event = stateProvider?() {
+        // Re-send complete snapshots even when Claude quota is absent. A
+        // USB-only board receives usage here, independently of WS broadcasts.
+        for event in Self.heartbeatEvents(
+            state: stateProvider?(), usage: usageProvider?(),
+            sessions: sessionsListProvider?(), display: displayStateProvider?()
+        ) {
             for i in connections.indices where connections[i].connected {
                 sendEvent(event, to: &connections[i])
             }
         }
 
-        if let event = usageProvider?(),
-           event["fiveHourPercent"] != nil {
-            for i in connections.indices where connections[i].connected {
-                sendEvent(event, to: &connections[i])
-            }
+        // Sample after state/usage delivery so device telemetry can confirm
+        // the newly-sent values. Coalesce requests while the serial actor is busy.
+        let requestedBoards = pendingReadsLock.withLock {
+            let pending = pendingTelemetryBoards
+            pendingTelemetryBoards.removeAll()
+            return pending
         }
-
-        // Re-sync sessions_list every cycle for the same reason as display_state
-        // below: it is otherwise edge-triggered (on change + on connect), so a
-        // board that (re)connects during a quiet window — daemon handoff,
-        // half-open serial — sits on an empty roster ("no active sessions")
-        // until the next unrelated session change happens to broadcast. The
-        // firmware upserts idempotently.
-        if let event = sessionsListProvider?() {
-            for i in connections.indices where connections[i].connected {
-                sendEvent(event, to: &connections[i])
-            }
-        }
-
-        // Re-sync display_state every cycle. It is otherwise edge-triggered
-        // (on change + on connect); a board that misses the wake edge — half-
-        // open serial, daemon handoff — stays blacked out until power-cycled.
-        // The payload is tiny and the firmware handler is idempotent.
-        if let event = displayStateProvider?() {
-            for i in connections.indices where connections[i].connected {
-                sendEvent(event, to: &connections[i])
+        for i in connections.indices where connections[i].connected {
+            if let board = connections[i].deviceInfo?.board, requestedBoards.contains(board) {
+                sendDeviceInfoRequest(to: &connections[i])
             }
         }
 
@@ -960,6 +968,15 @@ actor ESP32Serial {
         case backpressure(String, partial: Bool)
         case hardFailure(String)
     }
+
+    /// Read existing firmware telemetry through the owning serial connection.
+    /// No second reader, port open, reset or arbitrary device command is needed.
+    nonisolated func requestDeviceTelemetry(board: String) {
+        pendingReadsLock.withLock {
+            if pendingTelemetryBoards.count < 16 { pendingTelemetryBoards.insert(board) }
+        }
+    }
+
 
     private func sendDeviceInfoRequest(to conn: inout SerialConnection) {
         conn.deviceInfoRequestsSent += 1
@@ -1384,7 +1401,9 @@ actor ESP32Serial {
                 wifiConfigured: msg["wifiConfigured"] as? Bool,
                 wifiConnected: msg["wifiConnected"] as? Bool,
                 repaintCount: msg["repaintCount"] as? Int,
-                fullRefreshCount: msg["fullRefreshCount"] as? Int
+                fullRefreshCount: msg["fullRefreshCount"] as? Int,
+                usageCodex5H: msg["usageCodex5H"] as? Int,
+                usageCodex7D: msg["usageCodex7D"] as? Int
             )
         }
         return nil

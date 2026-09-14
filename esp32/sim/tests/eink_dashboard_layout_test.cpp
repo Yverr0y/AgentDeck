@@ -9,54 +9,12 @@ using AgentDeckEink::makeLayout;
 
 int main() {
     using AgentDeckEpd47::Page;
-    assert(AgentDeckEpd47::automaticPage(0, 0) == Page::Limits);
-    assert(AgentDeckEpd47::automaticPage(0, 1) == Page::Focus);
-    assert(AgentDeckEpd47::automaticPage(1, 0) == Page::Focus);
-    assert(AgentDeckEpd47::automaticPage(1, 1) == Page::Queue);
-    assert(AgentDeckEpd47::automaticPage(0, 8) == Page::Queue);
-
-    // Page arbiter. A swap costs a retained-frame erase plus a complete draw,
-    // so a merely-correct page must dwell before adoption; attention is
-    // exempt. Drive the real struct rather than re-deriving the rule, so a regression here is a
-    // regression in what the firmware runs.
-    using AgentDeckEpd47::PageChange;
-    {
-        AgentDeckEpd47::PageArbiter a;          // starts on LIMITS
-        constexpr uint32_t SETTLE = 120000;
-        // A processing burst that ends before the dwell must not move the page.
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, 1000, SETTLE) == PageChange::None);
-        assert(a.current == Page::Limits);
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 0, 40000, SETTLE) == PageChange::None);
-        assert(a.current == Page::Limits);
-        // Re-arming after the excursion: the dwell restarts, it does not resume.
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, 60000, SETTLE) == PageChange::None);
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, 150000, SETTLE) == PageChange::None);
-        assert(a.current == Page::Limits);
-        // Held past the dwell → adopted, and reported as settled (no forceFull).
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, 181000, SETTLE) == PageChange::Settled);
-        assert(a.current == Page::Focus);
-        // Already on the wanted page → no further change.
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, 200000, SETTLE) == PageChange::None);
+    // Starting/stopping work never navigates the home, even under attention.
+    for (uint8_t attention = 0; attention < 4; attention++) {
+        for (uint8_t working = 0; working < 10; working++) {
+            assert(AgentDeckEpd47::automaticPage(attention, working) == Page::Home);
+        }
     }
-    {
-        AgentDeckEpd47::PageArbiter a;
-        constexpr uint32_t SETTLE = 120000;
-        // Attention never waits for the dwell.
-        assert(AgentDeckEpd47::arbitratePage(a, 1, 0, 1000, SETTLE) == PageChange::Urgent);
-        assert(a.current == Page::Focus);
-        assert(AgentDeckEpd47::arbitratePage(a, 2, 3, 1100, SETTLE) == PageChange::Urgent);
-        assert(a.current == Page::Queue);
-    }
-    {
-        // millis() rollover must not strand a candidate forever.
-        AgentDeckEpd47::PageArbiter a;
-        constexpr uint32_t SETTLE = 120000;
-        const uint32_t nearWrap = 0xFFFFFFFFu - 30000u;
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, nearWrap, SETTLE) == PageChange::None);
-        assert(AgentDeckEpd47::arbitratePage(a, 0, 1, 100000u, SETTLE) == PageChange::Settled);
-        assert(a.current == Page::Focus);
-    }
-
     // EPD47 refresh policy. Differential frame replacements must accumulate
     // toward — never postpone — the next real pigment reset.
     using AgentDeckEpd47::Erase;

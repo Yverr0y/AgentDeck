@@ -35,9 +35,21 @@ validators: [pnpm design-system:check]
 
 > **Daemon hub**: All dashboard clients connect exclusively to the daemon. Session bridges handle PTY + hooks only and do not serve external devices. Daemon port defaults to 9120; if occupied by non-daemon process, daemon falls back to next available port and records actual port in `~/.agentdeck/daemon.json`. Local clients read `daemon.json`; remote clients discover via mDNS (daemon only advertises `_agentdeck._tcp`).
 
+## TTGO T-Display (Usage Meter)
+
+The 135×240 panel boots into **usage-only** mode. The previously unused
+**GPIO0 / BTN2** button toggles Usage ↔ Terrarium; **GPIO35 / BTN1** keeps its
+90° rotation behavior. Mode survives a rotation but resets to Usage on reboot.
+Available Claude and Codex quota windows stay visible together, with used
+percentages and reset countdowns. Missing windows are omitted (real 0% remains
+visible); stale Claude usage never masks valid Codex data. One or two windows
+get larger figures, while denser layouts fit all four windows in either axis.
+Activity never temporarily replaces the usage screen. Terrarium animation is
+paused while Usage is selected. The host display-sleep policy still applies.
+
 ## T-Embed CC1101 (Companion Knob)
 
-**Shipping since 2026-07-25.** The LilyGO T-Embed CC1101 is the fleet's only board with a **rotary encoder**, and the only one you steer with rather than only read from — every other Shipping board is output-only apart from touch. Its UI (`esp32/src/ui/knob/`) is the Stream Deck's session-centric two-level grammar translated to an encoder: at list level rotate cycles sessions and press enters; at detail level rotate moves the option/command cursor, press commits (`select_option` / state command), and long-press backs out (`session_command{escape}`). Holding the encoder is push-to-talk — the board captures voice, the host transcribes, and the reply is spoken back through the board speaker.
+**Shipping since 2026-07-25.** The LilyGO T-Embed CC1101 is the fleet's only board with a **rotary encoder**, and the only one you steer with rather than only read from — every other Shipping board is output-only apart from touch. Its UI (`esp32/src/ui/knob/`) starts with an arrival-ordered waiting queue showing the project and question. Rotate between waiting requests or the All sessions destination, then press to enter. Detail requires a deliberate turn to select before pressing; changed questions or choices clear the selection. A pending reply stays unconfirmed until a state update is observed; disconnected or stale requests cannot be sent. Holding the encoder is push-to-talk — the board captures voice, the host transcribes, and the reply is spoken back through the board speaker.
 
 It is a **dual-mode companion**: USB-powered on the desk it is a steering knob; on its 1300 mAh cell it becomes a carry-around pager that chimes when a session starts waiting. The 8× WS2812 ring is a session-status ring (one LED per session, up to eight). The BQ27220 fuel gauge gives it a real state-of-charge readout rather than an inferred one.
 
@@ -47,7 +59,7 @@ Peripheral breadth is the widest in the fleet — CC1101 sub-GHz, PN532 NFC, IR 
 
 **Shipping since 2026-07-26.** The LilyGO T-Display-S3-Pro V1.1 is a 2.33″ 480×222 touch strip. **One firmware serves two physically different units**, and it picks its own personality at boot: `Camera::init()` probes the rear POGO camera shield, and a unit that has one comes up **portrait** in the Pocket UI while a unit that does not comes up **landscape** in the Ticker UI (`esp32/src/main.cpp`). The camera is a purchase option on a shield header — not a board revision — so both units report the same `device_info.board` of `t_display_pro` and take the same OTA image.
 
-- **Landscape (Ticker, no camera)** — three pages: **Focus** (one prioritized session and one readable thought; an awaiting session owns the page and renders separate labelled Deny/Approve targets, so a generic tap can never answer a gate), **Usage** (Claude and Codex quota windows as full-height gauges with reset countdowns — the permanent large-format version of the Stream Deck E2/E3 dials), and **Sessions** (the three highest-value rows). The split rocker moves between pages, `BOOT` returns to Focus, and touch mirrors both with header tabs and swipes.
+- **Landscape (Ticker, no camera)** — **Focus** shows a pinned project, current activity, and a retained result. Tap the project or press `BOOT` on Focus to pin/unpin; tap NEW RESULT to refresh. An ended pinned session remains visible. The persistent waiting count opens the waiting list without stealing the current page. **Usage** shows available provider windows; **Sessions** offers three readable rows with pagination, and tapping a row pins it. Separate labelled Deny/Approve targets check the displayed request before sending. The split rocker moves pages; `BOOT` on another page returns to Focus.
 - **Portrait (Pocket, camera unit)** — a phone-shaped stack of **SESSIONS** (momentum-scrolled cards, tap to focus), **CAM** (upright viewfinder with SNAP and LED; tapping the target line cycles which session receives the photo), and **USAGE**. The whole hardware stack is portrait-native — panel GRAM, CST226SE touch reporting, and camera mounting — so this orientation needs no rotation fights and LVGL's pointer indev drives real widgets instead of hand-rolled gestures.
 
 The **LTR-553 ambient light sensor** makes this the first board where the display-sleep contract takes a sensor input: brightness follows room light and the strip dims itself at night, decided locally. The SY6970 charger has no coulomb-counting register, so the header reports sampled **cell voltage** and charge state rather than an invented percentage.
@@ -61,6 +73,8 @@ AgentDeck's wired e-ink status panel. The hardware is a **Seeed TRMNL 7.5" OG DI
 **Status: hardware-verified, shipping via WiFi OTA.** TRMNL 7.5" is driven by custom AgentDeck ESP32 firmware under `esp32/` (PlatformIO env `trmnl_75`). Both transports are implemented and verified on hardware: **USB serial** (TinyUSB CDC) and **WiFi WebSocket** (`device_info` on connect, daemon state push, OTA capability like the other directly flashed boards). Node and Swift daemons both register it, and routine updates deploy over WiFi OTA (`agentdeck esp32-ota trmnl_75`). The dashboard UI — session cards, usage footer, timeline strip, partial/full refresh policy — has been through repeated on-device validation rounds. Residual operational caveats: serial reflashing must use the download-mode port with `boot_app0.bin` included (native-CDC re-enumeration breaks plain `pio -t upload`), and a crash in the prebuilt Espressif mDNS component is under observation (does not affect rendering or OTA).
 
 **Display-sleep policy:** TRMNL 7.5" keeps its dashboard visible when the host Mac's displays sleep or are turned off with a keyboard shortcut. Unlike LCD/OLED/LED devices, its e-ink image needs no panel refresh power to remain visible, and the panel is already continuously USB-powered. The firmware therefore ignores `display_state.displayOn` for rendering while continuing to receive and draw meaningful dashboard changes whenever the Mac itself remains awake.
+
+**Voice-capable-panel research:** the face set this panel renders is specified in [E-ink Surface Contract](eink-surface-contract.md); [E-ink Face Research](eink-face-research.md) is issue [#272](https://github.com/puritysb/AgentDeck/issues/272)'s live-measurement + vendor hardware-table snapshot (repaint-rate counters, mic/speaker/deep-sleep-wake facts) toward the still-open voice interface.
 
 **Connection surface:** a missing daemon link is a retained `OFFLINE` sheet with a quiet search/transport hint. `no active sessions` is reserved for the distinct case where the daemon link is live and its roster is empty; a later timed repaint must not collapse those states.
 

@@ -80,8 +80,19 @@ bool serialConnected() { return true; }
 void serialWriteJsonLine(const char*) {}
 bool wifiConnected() { return true; }
 const char* wifiLocalIP() { return "192.168.1.42"; }
-void queueOutbound(const char*) {}
+static unsigned commandCount = 0;
+static char lastCommand[1536]{};
+void queueOutbound(const char* json) {
+    ++commandCount; std::strncpy(lastCommand, json, sizeof(lastCommand) - 1);
+    lastCommand[sizeof(lastCommand) - 1] = 0;
+}
 }  // namespace Net
+namespace SimCommands {
+void reset() { Net::commandCount = 0; Net::lastCommand[0] = 0; }
+unsigned count() { return Net::commandCount; }
+const char* last() { return Net::lastCommand; }
+}
+
 
 // ── Companion-board device state (T-Embed knob, T-Display-Pro strip) ─────────
 // Those two UIs draw a live link chip and a battery cluster, so the sim has to

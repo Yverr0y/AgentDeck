@@ -56,3 +56,9 @@ bool apply(const char* name);
 // Comma-separated catalog of scene names for --help / --list.
 const char* catalog();
 }  // namespace SimScenes
+
+namespace SimCommands {
+void reset();
+unsigned count();
+const char* last();
+}

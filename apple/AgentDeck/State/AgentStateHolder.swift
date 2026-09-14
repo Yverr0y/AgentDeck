@@ -126,6 +126,19 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
     /// card's integration gaps, for one) hides itself in this mode, so a
     /// launch recording shows the product instead of the operator's setup.
     var isCaptureFeedPinned: Bool { hasLaunchArgumentBridgePin }
+
+    /// The pinned feed's port, for the same reason the pin outranks
+    /// `setPreferredLocalBridge`: anything that reaches for the LOCAL daemon
+    /// while a capture feed is pinned reads this machine's real work and puts
+    /// it on camera. The Collaboration panel fetches its task history over
+    /// HTTP rather than from the feed, so without this it queried the
+    /// developer daemon on :9120 while every other pixel came from the mock.
+    var captureFeedPort: Int? {
+        guard hasLaunchArgumentBridgePin,
+              let raw = preferredLocalBridgeUrl,
+              let port = URLComponents(string: raw)?.port else { return nil }
+        return port
+    }
     #endif
 
     /// Bridges that failed to connect — skip them until browseResults refresh
@@ -815,7 +828,19 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
         s.state = AgentConnectionState(rawValue: e.state) ?? s.state
         if let pm = e.permissionMode { s.permissionMode = PermissionMode(rawValue: pm) ?? s.permissionMode }
         s.agentType = e.agentType ?? s.agentType
-        if let sid = e.sessionId { s.sessionId = sid }
+        if let sid = e.sessionId {
+            // A frame that names a different session must not inherit the
+            // previous session's tool through the retain-on-absent rules
+            // below: the daemon hub stamps hook-driven frames with the hook
+            // session and Gateway-owned frames with `openclaw-gateway`, and a
+            // Gateway frame carries no Claude tool by design (2026-09-11).
+            if sid != s.sessionId {
+                s.currentTool = nil
+                s.toolInput = nil
+                s.toolProgress = nil
+            }
+            s.sessionId = sid
+        }
         if let focusedSessionId = e.focusedSessionId {
             s.focusedSessionId = focusedSessionId.isEmpty ? nil : focusedSessionId
         }
@@ -855,6 +880,9 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
         s.pairingUrl = e.pairingUrl ?? s.pairingUrl
         s.workerSessionCount = e.workerSessionCount ?? s.workerSessionCount
         if let os = e.ollamaStatus { s.ollamaStatus = os }
+        // A legacy model snapshot invalidates earlier verification. A quota-only
+        // frame with no model fields retains it. Never merge known=true across producers.
+        if e.mlxModels != nil || e.mlxResidency != nil { s.mlxResidency = e.mlxResidency }
         s.mlxModels = e.mlxModels ?? s.mlxModels
         if let subscriptions = e.subscriptions {
             s.subscriptions = subscriptions
@@ -993,10 +1021,17 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             // latch a phantom cap (CLAUDE.md wire-flag rule).
             s.scopedLimits = e.scopedLimits
         }
-        s.extraUsageEnabled = e.extraUsageEnabled ?? s.extraUsageEnabled
-        s.extraUsageMonthlyLimit = e.extraUsageMonthlyLimit ?? s.extraUsageMonthlyLimit
-        s.extraUsageUsedCredits = e.extraUsageUsedCredits ?? s.extraUsageUsedCredits
-        s.extraUsageUtilization = e.extraUsageUtilization ?? s.extraUsageUtilization
+        if e.usageStale == true {
+            s.extraUsageEnabled = nil
+            s.extraUsageMonthlyLimit = nil
+            s.extraUsageUsedCredits = nil
+            s.extraUsageUtilization = nil
+        } else {
+            s.extraUsageEnabled = e.extraUsageEnabled ?? s.extraUsageEnabled
+            s.extraUsageMonthlyLimit = e.extraUsageMonthlyLimit ?? s.extraUsageMonthlyLimit
+            s.extraUsageUsedCredits = e.extraUsageUsedCredits ?? s.extraUsageUsedCredits
+            s.extraUsageUtilization = e.extraUsageUtilization ?? s.extraUsageUtilization
+        }
         s.oauthConnected = e.oauthConnected ?? s.oauthConnected
         // A fresh frame from an older producer also clears a prior auth error.
         let freshQuotaFrame = e.usageStale != true && (e.usageStale == false
@@ -1022,6 +1057,9 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
         s.codexLastRefreshAt = e.codexLastRefreshAt ?? s.codexLastRefreshAt
         s.codexRateLimits = e.codexRateLimits ?? s.codexRateLimits
         s.modelCatalog = e.modelCatalog ?? s.modelCatalog
+        // A legacy model snapshot invalidates earlier verification. A quota-only
+        // frame with no model fields retains it. Never merge known=true across producers.
+        if e.mlxModels != nil || e.mlxResidency != nil { s.mlxResidency = e.mlxResidency }
         s.mlxModels = e.mlxModels ?? s.mlxModels
         s.mlxModelCatalog = e.mlxModelCatalog ?? s.mlxModelCatalog
         if let subscriptions = e.subscriptions {
@@ -1150,6 +1188,11 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
         timelineVersion += 1
         // Preserve lastKnownState for offline display
         state.bridgeConnected = false
+        state.mlxResidency = nil
+        if var ollama = state.ollamaStatus {
+            ollama.residency = ModelResidency(known: false, models: [])
+            state.ollamaStatus = ollama
+        }
         state.state = .disconnected
         state.sessionId = nil
         state.focusedSessionId = nil
