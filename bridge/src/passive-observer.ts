@@ -134,8 +134,28 @@ export interface ObservedSession extends EnrichedSession {
 }
 
 const SCAN_INTERVAL_MS = 5_000;
+/**
+ * Upper bound for the adaptive cooldown below. A host whose process table is
+ * pathologically slow still gets rescanned at least this often.
+ */
+const MAX_SCAN_INTERVAL_MS = 60_000;
+
 const MAX_TAIL_BYTES = 512 * 1024;
 const MAX_SAMPLE_BYTES = 1024 * 1024;
+/**
+ * SCAN_INTERVAL_MS is the floor, not the cadence. Where a scan costs more than
+ * the interval the daemon starts the next one the instant the last finished and
+ * pins the machine at 100% of whatever the process table costs — measured at
+ * ~11s per `Get-CimInstance Win32_Process` on a Windows 11 host with a slow WMI
+ * provider, against a 5s interval. Backing off to the last scan's own duration
+ * keeps that host at a ~50% duty cycle while leaving the common case (a few
+ * hundred ms on macOS/Linux) at the 5s floor.
+ */
+export function nextScanIntervalMs(lastScanMs: number): number {
+  if (!Number.isFinite(lastScanMs) || lastScanMs <= 0) return SCAN_INTERVAL_MS;
+  return Math.min(Math.max(SCAN_INTERVAL_MS, lastScanMs), MAX_SCAN_INTERVAL_MS);
+}
+
 /** Transcript/rollout silence after which an end-event-less turn is presumed dead. */
 const STALE_TURN_MS = 10 * 60 * 1000;
 /**
@@ -227,6 +247,8 @@ export class PassiveSessionObserver {
   private lastScanAt = 0;
   private cached: ObservedSession[] = [];
   private scanInFlight = false;
+  /** Wall-clock cost of the last completed scan attempt; see nextScanIntervalMs(). */
+  private lastScanMs = 0;
   private codexRolloutCache = new CodexRolloutCache();
   private kiroSessionCache = new KiroSessionCache();
 
@@ -241,6 +263,10 @@ export class PassiveSessionObserver {
   private lastProcesses: ProcInfo[] = [];
   processes(): ProcInfo[] { return this.lastProcesses; }
 
+  /** `collectProcesses` is injectable so the scan-failure paths (a rejection,
+   *  an empty table) can be exercised without a real process table. */
+  constructor(private readonly collectProcesses: () => Promise<ProcInfo[]> = collectProcessInfo) {}
+
   /**
    * Returns the cached observed sessions immediately and, when the cache is
    * stale (≥ SCAN_INTERVAL_MS), kicks off a background rescan. The scan used
@@ -252,18 +278,32 @@ export class PassiveSessionObserver {
    */
   collect(managedSessions: EnrichedSession[]): ObservedSession[] {
     const now = Date.now();
-    if (now - this.lastScanAt >= SCAN_INTERVAL_MS && !this.scanInFlight) {
+    if (now - this.lastScanAt >= nextScanIntervalMs(this.lastScanMs) && !this.scanInFlight) {
       this.lastScanAt = now;
       this.scanInFlight = true;
+      const startedAt = now;
       void this.scan(managedSessions)
-        .catch(() => { this.cached = []; })
-        .finally(() => { this.scanInFlight = false; });
+        // A rejected scan is "I could not look", not "every session ended".
+        // Blanking the cache here published an empty roster to every client
+        // until a scan happened to succeed — on a host where the scan fails
+        // repeatedly, that is a roster that flashes in and vanishes.
+        .catch(() => { /* keep the last known roster */ })
+        .finally(() => {
+          this.lastScanMs = Date.now() - startedAt;
+          this.scanInFlight = false;
+        });
     }
     return this.cached;
   }
 
   private async scan(managedSessions: EnrichedSession[]): Promise<void> {
-    const processes = await collectProcessInfo();
+    const processes = await this.collectProcesses();
+    // collectProcessInfo() reports a timeout, a spawn failure or unparseable
+    // output as [] rather than throwing, so the .catch() above never sees it —
+    // and no running machine truly has zero processes. Treat an empty table as
+    // the third answer ("could not look") and retain the previous roster; the
+    // alternative is concluding that every observed session ended at once.
+    if (processes.length === 0) return;
     this.lastProcesses = processes;
     const observed = [
       ...collectClaudeSessions(processes),
@@ -605,7 +645,12 @@ async function collectProcessInfoWin32(): Promise<ProcInfo[]> {
         ' | Select-Object ProcessId,ParentProcessId,WorkingSetSize,CommandLine | ConvertTo-Json -Compress',
     ], {
       encoding: 'utf8',
-      timeout: 10_000,
+      // Measured at ~10.4s on a Windows 11 host whose Win32_Process provider is
+      // slow (bare PowerShell startup there is 0.55s, and narrowing the query
+      // does not help), so a 10s budget timed out on every single scan and the
+      // observer was permanently blind. The cost is bounded by the adaptive
+      // cooldown in nextScanIntervalMs(), not by this timeout.
+      timeout: 30_000,
       maxBuffer: 8 * 1024 * 1024,
       windowsHide: true,
     });
