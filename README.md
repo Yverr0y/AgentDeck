@@ -361,7 +361,7 @@ identified separately below. Matching minor versions are never a requirement.
 
 | Artifact | Publicly available | Connects to |
 |---|---|---|
-| npm CLI + daemon (`@agentdeck/*`) | 1.3.3 | — (the hub every client dials) |
+| npm CLI + daemon (`@agentdeck/*`) | 1.3.4 | — (the hub every client dials) |
 | Apple app (macOS · iPhone/iPad) | 1.3.0 | its built-in Swift daemon, or any 1.x daemon |
 | Android app | 1.3.1 APK / Play | any 1.x daemon |
 | Stream Deck plugin | 1.2.0 | any 1.x daemon |
@@ -370,7 +370,7 @@ identified separately below. Matching minor versions are never a requirement.
 
 | Channel | Tag | Status |
 |---|---|---|
-| **npm** — `@agentdeck/setup` | `npm-v*` | [1.3.3](https://github.com/puritysb/AgentDeck/releases/tag/npm-v1.3.3) live — all four packages (`shared`, `hooks`, `bridge`, `setup`) and `latest` independently registry-verified on 2026-09-13. Fixes protected registry-file reads blocking agent startup. Installed Swift-only, CLI-only and coexistence checks passed ([delivery record](https://github.com/puritysb/AgentDeck/issues/314#issuecomment-5653078997)). Next patch 1.3.4 is prepared for Windows hooks and observer resilience; publication and installed verification are pending. |
+| **npm** — `@agentdeck/setup` | `npm-v*` | 1.3.4 live — all four package versions and `latest` independently registry-verified on 2026-09-15. Windows Git Bash/PowerShell hooks, Kiro script repair and observer resilience fixes; installed Swift-only, CLI-only and coexistence verification recorded in [#314](https://github.com/puritysb/AgentDeck/issues/314#issuecomment-5666511504). |
 | **Apple App Store** — macOS + iPhone/iPad | `apple-v*` | **1.3.0 live; 1.3.2 (6801) submitted on both platforms on 2026-09-13.** App Store Connect API verifies `WAITING_FOR_REVIEW` and `AFTER_APPROVAL` for each platform. English, Korean and Japanese notes saved; existing processed screenshots and previews retained. 1.3.1 (6701) was superseded before submission. |
 | **Elgato Marketplace** — Stream Deck plugin | `streamdeck-v*` | [1.2 live](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464); **1.3 pending review** since 2026-09-12. The manifest is `1.3.0.0`; Elgato trims trailing zeros in the UI. Official CI artifact submitted with SDK 3 and DRM enabled; publication after approval is authorized without an additional DRM encoder gate; automatic publication remains off because the pending-review console did not save the setting change ([record](marketplace/elgato/LISTING.md)). |
 | **Ulanzi Marketplace** — D200H / D200X plugin | `ulanzi-v*` | [1.2.0 live](https://ugc.ulanzistudio.com/contentView/1141); **1.3.0 submitted for review** on 2026-09-12. Reopened the submitted record to verify all seven locale pairs, supported devices/OS flags and Dial off; downloaded CDN ZIP matches the local package ([record](marketplace/ulanzi/LISTING.md)). |
