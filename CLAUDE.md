@@ -172,7 +172,7 @@ This diagnostic path is developer tooling only: it lives in `scripts/` and `.age
 
 ## Windows dev setup
 
-The Node.js bridge, hook installer, and Stream Deck plugin run on Windows 11 (Apple/Android/ESP32 native builds are out of scope). Full prereqs, install/run steps, and the intentional Windows differences (ConPTY, data dir, PowerShell hook one-liner, daemon autostart via per-user Scheduled Task `AgentDeckDaemon` — `bridge/src/windows-service.ts`, NOT a session-0 Windows Service, device-module gating, darwin-only sampler) live in **[docs/windows.md](docs/windows.md)**. Code refs: `bridge/src/pty-manager.ts`, `hooks/src/install.ts`, `bridge/src/cli.ts`, `bridge/src/windows-service.ts`.
+The Node.js bridge, hook installer, and Stream Deck plugin run on Windows 11 (Apple/Android/ESP32 native builds are out of scope). Full prereqs, install/run steps, and the intentional Windows differences (ConPTY, data dir, file-based PowerShell hook script, daemon autostart via per-user Scheduled Task `AgentDeckDaemon` — `bridge/src/windows-service.ts`, NOT a session-0 Windows Service, device-module gating, darwin-only sampler) live in **[docs/windows.md](docs/windows.md)**. Code refs: `bridge/src/pty-manager.ts`, `hooks/src/install.ts`, `bridge/src/cli.ts`, `bridge/src/windows-service.ts`.
 
 ## Linux dev setup
 

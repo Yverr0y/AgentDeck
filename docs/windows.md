@@ -26,6 +26,7 @@ pnpm build              # shared → bridge, plugin, hooks
 pnpm test               # optional: run the Vitest suite
 
 # Register daemon autostart and agent hooks from this checkout
+# Windows hooks use ~/.agentdeck/agentdeck-hook.ps1
 node bridge/dist/cli.js daemon install
 
 # Link the Stream Deck plugin (then restart the Stream Deck app)
@@ -71,7 +72,7 @@ design and gates live in
 [Discussion #278](https://github.com/puritysb/AgentDeck/discussions/278) and
 [#273](https://github.com/puritysb/AgentDeck/issues/273). New ordinary Windows
 workflows should install the daemon and run agents normally.
-- **Hooks** — Claude Code hook entries run a `powershell -NoProfile -ExecutionPolicy Bypass -Command "…"` one-liner that reads `daemon.json`, probes `/health`, and POSTs the payload via `Invoke-RestMethod`.
+- **Hooks** — Claude Code hook entries run `powershell -NoProfile -ExecutionPolicy Bypass -File "%USERPROFILE%\.agentdeck\agentdeck-hook.ps1" -HookEvent <Event>`; the script reads `daemon.json`, probes `/health`, and POSTs the payload via `Invoke-RestMethod`. The body must stay in a **script file** — Claude Code spawns hook commands through a POSIX shell (Git Bash) on Windows, which expands every `$name` out of an inlined `-Command` before PowerShell parses it.
 - **`agentdeck daemon install` / `uninstall`** — registers a per-user **Scheduled Task** `AgentDeckDaemon` with a logon trigger (built-in `schtasks.exe`, no admin elevation), the Windows analog of the macOS LaunchAgent. `install` registers + starts it now and installs Codex hooks; `uninstall` stops the daemon and removes the task. A real Windows Service is intentionally **not** used — it runs in session 0 with no desktop/device access, breaking USB-HID (D200H), audio (wake-word), and the Stream Deck app. See [daemon.md → Autostart](daemon.md#autostart-loginlogon).
 - **Device modules** — `adb` is probed cross-platform; the `/dev/tty.*` USB-serial scan is skipped on Windows (COM-port enumeration not implemented). mDNS and `better-sqlite3` (APME) support Windows; D200H is driven by the Ulanzi Studio plugin over daemon WebSocket.
 - **APME hardware sampler** is darwin-only — it returns a minimal snapshot on Windows and the recommender treats that as "neutral".

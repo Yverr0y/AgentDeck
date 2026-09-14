@@ -27,7 +27,7 @@ cannot dismiss another's `AWAITING_*` prompt — but the guard returned before
 every state, not just those, and the wildcard `session_end → DISCONNECTED` row
 fires whenever *any* session ends. `session_start` was then the only edge out
 and it never fires again for a session already underway, so the hub latched.
-The guard now covers `AWAITING_*`/`PROCESSING` only,
+The guard now protects `AWAITING_*` prompts,
 [`shared/src/states.ts`](shared/src/states.ts) gains a
 `DISCONNECTED → PROCESSING` on `tool_activity` row (regenerated into the Swift
 mirror), and tool activity during `PROCESSING` re-arms the stuck-timer backstop
