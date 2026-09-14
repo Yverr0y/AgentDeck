@@ -108,4 +108,42 @@ describe('WsServer.broadcast() emits the actionability line', () => {
     const hit = debugSpy.mock.calls.map((call) => call.join(' ')).find((l) => l.includes('broadcast(state_update)'));
     expect(hit).toContain('actionability=cosmetic');
   });
+  it('counts attempts without clients or logging and returns isolated snapshots', () => {
+    debugSpy.mockImplementation(() => {});
+    const before = server.getBroadcastMetrics();
+    server.onBroadcast(() => { throw new Error('serial relay unavailable'); });
+    server.broadcast({ type: 'sessions_list', sessions: [
+      { state: State.AWAITING_PERMISSION }, { state: State.AWAITING_OPTION },
+    ] } as unknown as BridgeEvent);
+    server.broadcast({ type: 'sessions_list', sessions: [] } as unknown as BridgeEvent);
+    server.broadcast({ type: 'timeline_event', entry: {}, upsert: false } as unknown as BridgeEvent);
+    const after = server.getBroadcastMetrics();
+    expect(after.total - before.total).toBe(3);
+    expect(after.actionable - before.actionable).toBe(1);
+    expect(after.cosmetic - before.cosmetic).toBe(1);
+    expect(after.unclassified - before.unclassified).toBe(1);
+    expect(after.instanceId).toBe(before.instanceId);
+    expect(after.startedAt).toBe(before.startedAt);
+    expect(after.elapsedMs).toBeGreaterThanOrEqual(before.elapsedMs);
+    after.actionable = -100;
+    expect(server.getBroadcastMetrics().actionable).toBe(before.actionable + 1);
+  });
+
+  it('starts a new measurement identity and zero counts for a new server', async () => {
+    const nextHttp = createServer();
+    const next = new WsServer(nextHttp);
+    await new Promise<void>((resolve) => nextHttp.listen(0, '127.0.0.1', resolve));
+    try {
+      const snapshot = next.getBroadcastMetrics();
+      expect(snapshot.instanceId).not.toBe(server.getBroadcastMetrics().instanceId);
+      expect(snapshot).toMatchObject({ total: 0, actionable: 0, cosmetic: 0, unclassified: 0 });
+      expect(Number.isInteger(snapshot.startedAt)).toBe(true);
+      expect(Number.isInteger(snapshot.capturedAt)).toBe(true);
+      expect(Number.isInteger(snapshot.elapsedMs)).toBe(true);
+    } finally {
+      next.close();
+      nextHttp.close();
+    }
+  });
+
 });
