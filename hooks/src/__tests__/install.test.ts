@@ -3,7 +3,9 @@ import { chmodSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync,
 import { tmpdir } from 'os';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { createServer } from 'node:http';
+import { promisify } from 'node:util';
 import {
   HOOK_EVENTS,
   buildHookCommand,
@@ -202,6 +204,42 @@ describe('Hook Installer', () => {
   });
 
   describe('buildHookCommandWin (Windows)', () => {
+    it.skipIf(process.platform !== 'win32')('delivers UTF-8 stdin through Git Bash and Windows PowerShell', async () => {
+      const home = mkdtempSync(join(tmpdir(), 'agentdeck hook 한글-'));
+      const payload = JSON.stringify({ session_id: 'review', prompt: '안녕하세요 café' });
+      let received: { url: string | undefined; body: string } | undefined;
+      const server = createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+          received = { url: request.url, body: Buffer.concat(chunks).toString('utf8') };
+          response.writeHead(200, { 'Content-Type': 'application/json' });
+          response.end('{}');
+        });
+      });
+      try {
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const port = (server.address() as { port: number }).port;
+        ensureWindowsHookScript(home);
+        // Select Git's shell explicitly: a Windows host can also have WSL's
+        // bash.exe on PATH, which is not the hook execution environment.
+        const gitBash = join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe');
+        const execution = promisify(execFile)(gitBash, ['-c', buildHookCommandWin('Stop', home)], {
+          env: { ...process.env, AGENTDECK_PORT: String(port) },
+          timeout: 10_000,
+          windowsHide: true,
+        });
+        execution.child.stdin?.end(payload);
+        const result = await execution;
+        expect(result.stderr).toBe('');
+        expect(received).toEqual({ url: '/hooks/Stop', body: payload });
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        rmSync(home, { recursive: true, force: true });
+      }
+    }, 15_000);
+
     it('invokes the hook script by path and passes the event as a parameter', () => {
       const cmd = buildHookCommandWin('SessionStart');
       expect(cmd.startsWith('powershell -NoProfile -ExecutionPolicy Bypass -File "')).toBe(true);
@@ -543,7 +581,11 @@ describe('Hook Installer', () => {
 });
 
 describe('migration 12 (Windows inline -Command → script file)', () => {
-    it.skipIf(process.platform !== 'win32')('rewrites hooks whose $variables a POSIX shell would eat', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    beforeEach(() => Object.defineProperty(process, 'platform', { value: 'win32', configurable: true }));
+    afterEach(() => Object.defineProperty(process, 'platform', platform));
+
+    it('rewrites hooks whose $variables a POSIX shell would eat', () => {
       const home = mkdtempSync(join(tmpdir(), 'agentdeck-hooks-winfile-'));
       mkdirSync(join(home, '.claude'), { recursive: true });
       const settingsPath = join(home, '.claude', 'settings.json');
@@ -578,7 +620,7 @@ describe('migration 12 (Windows inline -Command → script file)', () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    it.skipIf(process.platform !== 'win32')('does not duplicate hooks across repeated installs', () => {
+    it('does not duplicate hooks across repeated installs', () => {
       const home = mkdtempSync(join(tmpdir(), 'agentdeck-hooks-reinstall-'));
       mkdirSync(join(home, '.claude'), { recursive: true });
       installHooks(home);
@@ -591,7 +633,7 @@ describe('migration 12 (Windows inline -Command → script file)', () => {
       rmSync(home, { recursive: true, force: true });
     });
 
-    it.skipIf(process.platform !== 'win32')('removes the script on uninstall', () => {
+    it('removes the script on uninstall', () => {
       const home = mkdtempSync(join(tmpdir(), 'agentdeck-hooks-uninstall-'));
       mkdirSync(join(home, '.claude'), { recursive: true });
       installHooks(home);
@@ -599,6 +641,33 @@ describe('migration 12 (Windows inline -Command → script file)', () => {
       uninstallHooks(home);
       expect(existsSync(windowsHookScriptPath(home))).toBe(false);
       rmSync(home, { recursive: true, force: true });
+    });
+
+    it('repairs the script without rewriting current settings', () => {
+      const home = mkdtempSync(join(tmpdir(), 'agentdeck-hooks-winrepair-'));
+      try {
+        installHooks(home);
+        const settingsPath = join(home, '.claude', 'settings.json');
+        // Distinct formatting makes even a byte-equivalent semantic rewrite
+        // observable without relying on filesystem timestamp resolution.
+        const before = JSON.stringify(JSON.parse(readFileSync(settingsPath, 'utf8')), null, 4);
+        writeFileSync(settingsPath, before);
+        for (const missing of [false, true]) {
+          if (missing) rmSync(windowsHookScriptPath(home));
+          else writeFileSync(windowsHookScriptPath(home), 'broken');
+          migrateHooksIfNeeded(home);
+          expect(readFileSync(windowsHookScriptPath(home), 'utf8')).toBe(WINDOWS_HOOK_SCRIPT);
+          expect(readFileSync(settingsPath, 'utf8')).toBe(before);
+        }
+      } finally { rmSync(home, { recursive: true, force: true }); }
+    });
+
+    it('keeps the bootstrap script byte-identical to the hooks script', () => {
+      const literal = /const WINDOWS_HOOK_SCRIPT = (`[\s\S]*?`);/;
+      const source = readFileSync(join(process.cwd(), 'hooks/src/install.ts'), 'utf8');
+      const bootstrap = readFileSync(join(process.cwd(), 'setup/src/setup.ts'), 'utf8');
+      expect(source.match(literal)?.[1]).toBeDefined();
+      expect(bootstrap.match(literal)?.[1]).toBe(source.match(literal)?.[1]);
     });
   });
 
@@ -770,7 +839,7 @@ describe('Kiro v3 global hook installer', () => {
     mkdirSync(join(home, '.kiro'), { recursive: true });
     expect(installKiroHooksIfNeeded(home).installed).toBe(true);
     const written = JSON.parse(readFileSync(kiroHookPath(home), 'utf8'));
-    expect(written).toEqual(buildKiroHookFile());
+    expect(written).toEqual(buildKiroHookFile(home));
     expect(written.hooks.map((hook: { trigger: string }) => hook.trigger)).toEqual([
       'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop',
     ]);
@@ -791,6 +860,25 @@ describe('Kiro v3 global hook installer', () => {
     expect(installKiroHooksIfNeeded(home).reason).toContain('occupied');
     expect(uninstallKiroHooks(home)).toBe(false);
     expect(existsSync(kiroHookPath(home))).toBe(true);
+  });
+
+  it('provisions and repairs the Windows script without a Claude installation', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      mkdirSync(join(home, '.kiro'));
+      expect(installKiroHooksIfNeeded(home).installed).toBe(true);
+      const script = windowsHookScriptPath(home);
+      expect(readFileSync(script, 'utf8')).toBe(WINDOWS_HOOK_SCRIPT);
+      const hooks = JSON.parse(readFileSync(kiroHookPath(home), 'utf8'));
+      for (const hook of hooks.hooks) expect(hook.action.command).toContain(script);
+      writeFileSync(script, 'broken');
+      expect(installKiroHooksIfNeeded(home).reason).toBe('already current');
+      expect(readFileSync(script, 'utf8')).toBe(WINDOWS_HOOK_SCRIPT);
+      rmSync(script);
+      installKiroHooksIfNeeded(home);
+      expect(readFileSync(script, 'utf8')).toBe(WINDOWS_HOOK_SCRIPT);
+    } finally { Object.defineProperty(process, 'platform', platform); }
   });
 });
 

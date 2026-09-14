@@ -29,10 +29,23 @@ Two consequences beyond the builder. The `-File` command contains neither
 decide "this hook is ours" — so a reinstall would have left the old entry and
 appended a new one, one live hook per install. That test is now
 `isAgentDeckHookCommand()`, in one place, and it matches all three shapes. And
-migration 9's `[int]::TryParse` marker matches the broken and fixed forms
-alike, so nothing existing caught this: migration 12 rewrites any Windows
-settings file that does not mention `agentdeck-hook.ps1`.
+migration 9's `[int]::TryParse` marker recognizes the broken inline form,
+while the fixed form moves that validation into the script. Windows migration
+now compares the rebuilt hook settings by value and repairs the script
+independently, so current settings are not rewritten on each session start.
 
 Verified by running the generated command through `sh -c` with a payload on
 stdin: exit 0, no parse errors. The affected machine had accumulated the
 inline entry alongside a hand-written `-File` one, firing both per event.
+
+### Maintainer review
+
+The original contribution is preserved in PR #329. Review reproduced a missing
+script in standalone Kiro installation, and repeated writes of already-current
+Windows settings. Kiro now provisions/repairs the script before its
+already-current return and carries the supplied home into every command.
+Windows migration repairs a missing/corrupt script without rewriting unchanged
+settings, including the legacy-settings relocation path. Installer tests run
+these Windows branches on every host, and a byte-comparison gate keeps the
+bootstrap script synchronized. These tests do not substitute for the author's
+Windows PowerShell runtime evidence.

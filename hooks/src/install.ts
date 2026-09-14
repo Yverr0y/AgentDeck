@@ -231,7 +231,7 @@ export function kiroHookPath(home: string = homedir()): string {
 }
 
 /** Kiro v3 hooks are telemetry-only: never echo daemon steering into Kiro. */
-export function buildKiroHookFile(): Record<string, unknown> {
+export function buildKiroHookFile(home: string = homedir()): Record<string, unknown> {
   return {
     version: 'v1',
     hooks: KIRO_HOOK_EVENTS.map(([trigger, daemonEvent]) => ({
@@ -242,7 +242,7 @@ export function buildKiroHookFile(): Record<string, unknown> {
         // A prefixed event bypasses Claude's request-response branches in
         // buildHookCommand and reaches the agent-neutral observed pipeline.
         command: process.platform === 'win32'
-          ? buildHookCommandWin(daemonEvent)
+          ? buildHookCommandWin(daemonEvent, home)
           : buildHookCommand(daemonEvent),
       },
       timeout: 2,
@@ -264,7 +264,10 @@ export function installKiroHooksIfNeeded(home: string = homedir()): KiroHookInst
     }
   }
   mkdirSync(join(kiroRoot, 'hooks'), { recursive: true });
-  const content = `${JSON.stringify(buildKiroHookFile(), null, 2)}\n`;
+  // Kiro may be installed without Claude. Repair the shared script even when
+  // the JSON below is already current.
+  if (process.platform === 'win32') ensureWindowsHookScript(home);
+  const content = `${JSON.stringify(buildKiroHookFile(home), null, 2)}\n`;
   if (existsSync(path) && readFileSync(path, 'utf8') === content) {
     return { installed: true, path, reason: 'already current' };
   }
@@ -547,8 +550,8 @@ function relocateLegacyHooks(home: string = homedir()): boolean {
   const before = JSON.stringify(settings);
   applyHooks(settings, home);
   const after = JSON.stringify(settings);
+  if (process.platform === 'win32') ensureWindowsHookScript(home);
   if (before !== after) {
-    if (process.platform === 'win32') ensureWindowsHookScript(home);
     writeSettings(settingsPath, settings);
   }
   return true;
@@ -567,6 +570,17 @@ export function migrateHooksIfNeeded(home: string = homedir()): void {
       && !raw.includes('agentdeck-hook.ps1')) return;
 
     const settings = JSON.parse(raw);
+    // Windows settings now contain a file path, not the inline validation
+    // markers used by the POSIX migrations below. Converge the command set
+    // by value and repair its script independently; current settings must
+    // not be rewritten every time a session starts.
+    if (process.platform === 'win32') {
+      ensureWindowsHookScript(home);
+      const before = JSON.stringify(settings);
+      applyHooks(settings, home);
+      if (JSON.stringify(settings) !== before) writeSettings(settingsPath, settings);
+      return;
+    }
     let { migrated } = migrateHooks(settings);
 
     // Migration 4: upgrade hooks using simple :-9120 fallback to daemon.json-reading format.
@@ -615,40 +629,27 @@ export function migrateHooksIfNeeded(home: string = homedir()): void {
     // daemon.json values directly into a loopback URL. Values containing `@`
     // can make URL parsers treat `127.0.0.1:<value>` as userinfo and send hook
     // payloads to a different host. Rebuild once with strict 1..65535 parsing.
-    const hasValidatedPort = process.platform === 'win32'
-      ? raw.includes('[int]::TryParse')
-      : raw.includes('*[!0-9]*');
+    const hasValidatedPort = raw.includes('*[!0-9]*');
     if (!hasValidatedPort) {
-      applyHooks(settings, home);
-      migrated = true;
-    }
-
-    // Migration 12: Windows hooks inlined as `-Command` are parsed by the
-    // POSIX shell Claude Code spawns them through, which strips every `$var`
-    // before PowerShell sees the line — they fail on every single event. Move
-    // them to the `-File` script form. (Migration 9's `[int]::TryParse` marker
-    // matches both shapes, so nothing else catches this.)
-    if (process.platform === 'win32' && !raw.includes('agentdeck-hook.ps1')) {
       applyHooks(settings, home);
       migrated = true;
     }
 
     // Migration 10: hooks predating the pid header cannot tell the daemon
     // which process posted them, so spawned-worker ancestry never resolves.
-    if (process.platform !== 'win32' && !raw.includes('X-AgentDeck-Pid')) {
+    if (!raw.includes('X-AgentDeck-Pid')) {
       applyHooks(settings, home);
       migrated = true;
     }
 
     // Migration 11: protected container reads can await an OS decision forever.
     // The Python timer bounds lookup before the existing healthy-port fallback.
-    if (process.platform !== 'win32' && !raw.includes('signal.setitimer')) {
+    if (!raw.includes('signal.setitimer')) {
       applyHooks(settings, home);
       migrated = true;
     }
 
     if (migrated) {
-      if (process.platform === 'win32') ensureWindowsHookScript(home);
       writeSettings(settingsPath, settings);
     }
   } catch {

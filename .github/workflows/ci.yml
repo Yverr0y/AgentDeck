@@ -98,3 +98,6 @@ jobs:
 
       - name: Open SQLite through the daemon runtime
         run: node bridge/dist/cli.js diag native --json
+
+      - name: Windows hooks and observer regressions
+        run: pnpm exec vitest run hooks/src/__tests__/install.test.ts bridge/src/__tests__/passive-observer.test.ts bridge/src/__tests__/state-machine.test.ts --maxWorkers=2
