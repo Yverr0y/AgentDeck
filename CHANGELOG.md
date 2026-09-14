@@ -45,6 +45,24 @@ file's own rule forbids reconstructing its notes. The commit above is the
 record. `npm 1.0.16` (`37c674b8`) is a different case and needs nothing — it was
 bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
+## 2026-09-15 — npm 1.3.4
+
+- Windows hooks run PowerShell from a managed script file, preserving stdin and
+  literal variables when Claude launches hooks through Git Bash. Standalone Kiro
+  installation creates the same dependency; migration repairs missing or changed
+  scripts without rewriting already-current user settings (#329, fixes #331).
+- Failed or slow process scans preserve the observed session roster and back off
+  from scan completion. New tool activity recovers disconnected sessions and
+  refreshes processing timeouts without dismissing hub permission prompts
+  (#330, fixes #332).
+- Windows source-checkout instructions invoke the built CLI directly and explain
+  the difference between daemon autostart and a globally available command (#304).
+- Thanks to @dudziakl and @jurri for the original fixes and documentation.
+
+Upgrade with `npx @agentdeck/setup@1.3.4 --yes` to update the daemon and hooks.
+No companion app, deck plugin, or ESP32 firmware upgrade is required for these
+fixes. High-load daemon/serial ownership issue #327 remains open.
+
 ## 2026-09-13 — Apple 1.3.2
 
 Bounds Claude and Codex hook port-file discovery to 200 ms per read. A protected
