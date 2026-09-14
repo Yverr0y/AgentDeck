@@ -385,6 +385,12 @@ The live version is verifiable without signing in to the Maker Console: the prod
 
 `streamdeck-release.yml` runs on the tag: it validates, packs, attaches the `.streamDeckPlugin` to a GitHub Release, and uploads it as a build artifact. The Maker-portal upload itself stays manual — Elgato has no submission API.
 
+**2026-09-15 follow-up:** Maker Console approved 1.3 and the authorized Release
+action changed its row to Published. Public-page propagation was not immediate;
+see [the current listing receipt](marketplace/elgato/LISTING.md). Apple 1.3.2
+is independently READY_FOR_SALE on both platforms in
+[ASC status run 34909305043](https://github.com/puritysb/AgentDeck/actions/runs/34909305043).
+
 ### Ulanzi plugin
 
 `1.0.3` was uploaded on 2026-08-07 and **published on or before 2026-08-24** — the first AgentDeck version ever live on this Marketplace. `1.0.4` was **submitted the same day** as a *Create review version* (D200X keypad, the three agents the published build predates, three new locales, `AI` sub-category, restored seven-language copy, refreshed media); 1.0.3 keeps serving while it is reviewed, verified on the public page after the press. **`1.0.5` replaced that review record in place on 2026-08-25**, so 1.0.4 never reached a user: the Ulanzi Studio team reported macOS Gatekeeper flagging `resvgjs.darwin-arm64.node` on Apple Silicon, and 1.0.5 removes every native binary by moving the rasterizer to `@resvg/resvg-wasm`. Replacing rather than stacking a second review version is the path Ulanzi confirmed on 2026-08-08 ("it's also possible to re-edit and update the file"), and it is the right one here because the reviewer was testing the very build that was wrong. 1.0.5 was in turn replaced in place by **1.2.0 on 2026-09-02**, and **1.2.0 was published within a day**: on 2026-09-03 the public listing reads `Version：1.2.0`. Note the Ulanzi page is client-rendered — `curl` returns no version string at all, so this one is read in a browser (or with the extension's DOM tools), unlike the Elgato payload above.
