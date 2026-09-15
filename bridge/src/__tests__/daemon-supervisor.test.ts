@@ -102,11 +102,13 @@ describe('unit posture — read from what the installers write', () => {
   });
 
   it('reads the posture back out of the real systemd unit (quoted ExecStart words)', () => {
-    expect(parseSupervisorPosture('systemd', buildUnitFile({ extraArgs: ['--loopback'] })))
+    // Render a Linux unit even when this suite runs on a Windows host.
+    const target = { node: '/usr/bin/node', cliJs: '/opt/agentdeck/cli.js', dataDirOverride: '/home/test/.agentdeck' };
+    expect(parseSupervisorPosture('systemd', buildUnitFile({ ...target, extraArgs: ['--loopback'] })))
       .toEqual(['--loopback']);
-    expect(parseSupervisorPosture('systemd', buildUnitFile({ extraArgs: ['--local'] })))
+    expect(parseSupervisorPosture('systemd', buildUnitFile({ ...target, extraArgs: ['--local'] })))
       .toEqual(['--local']);
-    expect(parseSupervisorPosture('systemd', buildUnitFile())).toEqual([]);
+    expect(parseSupervisorPosture('systemd', buildUnitFile(target))).toEqual([]);
   });
 
   it('reads the posture back out of the real scheduled-task XML (bare argv)', () => {
