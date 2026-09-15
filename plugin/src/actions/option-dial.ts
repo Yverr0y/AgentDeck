@@ -18,25 +18,47 @@ import streamDeck, {
   TouchTapEvent,
   WillAppearEvent,
   WillDisappearEvent,
+  DidReceiveSettingsEvent,
 } from '@elgato/streamdeck';
+import type { JsonValue } from '@elgato/utils';
 import type { AgentLink } from '../agent-link.js';
 import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
-import { renderUsageEncoderBoth, renderUsageEncoderSingle, renderUsageEncoderTriple, renderUsageEncoderScopedSingle, type UsageEncoderScoped } from '../renderers/usage-gauge.js';
+import {
+  renderUsageEncoderBoth,
+  renderUsageEncoderSingle,
+  renderUsageEncoderTriple,
+  renderUsageEncoderScopedSingle,
+  type UsageEncoderScoped,
+} from '../renderers/usage-gauge.js';
 import { renderUsageSession } from '../renderers/usage-dial-renderer.js';
-import { type UsageModeData, updateUsageModeData, getUsageModeData, fireUsageRefresh, buildClaudeUsageEncoder, pickWorstScopedLimit } from '../utility-modes/usage.js';
+import {
+  type UsageModeData,
+  updateUsageModeData,
+  getUsageModeData,
+  fireUsageRefresh,
+  buildClaudeUsageEncoder,
+  pickWorstScopedLimit,
+} from '../utility-modes/usage.js';
 import type { ScopedUsageLimit } from '@agentdeck/shared';
 import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../system/index.js';
+import { PerActionViewState } from './per-action-view-state.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
 let currentLayout = '';
 let hasReceivedData = false;
-/** Dial-cycled view index for the Claude usage encoder (E2). */
-let viewIndex = 0;
+
+interface ClaudeUsageDialSettings {
+  [key: string]: JsonValue;
+  usageView?: string;
+}
+
+/** Per-action Claude usage view. Each physical dial persists independently. */
+const claudeUsageViews = new PerActionViewState('triple');
 
 /** Scoped model limits are hidden while the snapshot is stale — a stale number
  *  reads as live. Mirrors buildClaudeUsageEncoder's staleness gate. */
@@ -59,7 +81,6 @@ function toEncScoped(s?: ScopedUsageLimit): UsageEncoderScoped | undefined {
   // inactive cap never latches the critical ramp (CLAUDE.md wire-flag rule).
   return { label: s.label, usedPercent: s.percent, resetsAt: s.resetsAt, known: true, active: s.active === true };
 }
-
 
 export function initOptionDial(_b: AgentLink): void {
   // No bridge interaction required — refreshes ride fireUsageRefresh().
@@ -109,17 +130,21 @@ function refreshClaudeUsageDials(): void {
     return;
   }
 
-  setCanvasFeedback(renderClaudeUsageView());
+  const data = getUsageModeData();
+  for (const id of encoderRegistry.optionIds) {
+    const dial = streamDeck.actions.getActionById(id) as any;
+    if (!dial) continue;
+    const feedback = { canvas: svgToDataUrl(renderClaudeUsageView(id, data)) };
+    void dial.setFeedback(feedback).catch(() => {});
+  }
 }
 
-/** Render the current dial-cycled view for the Claude usage encoder. */
-function renderClaudeUsageView(): string {
-  const data = getUsageModeData();
+/** Render the independently selected view for one Claude usage encoder. */
+function renderClaudeUsageView(actionId: string, data: UsageModeData = getUsageModeData()): string {
   const views = usageViews(data);
-  // Data can shrink (a scoped limit expiring) between rotate and render — clamp
-  // so a stale index never falls off the end of the list.
-  if (viewIndex >= views.length) viewIndex = 0;
-  const view = views[viewIndex];
+  // A scoped view can disappear when its limit expires. Render the default until
+  // the user rotates again, without changing any other dial's selection.
+  const view = claudeUsageViews.resolve(actionId, views);
   // Session view is shared token/cost text — show it regardless of quota note.
   if (view === 'session') return renderUsageSession(data);
   const enc = buildClaudeUsageEncoder(data, hasReceivedData);
@@ -138,12 +163,16 @@ function renderClaudeUsageView(): string {
 
 @action({ UUID: 'bound.serendipity.agentdeck.option-dial' })
 export class ResponseDialAction extends SingletonAction {
-  static get actionIds(): string[] { return encoderRegistry.optionIds; }
+  static get actionIds(): string[] {
+    return encoderRegistry.optionIds;
+  }
 
-  override async onWillAppear(ev: WillAppearEvent): Promise<void> {
+  override async onWillAppear(ev: WillAppearEvent<ClaudeUsageDialSettings>): Promise<void> {
     if (!encoderRegistry.optionIds.includes(ev.action.id)) {
       encoderRegistry.optionIds.push(ev.action.id);
     }
+    const savedView = ev.payload?.settings?.usageView;
+    claudeUsageViews.load(ev.action.id, savedView);
     currentLayout = PIXMAP_LAYOUT;
     // An encoder that appears while the host display is already asleep never
     // saw the sleep edge, so blank it here instead of drawing usage.
@@ -152,13 +181,19 @@ export class ResponseDialAction extends SingletonAction {
     refreshClaudeUsageDials();
   }
 
+  override onDidReceiveSettings(ev: DidReceiveSettingsEvent<ClaudeUsageDialSettings>): void {
+    const savedView = ev.payload.settings.usageView;
+    claudeUsageViews.load(ev.action.id, savedView);
+    refreshClaudeUsageDials();
+  }
+
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
     if (!isDaemonConnected()) return;
-    // Rotation cycles the usage view (triple → 5h → 7d → scoped… → session).
+    // Rotation changes only this physical dial and persists its view.
     const views = usageViews(getUsageModeData());
-    const dir = ev.payload.ticks >= 0 ? 1 : -1;
-    viewIndex = (viewIndex + dir + views.length) % views.length;
-    dlog('ClaudeUsageDial', `rotate → view=${views[viewIndex]}`);
+    const nextView = claudeUsageViews.rotate(ev.action.id, views, ev.payload.ticks);
+    void ev.action.setSettings({ ...(ev.payload?.settings ?? {}), usageView: nextView }).catch(() => {});
+    dlog('ClaudeUsageDial', `rotate → view=${nextView}`);
     refreshClaudeUsageDials();
   }
 
@@ -172,8 +207,7 @@ export class ResponseDialAction extends SingletonAction {
     dlog('ClaudeUsageDial', 'push: requesting usage refresh');
   }
 
-  override async onDialUp(_ev: DialUpEvent): Promise<void> {
-  }
+  override async onDialUp(_ev: DialUpEvent): Promise<void> {}
 
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
     if (!isDaemonConnected()) {
@@ -187,5 +221,6 @@ export class ResponseDialAction extends SingletonAction {
     if (idx !== -1) {
       encoderRegistry.optionIds.splice(idx, 1);
     }
+    claudeUsageViews.remove(ev.action.id);
   }
 }
