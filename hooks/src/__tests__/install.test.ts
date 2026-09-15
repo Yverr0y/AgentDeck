@@ -224,13 +224,20 @@ describe('Hook Installer', () => {
         // Select Git's shell explicitly: a Windows host can also have WSL's
         // bash.exe on PATH, which is not the hook execution environment.
         const gitBash = join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe');
+        const started = performance.now();
         const execution = promisify(execFile)(gitBash, ['-c', buildHookCommandWin('Stop', home)], {
           env: { ...process.env, AGENTDECK_PORT: String(port) },
-          timeout: 10_000,
+          // This tests encoding, not startup latency. Budget for cold Git Bash
+          // and PowerShell on hosted runners; the hook HTTP budget is unchanged.
+          timeout: 30_000,
           windowsHide: true,
         });
         execution.child.stdin?.end(payload);
-        const result = await execution;
+        const result = await execution.catch((error) => {
+          throw new Error(`Windows hook execution failed after ${Math.round(performance.now() - started)}ms; `
+            + `code=${error.code}, signal=${error.signal}, killed=${error.killed}, `
+            + `receivedRequest=${received !== undefined}, stderr=${JSON.stringify(error.stderr)}`, { cause: error });
+        });
         expect(result.stderr).toBe('');
         expect(received).toEqual({ url: '/hooks/Stop', body: payload });
       } finally {
@@ -238,7 +245,7 @@ describe('Hook Installer', () => {
         await new Promise<void>((resolve) => server.close(() => resolve()));
         rmSync(home, { recursive: true, force: true });
       }
-    }, 15_000);
+    }, 40_000);
 
     it('invokes the hook script by path and passes the event as a parameter', () => {
       const cmd = buildHookCommandWin('SessionStart');

@@ -377,7 +377,7 @@ export function schtasksStatus(f: SupervisorFacts): boolean | undefined {
  */
 export function composeSchtasksRunning(
   status: boolean | undefined,
-  taskOwnsRegisteredDaemon: () => boolean,
+  taskOwnsRegisteredDaemon: () => boolean | undefined,
 ): boolean | undefined {
   return status === false ? taskOwnsRegisteredDaemon() : status;
 }
@@ -415,14 +415,16 @@ export function startedBySupervisor(
  *
  * `readDaemonInfo` already prunes a record whose pid is dead, so a record that
  * comes back describes a LIVE daemon — which is why this needs no pid
- * comparison of its own. No record means no daemon of ours is up, and an
- * absent `startedBy` means the daemon that is up was started by something else
- * (a hand-typed `daemon start`, or a build from before the stamp existed):
- * both are `false`, which is the `unsupervised` / `no-daemon` side of the truth
- * table and exactly what install converges.
+ * comparison of its own. An available record without `startedBy` identifies
+ * a hand-started or older daemon. No readable record is UNKNOWN: the live
+ * daemon may still answer while its discovery file is temporarily missing.
+ * Install must not stop that daemon on an unavailable ownership reading.
  */
-export function schtasksOwnsRegisteredDaemon(): boolean {
-  return readDaemonInfo()?.startedBy === 'schtasks';
+export function schtasksOwnsRegisteredDaemon(
+  readInfo: typeof readDaemonInfo = readDaemonInfo,
+): boolean | undefined {
+  const info = readInfo();
+  return info ? info.startedBy === 'schtasks' : undefined;
 }
 
 /**

@@ -8,6 +8,7 @@ import { execFileSync, execSync, spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { request } from 'http';
+import { waitForDaemonSpawn } from './daemon-launcher.js';
 import { BRIDGE_WS_PORT } from './types.js';
 import { SESSION_WEIGHT_MIN, SESSION_WEIGHT_MAX, stopDeliveryLoss, judgeCoverage, ESP32_BOARDS,
   type ApmeJudgeHealthRow } from '@agentdeck/shared';
@@ -1244,7 +1245,12 @@ daemon
       // the bind race must not be able to claim ownership while it concedes.
       env: { ...process.env, [SUPERVISOR_ENV]: 'schtasks' },
     });
-    child.unref();
+    try {
+      await waitForDaemonSpawn(child);
+    } catch (error) {
+      console.error('Daemon launch failed:', error);
+      process.exit(1);
+    }
     log(`Daemon launched detached (PID ${child.pid ?? 'unknown'}); logs in ${logDir}.`);
     process.exit(0);
   });

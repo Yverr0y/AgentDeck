@@ -20,6 +20,7 @@ import {
   parseSystemdActive,
   parseSchtasksRunning,
   composeSchtasksRunning,
+  schtasksOwnsRegisteredDaemon,
   startedBySupervisor,
   execFailureAnswered,
   supervisorLivenessProbe,
@@ -282,6 +283,16 @@ describe('supervisorJobRunning / supervisorLivenessProbe', () => {
     // consults the stamp.
     expect(composeSchtasksRunning(true, () => false)).toBe(true);
     expect(composeSchtasksRunning(undefined, () => true)).toBeUndefined();
+  });
+
+  it('preserves unknown ownership while a healthy daemon has no readable registry', () => {
+    const ownership = () => schtasksOwnsRegisteredDaemon(() => null);
+    const jobRunning = composeSchtasksRunning(false, ownership);
+    expect(jobRunning).toBeUndefined();
+    expect(classifySupervision({ daemonAnswering: true, daemonIsForeign: false, jobRunning })).toBe('unknown');
+    const info = { pid: 123, port: 9120, startedAt: '2026-09-15' };
+    expect(schtasksOwnsRegisteredDaemon(() => info)).toBe(false);
+    expect(schtasksOwnsRegisteredDaemon(() => ({ ...info, startedBy: 'schtasks' }))).toBe(true);
   });
 
   it('only a supervisor kind we recognise may come out of the environment', () => {
