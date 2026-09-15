@@ -102,15 +102,32 @@ pushed:
   through a mocked logger and assert the line actually fires with the right
   verdict (mutation-checked: reverting the log-line edit fails both).
 
-This is deliberately **not** board-specific — the daemon has no concept of
-"this WS client is `trmnl_75`" at the broadcast call site, so the
-classification is the same for every push-connected client. It is also
-deliberately **not** a `/health` counter alongside `repaintCount` — that
-would need a per-board aggregate and a wire-format change, which is a
-redesign the issue's own brief asks to defer. It is exactly what the brief
-asked for: the smallest thing that turns "not measurable" into "measurable
-starting now," gated the same way every other `debug()` call in this file
-already is.
+### Cumulative measurement without debug logs
+
+The Node daemon's authenticated or same-machine `/health.broadcastMetrics`
+now exposes server-wide broadcast attempts. The unauthenticated LAN health
+response remains unchanged; Swift does not yet expose these metrics. Missing
+metrics mean unavailable, not zero traffic.
+
+`instanceId` identifies one WsServer lifetime; `startedAt` and `capturedAt` are
+integer epoch milliseconds. `elapsedMs` uses a monotonic clock. `actionable`,
+`cosmetic` and `unclassified` count the classifier outcomes above; `total` is
+their sum. Each broadcast counts once, even with no clients, failed sends, or
+multiple awaiting sessions. Direct per-client sends are excluded. These are
+attempts before client transforms, not successful deliveries, unique decisions,
+per-board events, or panel repaint counts. No session content is retained.
+
+For a 24-hour window, save two selected metric snapshots and subtract their
+counters only when `instanceId` matches and the elapsed interval covers the
+window. A restart starts a new interval; never subtract across identities.
+Compute awaiting-content share as `deltaActionable / (deltaActionable + deltaCosmetic)`,
+excluding unclassified events; a zero denominator is
+unavailable. Pair this with the board's own repaint/full-refresh counters and
+uptime, independently rejecting intervals in which the board restarted.
+Do not save the entire `/health` response, which also contains credentials.
+
+This makes interval totals available without turning on verbose logging; it
+does not supply repaint percentiles or complete the field measurement in #272.
 
 ## 2. Hardware table — TRMNL 7.5" (`trmnl_75`)
 
