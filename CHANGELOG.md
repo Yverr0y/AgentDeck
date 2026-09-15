@@ -45,6 +45,27 @@ file's own rule forbids reconstructing its notes. The commit above is the
 record. `npm 1.0.16` (`37c674b8`) is a different case and needs nothing — it was
 bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
+## 2026-09-15 — npm 1.3.5
+
+- Windows autostart launches the daemon without a persistent console window;
+  Codex probe cleanup and ADB reverse polling also hide their child windows
+  (#336, fixes #339). Thanks to @dudziakl for the fix and Windows reboot testing.
+- Missing daemon registration preserves unknown supervision instead of stopping
+  an answering daemon. The launcher waits for OS process creation before reporting
+  success, and reports creation failures to Task Scheduler for retry.
+- Protected Node health responses expose bounded broadcast-attempt counters for
+  e-ink interval research (#338). These are server-wide attempts, not per-panel
+  delivery or repaint counts; actual field measurement remains in #272.
+- Windows Node 22/24/26 CI covers launcher and supervision regressions. The UTF-8
+  hook test retains Korean path/payload assertions with a cold-start budget and
+  detailed process-failure diagnostics.
+
+Upgrade with `npx @agentdeck/setup@1.3.5 --yes` so the installed CLI re-registers
+Windows autostart. Task Scheduler retries launcher failures; a later detached
+Windows daemon crash requires a manual start or the next logon. No companion app,
+deck plugin, or firmware update is required. High-load ownership issue #327
+remains open.
+
 ## 2026-09-15 — npm 1.3.4
 
 - Windows hooks run PowerShell from a managed script file, preserving stdin and
