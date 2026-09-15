@@ -1937,6 +1937,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // absorbed — `dist/cli.js` is overwritten in place, and nothing else
         // here distinguishes the code on disk from the code in memory.
         build: startupBuildId,
+        broadcastMetrics: core.wsServer.getBroadcastMetrics(),
         pairingToken: core.authToken,
         // Capability: this daemon drives remote sessions down their own push
         // socket (session_focus_down / session_command_down / session_event_up).

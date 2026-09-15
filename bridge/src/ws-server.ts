@@ -1,4 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import type { Server, IncomingMessage } from 'http';
 import type { BridgeEvent, PluginCommand } from './types.js';
 import { isLocalConnection, validateToken } from './auth.js';
@@ -40,6 +42,25 @@ export function broadcastActionability(event: BridgeEvent): 'actionable' | 'cosm
 
 export class WsServer {
   private wss: WebSocketServer;
+  // Server-wide broadcast attempts, not deliveries or panel repaints. Bounded
+  // storage, independent of debug logging and the number of connected clients.
+  private readonly broadcastInstanceId = randomUUID();
+  private readonly broadcastStartedAt = Date.now();
+  private readonly broadcastStartedMono = performance.now();
+  private readonly broadcastCounts = { actionable: 0, cosmetic: 0, unclassified: 0 };
+
+  getBroadcastMetrics() {
+    const { actionable, cosmetic, unclassified } = this.broadcastCounts;
+    return {
+      instanceId: this.broadcastInstanceId,
+      startedAt: this.broadcastStartedAt,
+      capturedAt: Date.now(),
+      elapsedMs: Math.floor(performance.now() - this.broadcastStartedMono),
+      total: actionable + cosmetic + unclassified,
+      actionable, cosmetic, unclassified,
+    };
+  }
+
   private commandCallback: ((cmd: PluginCommand) => void) | null = null;
   private rawMessageCallback: ((msg: Record<string, unknown>, sender: WebSocket) => boolean) | null = null;
   private binaryCallback: ((data: Buffer, sender: WebSocket) => void) | null = null;
@@ -383,7 +404,9 @@ export class WsServer {
   broadcast(event: BridgeEvent): void {
     const payload = JSON.stringify(event);
     const clientCount = this.wss.clients.size;
-    debug('WS', `broadcast(${event.type}) to ${clientCount} clients actionability=${broadcastActionability(event)}`);
+    const actionability = broadcastActionability(event);
+    this.broadcastCounts[actionability === 'n/a' ? 'unclassified' : actionability]++;
+    debug('WS', `broadcast(${event.type}) to ${clientCount} clients actionability=${actionability}`);
     for (const client of this.wss.clients) {
       if (client.readyState === WebSocket.OPEN) {
         const clientPayload = this.payloadFor(event, client, payload);
