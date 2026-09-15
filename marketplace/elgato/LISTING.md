@@ -2,8 +2,8 @@
 
 > **Live since 2026-07-28.** The product page is at
 > <https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464>,
-> and the last public-page version verified before the 1.3 publication is `1.2` (2026-09-02T21:39Z, measured from
-> the product page's own payload), after `1.0.6`
+> and the current public version is `1.3` (verified 2026-09-15 at 12:43 KST,
+> 748.66 KB), following `1.2` (2026-09-02) and `1.0.6`
 > (2026-08-18), `1.0.5` (2026-08-10), `1.0.4` (2026-08-05), `1.0.3` (2026-07-31)
 > and `1.0.2` (2026-07-28).
 > This file stays the source of the listing copy and asset inventory for future revisions.
@@ -13,7 +13,8 @@
 Maker Console showed `Ready to publish` for 1.3. Released under the existing
 owner authorization; the version row then read `Published`. The public page
 still served 1.2 immediately afterward, so public propagation remains a separate
-check. No artifact was replaced and no new build was uploaded.
+check. That public check completed at 12:43 KST on 2026-09-15: Version 1.3,
+748.66 KB. No artifact was replaced and no new build was uploaded.
 
 ### Submission history (2026-09-12)
 
