@@ -12,6 +12,11 @@ is `/contentView/1141` and resolves to AgentDeck.
 
 ## 1.3.0 — submitted for review (2026-09-12)
 
+**2026-09-15 readback:** the public listing still reports 1.2.0. The private
+portal session expired; its current approval state is unverified. The cached
+review card and transient zero count before the login redirect are not evidence
+of approval or rejection.
+
 Created a review version from the published AgentDeck work. The portal confirmed
 **Works under review (1)**; reopening that record showed version `1.3.0` and
 UUID `com.ulanzi.ulanzistudio.agentdeck`. The public 1.2.0 listing remains the
