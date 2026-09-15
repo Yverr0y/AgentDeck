@@ -113,6 +113,24 @@ window enumeration found no console window for the daemon — only the user's ow
 PowerShell window. `daemon status` and `daemon restart` both behaved
 (restart came back as PID 1599748 through the task).
 
+A reboot the next morning came up with the console window again, and the cause
+was not the launcher: the task's action had been rewritten at 07:25:48 —
+five minutes before the 07:30:35 logon run — by `agentdeck daemon install` from
+the *published* 1.3.4 CLI, which has no `daemon autostart` command and can only
+write the action whose process is the daemon. The task file's LastWriteTime and
+the shell history both name it. Nothing about the launcher had failed; it was
+no longer installed. Worth stating because it is the ordinary upgrade order on
+a dev machine: the patched build must be the one the *installed* CLI carries,
+or any `daemon install` / `npx @agentdeck/setup` run silently restores the
+window at the next logon.
+
+Re-registering from the patched CLI also showed the stamp's one bounded
+weakness: through the handover, `daemon.json` went missing for a few seconds —
+the departing daemon deletes the discovery file after its successor has written
+it — so supervision read `unsupervised` until `ensureDaemonInfo`'s self-heal
+rewrote the file. The stamp came back with it, because it lives in the record
+the daemon built at startup rather than being computed at read time.
+
 Two losses stated rather than hidden: `RestartOnFailure` now covers only a
 launcher that cannot spawn, and `schtasks /End` no longer stops the daemon.
 `daemon stop` was already ending the task *and* POSTing `/shutdown`, and the
