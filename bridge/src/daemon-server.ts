@@ -152,6 +152,7 @@ import {
   getDataDir,
   getOwnTimelineFile,
 } from './session-registry.js';
+import { startedBySupervisor } from './daemon-supervisor.js';
 import { isForeignDaemon } from './daemon-takeover.js';
 import { loadDaemonSettings } from './daemon-settings.js';
 import { dashboardProviders } from './dashboard-providers.js';
@@ -4060,7 +4061,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
 
   // Write daemon.json for client discovery (must be after successful bind).
   // Keep the original startedAt stable when the self-heal timer rewrites it.
-  const daemonInfo = { port, pid: process.pid, startedAt: new Date().toISOString() };
+  //
+  // `startedBy` is recorded HERE, past the bind, deliberately: it answers "does
+  // the autostart unit own the daemon SERVING this port", and only a daemon
+  // that won the port may claim it. One that loses the bind race to an
+  // incumbent exits above this line and claims nothing — which is exactly why
+  // the Windows launcher does not write the marker itself, since a conceding
+  // daemon is alive for a second or two while it stands down (see
+  // `startedBySupervisor` in daemon-supervisor.ts).
+  const startedBy = startedBySupervisor();
+  const daemonInfo = {
+    port,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    ...(startedBy ? { startedBy } : {}),
+  };
   writeDaemonInfo(daemonInfo);
   enableClaudeUsageRecovery();
 

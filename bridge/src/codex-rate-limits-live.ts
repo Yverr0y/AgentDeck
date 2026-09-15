@@ -292,7 +292,15 @@ export async function queryCodexRateLimitsLive(
   return new Promise<CodexRateLimits | null>((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(plan.command, args, { stdio: ['pipe', 'pipe', 'ignore'], shell: plan.shell });
+      // windowsHide because the daemon has no console of its own: its autostart
+      // launcher spawns it DETACHED (windows-service.ts), so any console child
+      // that does not suppress its window gets a brand new one — on the
+      // desktop, every probe cycle. Under `shell` this child is cmd.exe.
+      child = spawn(plan.command, args, {
+        stdio: ['pipe', 'pipe', 'ignore'],
+        shell: plan.shell,
+        windowsHide: true,
+      });
     } catch {
       resolve(null);
       return;
@@ -308,7 +316,13 @@ export async function queryCodexRateLimitsLive(
         // Under a shell the child is cmd.exe and the real server is its grandchild;
         // terminating the shell alone would orphan a Codex process every 5 minutes.
         if (plan.shell && child.pid) {
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+          // This is the spawn a user actually SAW: an empty
+          // `C:\Windows\system32\taskkill.exe` window appearing every five
+          // minutes once the daemon stopped having a console to lend it.
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+            stdio: 'ignore',
+            windowsHide: true,
+          }).on('error', () => {});
         }
       } catch { /* already gone */ }
       resolve(value);

@@ -131,6 +131,9 @@ function compileHelper(output: string): FoundationModelsHelperStatus {
     if (!existsSync(script)) {
       return { available: false, reason: `Foundation Models helper build script missing: ${script}` };
     }
+    // windows-hide-exempt: Apple Foundation Models is macOS 26+ only —
+    // `foundationModelsSupported()` returns false off darwin, so nothing on
+    // Windows reaches this build (or the helper spawn further down).
     execFileSync(process.execPath, [script, '--out', output], {
       stdio: ['ignore', 'ignore', 'pipe'],
       timeout: 60_000,
@@ -238,6 +241,8 @@ function ensureHelperProcess(): ChildProcessWithoutNullStreams {
   if (helperProcess && !helperProcess.killed) return helperProcess;
 
   helperStdout = '';
+  // windows-hide-exempt: the helper is a Swift binary for macOS 26+ Foundation
+  // Models; `foundationModelsSupported()` gates every path here on darwin.
   helperProcess = spawn(resolved.path, [], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: process.env,

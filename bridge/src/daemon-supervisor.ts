@@ -42,6 +42,7 @@ import { execFileSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { readDaemonInfo } from './session-registry.js';
 
 export type SupervisorKind = 'launchd' | 'systemd' | 'schtasks';
 
@@ -342,6 +343,91 @@ export function parseSchtasksRunning(out: string): boolean | undefined {
 }
 
 /**
+ * `schtasks /Query` → the task's status, or `undefined` for a query that did
+ * not answer. Shared by the liveness and the ownership readings so they cannot
+ * disagree about what the task said.
+ */
+export function schtasksStatus(f: SupervisorFacts): boolean | undefined {
+  try {
+    const out = execFileSync('schtasks', ['/Query', '/TN', f.label, '/FO', 'LIST'],
+      { stdio: 'pipe', encoding: 'utf-8', timeout: 5_000, windowsHide: true });
+    return parseSchtasksRunning(out);
+  } catch {
+    // Timed out, missing binary, or a query that exited non-zero (no such
+    // task): none of these is a status, and a task we cannot query is not a
+    // task we may declare dead.
+    return undefined;
+  }
+}
+
+/**
+ * The scheduled task's two readings, composed into one answer.
+ *
+ * The task's action is a LAUNCHER that spawns the daemon with no console and
+ * exits (windows-service.ts explains why it has to be), so `Status: Ready` is
+ * the steady state of a healthy machine — it says the launcher finished, and
+ * nothing at all about the daemon. Treating it as `false`, the way it has to be
+ * treated for a task whose action is the daemon, is exactly the reading that
+ * makes `convergeInstalledSupervision` stop a healthy supervised daemon.
+ *
+ * So `Ready` defers to the daemon's own `startedBy` stamp, and the other two
+ * readings still win on their own: `Running` means a launcher is in flight (or
+ * an action from a build before this change that still IS the daemon), and an
+ * unreadable status is a status we did not get.
+ */
+export function composeSchtasksRunning(
+  status: boolean | undefined,
+  taskOwnsRegisteredDaemon: () => boolean | undefined,
+): boolean | undefined {
+  return status === false ? taskOwnsRegisteredDaemon() : status;
+}
+
+/**
+ * The env var the Windows launcher passes to the daemon it spawns, and the
+ * daemon's reading of it.
+ *
+ * The daemon stamps this into `daemon.json` only AFTER it wins the port
+ * (daemon-server.ts), and that ordering is the whole design. The first shape of
+ * this signal had the launcher record the pid it spawned, which failed live on
+ * 2026-09-14: installing over an already-running unsupervised daemon, the
+ * launcher's daemon hit the incumbent guard and was alive for a second or two
+ * while it conceded, so "the pid the task started is alive" was true while the
+ * daemon holding 9120 was the incumbent — the install reported `Daemon running
+ * under the scheduled task (PID <incumbent>)` and converged nothing, reopening
+ * from a new side the exact hole `convergeInstalledSupervision` exists to
+ * close. A daemon that loses the race exits before the stamp, so the stamp
+ * cannot lie about who is serving.
+ *
+ * Only a value we recognise is accepted: this reads an environment variable,
+ * and an unknown string must not become a supervisor kind.
+ */
+export const SUPERVISOR_ENV = 'AGENTDECK_SUPERVISOR';
+
+export function startedBySupervisor(
+  env: NodeJS.ProcessEnv = process.env,
+): SupervisorKind | undefined {
+  const value = env[SUPERVISOR_ENV];
+  return value === 'launchd' || value === 'systemd' || value === 'schtasks' ? value : undefined;
+}
+
+/**
+ * Is the daemon registered in `daemon.json` one the scheduled task started?
+ *
+ * `readDaemonInfo` already prunes a record whose pid is dead, so a record that
+ * comes back describes a LIVE daemon — which is why this needs no pid
+ * comparison of its own. An available record without `startedBy` identifies
+ * a hand-started or older daemon. No readable record is UNKNOWN: the live
+ * daemon may still answer while its discovery file is temporarily missing.
+ * Install must not stop that daemon on an unavailable ownership reading.
+ */
+export function schtasksOwnsRegisteredDaemon(
+  readInfo: typeof readDaemonInfo = readDaemonInfo,
+): boolean | undefined {
+  const info = readInfo();
+  return info ? info.startedBy === 'schtasks' : undefined;
+}
+
+/**
  * Did a failed `execFileSync` actually ANSWER, or did it fail to look?
  *
  * A command that ran and exited non-zero carries a numeric `status` — that is
@@ -371,11 +457,10 @@ export function supervisorJobRunning(f: SupervisorFacts): boolean | undefined {
           { stdio: 'pipe', encoding: 'utf-8', timeout: 5_000 });
         return parseSystemdActive(out);
       }
-      case 'schtasks': {
-        const out = execFileSync('schtasks', ['/Query', '/TN', f.label, '/FO', 'LIST'],
-          { stdio: 'pipe', encoding: 'utf-8', timeout: 5_000, windowsHide: true });
-        return parseSchtasksRunning(out);
-      }
+      case 'schtasks':
+        // `schtasksStatus` swallows its own failures, so the outer catch below
+        // is unreachable for this branch.
+        return composeSchtasksRunning(schtasksStatus(f), schtasksOwnsRegisteredDaemon);
     }
   } catch (e) {
     // Only a command that ran and exited non-zero is an answer. A timeout or a
@@ -392,7 +477,7 @@ export function supervisorJobRunning(f: SupervisorFacts): boolean | undefined {
 /**
  * Is the daemon this machine is running the one the supervisor owns?
  *
- * `daemon install` registers the unit and starts its job — and that job runs
+ * `daemon install` registers the unit and starts its job — and that job ends in
  * `daemon start --foreground`, which hits the incumbent guard and exits 0 the
  * moment an unsupervised daemon already holds the port. The install then
  * reports success over `state = not running`: the unit is registered, nothing
