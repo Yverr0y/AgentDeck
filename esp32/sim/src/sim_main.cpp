@@ -354,7 +354,7 @@ bool verifyIpsInteractions(const char* outdir) {
   if(IPS10Workspace::diagnostics().projects!=10)return ipsFailure(__LINE__);
   if(!save("ips10-ten-projects"))return ipsFailure(__LINE__);
   SimDisplay::tick(13000);treeUpdate(13);SimDisplay::refresh();
-  if(!ipsLabel(lv_screen_active(),g_screenW>=1100?"shared-prefix-project-4":"shared-prefix-project-1") || ipsLabel(lv_screen_active(),"shared-prefix-project-0"))return ipsFailure(__LINE__);
+  if(!ipsLabel(lv_screen_active(),g_screenW>=1100?"shared-prefix-project-2":"shared-prefix-project-1") || ipsLabel(lv_screen_active(),"shared-prefix-project-0"))return ipsFailure(__LINE__);
   // Attention is visible even when its project is on another page.
   std::snprintf(g_state.sessions[0].state,sizeof(g_state.sessions[0].state),"awaiting_permission");
   std::snprintf(g_state.sessions[0].question,sizeof(g_state.sessions[0].question),"OFF-PAGE-ATTENTION");advance();
@@ -362,7 +362,7 @@ bool verifyIpsInteractions(const char* outdir) {
   auto* pager=ipsLabel(lv_screen_active(),"12s");if(!pager)return ipsFailure(__LINE__);
   lv_obj_send_event(pager,LV_EVENT_CLICKED,nullptr);advance();
   SimDisplay::tick(13000);treeUpdate(13);SimDisplay::refresh();
-  if(!ipsLabel(lv_screen_active(),g_screenW>=1100?"shared-prefix-project-4":"shared-prefix-project-1"))return ipsFailure(__LINE__);
+  if(!ipsLabel(lv_screen_active(),g_screenW>=1100?"shared-prefix-project-2":"shared-prefix-project-1"))return ipsFailure(__LINE__);
   lv_obj_send_event(pager,LV_EVENT_CLICKED,nullptr);advance();
   std::snprintf(g_state.sessions[0].state,sizeof(g_state.sessions[0].state),"processing");
   g_state.usageStale=false;g_state.fiveHourPercent=42;g_state.sevenDayPercent=68;g_state.codexPrimaryPercent=23;g_state.codexSecondaryPercent=44;
@@ -397,9 +397,13 @@ bool verifyIpsInteractions(const char* outdir) {
   if(!ipsLabel(lv_screen_active(),"10 agents - 10 working"))return ipsFailure(__LINE__);
   if(!ipsLabel(lv_screen_active(),"Showing 3 of 10"))return ipsFailure(__LINE__);
   if(!save("ips10-ten-peers"))return ipsFailure(__LINE__);
+  lv_area_t cohortBounds;
+  lv_obj_get_coords(ipsLabel(lv_screen_active(),"Showing 3 of 10"),&cohortBounds);
   int peerY=-1,peerSeats=0;
   for(int i=1;i<=10;++i){char keyText[32];std::snprintf(keyText,sizeof(keyText),"#%d Working",i);
     auto* stateLabel=ipsLabel(lv_screen_active(),keyText);if(!stateLabel)continue;
+    lv_area_t stateBounds;lv_obj_get_coords(stateLabel,&stateBounds);
+    if(stateBounds.y1<=cohortBounds.y2)return ipsFailure(__LINE__);
     auto* seat=lv_obj_get_parent(stateLabel);lv_area_t seatBounds,podBounds;
     lv_obj_get_coords(seat,&seatBounds);lv_obj_get_coords(lv_obj_get_parent(seat),&podBounds);
     if(seatBounds.x1<podBounds.x1 || seatBounds.x2>podBounds.x2 || seatBounds.y2>podBounds.y2)return ipsFailure(__LINE__);

@@ -744,6 +744,15 @@ static void detailRefresh() {
     char titleBuf[64];
     strncpy(titleBuf, m.name[0] ? m.name : "Session", sizeof(titleBuf) - 1);
     titleBuf[sizeof(titleBuf) - 1] = '\0';
+    lockState();
+    for (uint8_t i = 0; i < g_state.sessionCount; ++i) {
+        const auto& session = g_state.sessions[i];
+        if (!strcmp(session.id, m.sid) && session.projectName[0]) {
+            snprintf(titleBuf, sizeof(titleBuf), "%s", session.projectName);
+            break;
+        }
+    }
+    unlockState();
     sanitizeIps10Text(titleBuf);
     lv_label_set_text(detailTitle, titleBuf);
 
@@ -1097,7 +1106,7 @@ static bool voiceResolveTarget(char* idOut, size_t idCap, char* labelOut, size_t
             const SessionInfo& si = g_state.sessions[i];
             if (!si.alive || strcmp(si.id, voiceTargetSid) != 0) continue;
             snprintf(idOut, idCap, "%s", si.id);
-            snprintf(labelOut, labelCap, "%s", si.projectName[0] ? si.projectName : si.id);
+            snprintf(labelOut, labelCap, "%s", sessionDisplayName(si)[0] ? sessionDisplayName(si) : si.id);
             found = true;
         }
         if (!found) {
@@ -1112,7 +1121,7 @@ static bool voiceResolveTarget(char* idOut, size_t idCap, char* labelOut, size_t
             if (!si.alive || !si.id[0]) continue;
             if (!isGeneralAssistantSession(si.agentType, si.projectName)) continue;
             snprintf(idOut, idCap, "%s", si.id);
-            snprintf(labelOut, labelCap, "%s", si.projectName[0] ? si.projectName : si.id);
+            snprintf(labelOut, labelCap, "%s", sessionDisplayName(si)[0] ? sessionDisplayName(si) : si.id);
             found = true;
         }
     }
@@ -1127,7 +1136,7 @@ static bool voiceResolveTarget(char* idOut, size_t idCap, char* labelOut, size_t
             const SessionInfo& si = g_state.sessions[i];
             if (!si.alive || !si.id[0]) continue;
             snprintf(idOut, idCap, "%s", si.id);
-            snprintf(labelOut, labelCap, "%s", si.projectName[0] ? si.projectName : si.id);
+            snprintf(labelOut, labelCap, "%s", sessionDisplayName(si)[0] ? sessionDisplayName(si) : si.id);
             found = true;
         }
     }
@@ -1792,8 +1801,26 @@ void update() {
     // Copy session list for the compact legacy HUD. IPS10 renders the D1 mosaic
     // below, so avoid building the legacy text buffer on its UI stack.
     uint8_t sessionCount = hasData ? g_state.sessionCount : (uint8_t)0;
-    SessionInfo sessions[10];
-    memcpy(sessions, g_state.sessions, sizeof(sessions));
+    // UI-task-only display snapshot: reuse 520 bytes instead of ten complete
+    // session records on the stack. Compact flags keep no-PSRAM DRAM bounded.
+    static struct { char name[40]; uint32_t dotColor, stateColor; bool alive:1, input:1, working:1, idle:1, openclaw:1; } sessions[10];
+    static_assert(sizeof(sessions) == 520, "Keep the no-PSRAM HUD snapshot bounded");
+    for (uint8_t i = 0; i < sessionCount && i < 10; ++i) {
+        const auto& source = g_state.sessions[i];
+        auto& target = sessions[i];
+        const char* name = sessionDisplayName(source);
+        snprintf(target.name, sizeof(target.name), "%s", name[0] ? name : source.id);
+        // This label parses recolor commands: literal '#' must not consume
+        // the ordinal or the next status dot's color command.
+        for (char* c = target.name; *c; ++c) if (*c == '#' || *c == '\n') *c = ' ';
+        target.dotColor = agentDotColor(source.agentType);
+        target.stateColor = sessionStateColor(source.state);
+        target.alive = source.alive;
+        target.input = strstr(source.state, "awaiting") != nullptr;
+        target.working = strcmp(source.state, "processing") == 0;
+        target.idle = strcmp(source.state, "idle") == 0;
+        target.openclaw = strstr(source.agentType, "openclaw") != nullptr;
+    }
 #endif
 
     // Fallback: if no sessions, use primary state
@@ -1825,12 +1852,12 @@ void update() {
         bool shown[10] = {};
         uint8_t visible = 0;
         auto appendSession = [&](uint8_t i) {
-            const uint32_t dotColor = agentDotColor(sessions[i].agentType);
-            const uint32_t sColor = sessionStateColor(sessions[i].state);
+            const uint32_t dotColor = sessions[i].dotColor;
+            const uint32_t sColor = sessions[i].stateColor;
             appendBounded(buf, sizeof(buf), pos,
                 "#%06lX " LV_SYMBOL_BULLET "# %s  #%06lX " LV_SYMBOL_BULLET "#\n",
                 (unsigned long)dotColor,
-                sessions[i].projectName[0] ? sessions[i].projectName : sessions[i].id,
+                sessions[i].name,
                 (unsigned long)sColor);
             shown[i] = true;
             visible++;
@@ -1844,8 +1871,8 @@ void update() {
             for (uint8_t pass = 0; pass < 3 && visible < 5; pass++) {
                 for (uint8_t i = 0; i < limit && visible < 5; i++) {
                     if (!sessions[i].alive || shown[i]) continue;
-                    const bool input = strstr(sessions[i].state, "awaiting") != nullptr;
-                    const bool working = strcmp(sessions[i].state, "processing") == 0;
+                    const bool input = sessions[i].input;
+                    const bool working = sessions[i].working;
                     if ((pass == 0 && input) || (pass == 1 && working) || pass == 2)
                         appendSession(i);
                 }
@@ -1854,9 +1881,9 @@ void update() {
             uint8_t hiddenInput = 0, hiddenWork = 0, hiddenIdle = 0, hiddenReady = 0;
             for (uint8_t i = 0; i < limit; i++) {
                 if (!sessions[i].alive || shown[i]) continue;
-                if (strstr(sessions[i].state, "awaiting") != nullptr) hiddenInput++;
-                else if (strcmp(sessions[i].state, "processing") == 0) hiddenWork++;
-                else if (strcmp(sessions[i].state, "idle") == 0) hiddenIdle++;
+                if (sessions[i].input) hiddenInput++;
+                else if (sessions[i].working) hiddenWork++;
+                else if (sessions[i].idle) hiddenIdle++;
                 else hiddenReady++;
             }
             char hidden[96] = "";
@@ -1891,7 +1918,7 @@ void update() {
     if (gateway) {
         bool hasOC = false;
         for (uint8_t i = 0; i < sessionCount; i++) {
-            if (sessions[i].alive && strstr(sessions[i].agentType, "openclaw") != nullptr) {
+            if (sessions[i].alive && sessions[i].openclaw) {
                 hasOC = true;
                 break;
             }
@@ -1980,7 +2007,7 @@ void update() {
             const SessionInfo& si = g_state.sessions[s];
             mc[n].accent = ips10AgentColor(si.agentType);
             mc[n].stateCol = ips10StateColor(si.state);
-            strncpy(mc[n].name, si.projectName[0] ? si.projectName : si.id, sizeof(mc[n].name) - 1);
+            strncpy(mc[n].name, sessionDisplayName(si)[0] ? sessionDisplayName(si) : si.id, sizeof(mc[n].name) - 1);
             mc[n].name[sizeof(mc[n].name) - 1] = '\0';
             strncpy(mc[n].agent, si.agentType, sizeof(mc[n].agent) - 1); mc[n].agent[sizeof(mc[n].agent) - 1] = '\0';
             strncpy(mc[n].state, si.state, sizeof(mc[n].state) - 1); mc[n].state[sizeof(mc[n].state) - 1] = '\0';
