@@ -3,14 +3,10 @@
 /*******************************************************************************
  * Size: 16 px
  * Bpp: 4
- * Opts: --font design/fonts/IBMPlexSansKR-Bold.ttf --size 16 --bpp 4 --symbols 0123456789% --format lvgl --no-compress --lv-font-name font_ttgo_plex_16 -o /tmp/font_ttgo_plex_16.c
+ * Opts: --font design/fonts/IBMPlexSansKR-Bold.ttf --size 16 --bpp 4 --symbols 0123456789% --format lvgl --no-compress --lv-font-name font_ttgo_plex_16 -o esp32/src/ui/fonts/font_ttgo_plex_16.c
  ******************************************************************************/
 
-#ifdef LV_LVGL_H_INCLUDE_SIMPLE
-#include "lvgl.h"
-#else
-#include "lvgl/lvgl.h"
-#endif
+#include <lvgl.h>
 
 #ifndef FONT_TTGO_PLEX_16
 #define FONT_TTGO_PLEX_16 1
