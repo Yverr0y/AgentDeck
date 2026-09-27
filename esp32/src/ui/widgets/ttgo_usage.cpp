@@ -10,6 +10,7 @@
 #include <cstring>
 
 LV_FONT_DECLARE(font_ttgo_plex_12);
+LV_FONT_DECLARE(font_ttgo_plex_16);
 LV_FONT_DECLARE(font_ttgo_plex_28);
 
 namespace TTGO { namespace Usage {
@@ -125,7 +126,7 @@ void update() {
             lv_obj_set_pos(c.panel, r.x, r.y); lv_obj_set_size(c.panel, r.w, r.h);
             const bool compact = r.h < 42;
             // The 28px face carries digits and % only; a plan tier uses 12px.
-            lv_obj_set_style_text_font(c.value, compact || tile.isPlan() ? &font_ttgo_plex_12 : r.h < 66 ? &lv_font_montserrat_16 : &font_ttgo_plex_28, 0);
+            lv_obj_set_style_text_font(c.value, compact || tile.isPlan() ? &font_ttgo_plex_12 : r.h < 66 ? &font_ttgo_plex_16 : &font_ttgo_plex_28, 0);
             lv_obj_align(c.title, LV_ALIGN_TOP_LEFT, 5, 3);
             lv_obj_align(c.value, compact ? LV_ALIGN_TOP_RIGHT : LV_ALIGN_CENTER, compact ? -5 : 0, compact ? 3 : -2);
             lv_obj_set_width(c.reset, r.w - 10);
