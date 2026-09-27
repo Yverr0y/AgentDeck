@@ -78,6 +78,27 @@ export const TERRARIUM_RULES = {
     selectionWidth: 0.025,
     selectionHeight: 0.72,
   },
+  /**
+   * Resident name tags in the native aquarium (DESIGN.md §6.4). A tag never
+   * hides another resident: backings are translucent, a tag lying over another
+   * resident's body yields to it, and in a dense tank idle tags collapse to a
+   * title chip (or drop out when they would collide — the roster keeps them).
+   * Focused, awaiting and working tags stay whole and draw on top.
+   */
+  nativeLabel: {
+    /** At or above this many foreground residents the tank counts as dense. */
+    denseResidentCount: 5,
+    backingOpacity: 0.72,
+    compactBackingOpacity: 0.5,
+    /** Backing of a tag that lies over another resident's body. */
+    yieldBackingOpacity: 0.24,
+    idleTextOpacity: 0.8,
+    /** Text of an idle tag that lies over another resident's body. */
+    yieldTextOpacity: 0.55,
+    /** The WORKING badge (and its ink) of a tag that lies over another
+     *  resident's body: still readable as the state, no longer a solid card. */
+    yieldSignalOpacity: 0.5,
+  },
   /** Vertical field of view for the same authored habitat across native engines. */
   nativeCameraFov: 38,
   nativeCameraWideFov: 32,
@@ -101,6 +122,14 @@ export const TERRARIUM_RULES = {
     clearMaxX: 0.62,
   },
   floorRestStrip: { yMin: 0.56, yMax: 0.64 },
+  /**
+   * Floor-resting residents (idle, waiting, asleep) stand on one line, so the
+   * band layout's allowed half-overlap reads as a pile rather than as depth.
+   * On the dashboards they are spread apart to at least `minGapRatio` of their
+   * combined half-widths, inside the band left of the crayfish's clear line
+   * (`crayfish.clearMaxX`). Working residents swim freely and are not moved.
+   */
+  floorSpacing: { minX: 0.20, minGapRatio: 0.95 },
   antigravityHoverStrip: { yMin: 0.48, yMax: 0.54 },
   resterMaxWidthFrac: 0.096,
 } as const;

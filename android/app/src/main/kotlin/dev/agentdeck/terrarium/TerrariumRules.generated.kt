@@ -32,6 +32,13 @@ object TerrariumRules {
     const val NATIVE_ACTIVITY_SELECTION_X = 0.7f
     const val NATIVE_ACTIVITY_SELECTION_WIDTH = 0.025f
     const val NATIVE_ACTIVITY_SELECTION_HEIGHT = 0.72f
+    const val NATIVE_LABEL_DENSE_RESIDENT_COUNT = 5
+    const val NATIVE_LABEL_BACKING_OPACITY = 0.72f
+    const val NATIVE_LABEL_COMPACT_BACKING_OPACITY = 0.5f
+    const val NATIVE_LABEL_YIELD_BACKING_OPACITY = 0.24f
+    const val NATIVE_LABEL_IDLE_TEXT_OPACITY = 0.8f
+    const val NATIVE_LABEL_YIELD_TEXT_OPACITY = 0.55f
+    const val NATIVE_LABEL_YIELD_SIGNAL_OPACITY = 0.5f
     const val NATIVE_CAMERA_FOV = 38.0f
     const val NATIVE_CAMERA_WIDE_FOV = 32.0f
     const val NATIVE_VIEWING_DISTANCE = 0.82f
@@ -47,6 +54,8 @@ object TerrariumRules {
     const val CRAYFISH_WIDTH_FRACTION = 0.11f
     const val CRAYFISH_CLEAR_MAX_X = 0.62f
     const val FLOOR_REST_Y_MIN = 0.56f
+    const val FLOOR_SPACING_MIN_X = 0.2f
+    const val FLOOR_SPACING_MIN_GAP_RATIO = 0.95f
     const val FLOOR_REST_Y_MAX = 0.64f
     const val ANTIGRAVITY_HOVER_Y_MIN = 0.48f
     const val ANTIGRAVITY_HOVER_Y_MAX = 0.54f

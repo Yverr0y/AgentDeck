@@ -31,6 +31,13 @@ enum TerrariumRules {
     static let nativeActivitySelectionX: Float = 0.7
     static let nativeActivitySelectionWidth: Float = 0.025
     static let nativeActivitySelectionHeight: Float = 0.72
+    static let nativeLabelDenseResidentCount: Int = 5
+    static let nativeLabelBackingOpacity: Float = 0.72
+    static let nativeLabelCompactBackingOpacity: Float = 0.5
+    static let nativeLabelYieldBackingOpacity: Float = 0.24
+    static let nativeLabelIdleTextOpacity: Float = 0.8
+    static let nativeLabelYieldTextOpacity: Float = 0.55
+    static let nativeLabelYieldSignalOpacity: Float = 0.5
     static let nativeCameraFov: Float = 38.0
     static let nativeCameraWideFov: Float = 32.0
     static let nativeViewingDistance: Float = 0.82
@@ -46,6 +53,8 @@ enum TerrariumRules {
     static let crayfishWidthFraction: Float = 0.11
     static let crayfishClearMaxX: Float = 0.62
     static let floorRestYMin: Float = 0.56
+    static let floorSpacingMinX: Float = 0.2
+    static let floorSpacingMinGapRatio: Float = 0.95
     static let floorRestYMax: Float = 0.64
     static let antigravityHoverYMin: Float = 0.48
     static let antigravityHoverYMax: Float = 0.54

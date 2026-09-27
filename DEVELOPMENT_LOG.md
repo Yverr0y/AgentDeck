@@ -26,6 +26,52 @@ macOS build plus 17 ProjectNameResolver XCTest cases passed. Protocol generation
 left no drift; token, docs, catalog and devlog checks passed. Clean-tree design
 lint reports the same 89 pre-existing violations before and after this change.
 
+## 2026-09-27 — One session-state palette and vocabulary across every Dashboard
+
+A design-system audit found that the same working session was painted
+differently on each Dashboard: green on the macOS Monitor, cyan in the menu bar,
+blue on the Android tablet, TUI and most ESP32 boards, and teal on a Stream Deck
+key. Idle was grey on the Mac and green everywhere else. There were two
+competing "canonical" palettes, DESIGN.md §2.7 and a Tailwind table in
+`shared/src/state-colors.ts`, and each platform held its own copy of the latter.
+`design/lint.sh` could not see the drift because it reads only web files.
+
+Decision: one meaning per hue. Green is health (link up, quota normal), cyan is
+activity (an agent working, and the product chrome), amber is "needs you" and
+the only hue that pulses, red is failure, and grey is quiet or unknown. Idle
+became neutral because a roster full of green idle rows hid the rows that were
+working. Working became cyan rather than green because green already means
+health. It is not blue because blue read as the Codex brand next to a Codex
+mark. This matches the menu bar, the creature spark grammar and the IPS10
+design, which had already chosen it.
+
+- New `--session-*` tokens in `design/tokens.css` (with the HUD `--ui-hud-*`,
+  aquarium `--ui-water-*` and `--brand-opencode-on-dark`) across all seven
+  mirrors.
+- `shared/src/session-state-presentation.ts` owns state to tone, dark/paper
+  colour, and the words (`Working` / `WORKING` / `WORK`, and so on).
+  `pnpm generate-session-state` emits the Swift, Kotlin and ESP32 mirrors and
+  `esp32/src/ui/product_palette.generated.h`, the first C++ token mirror.
+- The following consumers now bind to it: Apple Monitor, menu bar, status
+  badge, Pixoo renderer and TRMNL preview; the Android LCD theme, Monitor,
+  settings dialog and e-ink; ESP32 TTGO, IPS10, ticker, pocket, knob/ring and
+  e-ink; the TUI; and the hook-server status page. On the Stream Deck/D200H key
+  renderer, only the awaiting amber follows the SSOT (Node and Swift). The key
+  layout is unchanged.
+- The Android e-ink serif and the Apple SF Rounded uses were dropped
+  (DESIGN.md §3.3: two roles, no third design). An Apple HUD text colour that
+  had been hand-copied as `#E2E8E0` instead of `#E2E8F0` is fixed by the same
+  binding.
+- New gate: `scripts/__tests__/native-palette.test.ts` ratchets raw colour
+  literals in native Dashboard code
+  (`design/native-palette-baseline.json`: 282 on master, 159 after this change).
+
+Remaining, and deliberately out of this change: ESP32 LVGL Montserrat on the
+ticker, pocket, knob and TTGO state screens (switching to Plex needs per-board
+flash budgets and on-device review), timeline event-type category colours,
+the light "paper" attention card on the Apple menu bar, and the Stream Deck key
+palette beyond awaiting.
+
 ## 2026-09-27 — Consistent quota severity across dashboards
 
 ## Problem and policy
@@ -175,6 +221,39 @@ not redraw until another field changed. The signature now includes local view
 preferences, placed key positions and complete quota blocks (including scoped
 caps). Regression tests cover those invalidations.
 
+## 2026-09-27 — Review follow-ups: yielding badges, tag draw order, 2D habitat tags, label drift
+
+This entry records the follow-ups to the Dashboard palette and aquarium name-tag
+work. They came from an external review and from a second sweep of live data and
+screens.
+
+- **WORKING badge stayed opaque when its tag yielded.** On Android, `Paint.setColor`
+  resets alpha to 255, so the badge ignored the faded backing; the Apple badge
+  was excluded from the fade. A yielding tag now fades its badge and ink to
+  `nativeLabel.yieldSignalOpacity` (0.5). A Robolectric render test asserts that
+  a yielding tag leaves no opaque badge pixel.
+- **The resolved priority never reached RealityKit.** Iterating in priority
+  order does not change draw order. Every tag part now carries a
+  `ModelSortGroupComponent` in one post-pass sort group, ordered by the
+  resolved priority.
+- **The macOS/iPad 2D habitat had the same overlap.** It is the default
+  dashboard type, and each creature painted its own tag. `drawTerrariumNameTag`
+  now queues into a frame-scoped `TerrariumNameTagLayer`, which the renderer
+  resolves with the same `ResidentLabelLayout` after the last creature. Verified
+  on a running debug build in both 2D and 3D; the installed app was restored
+  afterwards.
+- **IPS10 idle was the offline grey.** `D1_IDLE` pointed at `UiIdleDark`, and one
+  cyan `D1_OK` meant working, link-up, focus outline and gauge base at once. The
+  state colour now comes from `SessionState::color`. Link-up is health green,
+  offline is the offline grey, and the voice-target outline is focus cyan.
+- **Timeline labels disagreed with session rows.** Node hook timeline rows used
+  the bare cwd folder, so this worktree session showed as `dashboard-state-palette`
+  on the timeline and as `AgentDeck · dashboard-state-palette` in the roster. They
+  now use the same resolver as session rows (`hookPayloadProjectName`). OpenClaw
+  task headers carried the raw Gateway key `agent:main:main` while their chat
+  rows said `OpenClaw`; the timeline now labels every OpenClaw row `OpenClaw`,
+  and the APME store keeps the key.
+
 ## 2026-09-27 — Compact task pickers and readable IPS10 summaries
 
 ESP32 session names now have a separate optional compact display label. Both
@@ -213,6 +292,55 @@ placing ten full session records on the UI stack.
 TTGO uses a 12-byte compact base before duplicate numbering to fit its 20-byte
 field and static DRAM budget. Shared fixtures cover both daemons. Recolor-enabled
 HUD rows sanitize literal hash marks so ordinals cannot consume status colors.
+
+## 2026-09-27 — Codex's memory-consolidation agent is not a user session
+
+A Codex creature labelled "memories" appeared as WORKING on the dashboards.
+It was not a project, and it was not caused by a stale deployment. Codex runs
+a `memory_consolidate_global` job (`~/.codex/memories_1.sqlite`) as an
+ephemeral thread. Its cwd is `~/.codex/memories`, it has no rollout and no
+`threads` row, and it still fires the user-global lifecycle hooks, so both
+daemons created a `codex-cli` row for it. The job's `started_at` (17:57:29 KST)
+and the row's `startedAt` (17:57:34) confirmed the match.
+
+The Codex background-thread gate that already drops Desktop ambient-suggestion
+threads now also drops a thread whose hook cwd is Codex's memory store
+(`$CODEX_HOME/memories`, or any `…/.codex/memories`). That cwd arrives on the
+first hook, so nothing is created and nothing needs retracting. The passive
+observer and the hook-row fallback apply the same predicate as a second line of
+defence. Ten `cwdVectors` in `shared/codex-ambient-vectors.json` are replayed by
+the Node and Swift suites. They include a user project that is merely named
+`memories`, which must stay visible.
+
+## 2026-09-27 — Name-tag rule on every aquarium surface; floor residents spread apart
+
+This entry records the rest of the aquarium name-tag work (DESIGN.md §6.4).
+
+- **Android 2D habitat.** Each creature painted its own tag. Tags now go into a
+  frame-scoped `CreatureNameTagLayer`, which `ColorRenderer` resolves with
+  `resolveResidentLabels` after the last creature.
+- **Android e-ink.** Translucency on paper would only produce dither noise, so
+  e-ink takes the ordering half of the rule: priority tags paint last, and a
+  colliding idle tag drops out. The queue is thread-local because e-ink frames
+  render off the main thread.
+- **ESP32.** Five creature files each hard-coded `sessionCount <= 4`. They now
+  read the generated `TerrariumRules::NativeLabelDenseResidentCount`. The
+  per-brand pill alphas (150/180) stay as board tuning.
+- **Floor pile-ups.** The band layout allows neighbours to overlap by up to half
+  a body. Swimmers are spread out by their waypoints, but idle octopuses all
+  stand on one line, so two of them stacked into a single blob (seen on the Mac
+  2D habitat). `spreadFloorResidents` (TERRARIUM_RULES.floorSpacing) now spreads
+  floor-standing octopuses apart inside `[0.20, crayfish.clearMaxX]`. Verified on
+  a running Mac 2D build: three idle octopuses, no body overlap.
+- **Hand-mirror discipline.** The tag resolver (Kotlin/Swift) and the
+  floor-spacing pass (TS/Kotlin/Swift) are hand mirrors of an algorithm. Each is
+  now pinned by a shared vector file (`shared/resident-label-vectors.json`,
+  `shared/floor-spacing-vectors.json`) that every implementation replays, and
+  both are recorded as debt in docs/architecture.md.
+- **"3D setting ignored" was not a bug.** `defaults read <bundle-id>` reads the
+  sandbox container, while an unsigned debug build uses
+  `~/Library/Preferences`, so the debug build fell back to the 2D default. The
+  installed app reads `aquarium3d` correctly.
 
 ## 2026-09-26 — USAGE surface parity: one ESP32 row model, fleet-wide Luna, IPS10 cards
 
