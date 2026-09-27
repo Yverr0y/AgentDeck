@@ -47,6 +47,8 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## Unreleased
 
+- Subscription quota colors: use one consumed-capacity scale on every dashboard (green below 70%, amber at 70–89%, red from 90%). Remaining values use the same severity; TTGO gets higher-contrast percentage text and TC001 restores colored numbers/rails. Timebox keeps quota pressure separate from its agent-status beacon.
+
 - Apple and Android: show OpenClaw setup guidance only for explicit pairing or authentication failures. Reachability, reconnecting and unknown status no longer imply missing approval; connection timeouts no longer recommend replacing the token. Android now receives Gateway authentication status and displays actionable guidance.
 
 - Apple and Android 3D dashboards: emphasize working agents with high-contrast WORKING badges, visible activity bars and stronger motion across all six creature types. Keep activity cues visible in viewing mode, respect reduced motion, and separate selection from the creature silhouette. Repair Claude Code's arm geometry, including leftover bevel fragments and overlapping cut surfaces that appeared broken during movement. Native activity tuning is generated from a shared definition.
