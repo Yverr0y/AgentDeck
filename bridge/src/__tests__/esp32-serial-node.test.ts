@@ -187,9 +187,9 @@ describe('handleSerialLine (source)', () => {
       const failure = 'E (354179) H_SDIO_DRV: sdio_write_task: 0: Failed to send data: 258 1502 1502';
       handleSerialLine(conn, '\x1b[0;31m' + failure + '\x1b[0m');
       handleSerialLine(conn, 'E (354182) H_SDIO_DRV: Unrecoverable host sdio state');
-      handleSerialLine(conn, 'W (42) ips10_sdio_dma: staged=1 bytes=1536 result=0');
+      handleSerialLine(conn, '[SdioTx] staged=1 bytes=1536 result=0');
       handleSerialLine(conn, 'E (43) H_SDIO_DRV: private packet contents');
-      handleSerialLine(conn, 'W (44) ips10_sdio_dma: staged=1 bytes=1536 result=0 token=secret');
+      handleSerialLine(conn, '[SdioTx] staged=1 bytes=1536 result=0 token=secret');
       handleSerialLine(conn, '[Voice] transcript: private speech');
       expect(log).toHaveBeenCalledTimes(3);
       expect(log).toHaveBeenCalledWith('esp32-transport', `${conn.port}: ${failure}`);

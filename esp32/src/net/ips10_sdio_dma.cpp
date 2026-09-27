@@ -3,7 +3,8 @@
 #include <atomic>
 #include <cstring>
 #include <esp_attr.h>
-#include <esp_log.h>
+#include <Arduino.h>
+#include "ips10_sdio_dma.h"
 #include <sdmmc_cmd.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -17,7 +18,8 @@ namespace {
 constexpr size_t MAX_TX = 1536; // three SDIO blocks; Hosted transport maximum
 DMA_ATTR alignas(64) uint8_t alignedTx[MAX_TX];
 std::atomic_flag txBusy = ATOMIC_FLAG_INIT;
-unsigned stagedCount = 0;
+unsigned stagedCount = 0, lastBytes = 0;
+esp_err_t lastResult = ESP_OK;
 }
 
 extern "C" esp_err_t __real_sdmmc_io_write_blocks(sdmmc_card_t*, uint32_t,
@@ -35,11 +37,27 @@ extern "C" esp_err_t __wrap_sdmmc_io_write_blocks(sdmmc_card_t* card, uint32_t f
         [&](const void* data, size_t bytes) {
             return __real_sdmmc_io_write_blocks(card, fn, addr, data, bytes);
         });
-    const unsigned count = ++stagedCount;
+    ++stagedCount;
+    lastBytes = unsigned(size);
+    lastResult = result;
     txBusy.clear(std::memory_order_release);
-    // Bounded numeric evidence, never packet contents. First and powers of two.
-    if ((count & (count - 1)) == 0 || result != ESP_OK)
-        ESP_LOGW("ips10_sdio_dma", "staged=%u bytes=%u result=%d", count, unsigned(size), int(result));
+
     return result;
+}
+// Emit on the serial-owning network task: SDIO-task logging could splice
+// diagnostic bytes into a JSON frame. SDK WARN logs are disabled in this build.
+void Net::logSdioTxStaging() {
+    static uint32_t lastMs = 0;
+    static unsigned reported = 0;
+    const uint32_t now = millis();
+    if (uint32_t(now - lastMs) < 1000) return;
+    lastMs = now;
+    if (txBusy.test_and_set(std::memory_order_acquire)) return;
+    const unsigned count = stagedCount, bytes = lastBytes;
+    const esp_err_t result = lastResult;
+    txBusy.clear(std::memory_order_release);
+    if (count == reported) return;
+    reported = count;
+    Serial.printf("[SdioTx] staged=%u bytes=%u result=%d\n", count, bytes, int(result));
 }
 #endif

@@ -805,7 +805,7 @@ export function capturePanicLine(conn: SerialConnection, line: string): boolean 
 function hostedDiagnosticLine(line: string): string | undefined {
   const clean = line.replace(/\x1b\[[0-9;]*m/g, '');
   if (/^[EWI] \(\d{1,10}\) H_SDIO_DRV: (?:sdio_write_task: \d+: Failed to send data: -?\d+ \d+ \d+|Unrecoverable host sdio state|sdio_is_write_buffer_available: SDIO slave unresponsive|failed to read registers|failed to read interrupt register|Host is resetting itself, to avoid any sdio race condition)$/.test(clean) ||
-      /^W \(\d{1,10}\) ips10_sdio_dma: staged=\d+ bytes=\d+ result=-?\d+$/.test(clean)) return clean;
+      /^\[SdioTx\] staged=\d+ bytes=\d+ result=-?\d+$/.test(clean)) return clean;
   return undefined;
 }
 
