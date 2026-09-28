@@ -30,8 +30,7 @@ git diff --stat
    - exact next action for the next session
 5. Update durable docs only when warranted:
    - Development log: for meaningful fixes, architectural decisions, hardware findings, or known pitfalls, create `docs/devlog/entries/YYYY-MM-DD-<slug>.md` (first line `# YYYY-MM-DD — title`, sections as `###`, links relative to the repo root), then run `pnpm devlog:build`. When committing is within the task scope, include the entry and its regenerated aggregates together. Never edit `DEVELOPMENT_LOG.md` or `docs/devlog/YYYY-MM.md` by hand.
-   - `AGENTS.md`: update only for project-wide architecture, invariants, setup, or workflow changes.
-   - `AGENTS.md`: update only for persistent agent behavior expectations.
+   - `AGENTS.md`: update only for project-wide architecture, invariants, setup, workflow changes, or persistent agent behavior expectations.
 6. Do not write secrets, credentials, tokens, private device passcodes, or raw prompt transcripts into durable docs.
 7. If no durable doc update is warranted, say so explicitly in the final handoff.
 
