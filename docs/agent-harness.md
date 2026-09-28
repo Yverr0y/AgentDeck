@@ -36,7 +36,7 @@ Claude Code 2.1.277+ reads `AGENTS.md` as the project instructions, but only as 
 - `InstructionsLoaded` hooks do not fire for an `AGENTS.md` read through the setting, and `--add-dir` directories load only `CLAUDE.md`, never `AGENTS.md`.
 - Sessions on Claude Code older than 2.1.277 — and before 2.1.281 on Amazon Bedrock or with telemetry disabled — read `CLAUDE.md` files only, so they get no project instructions from this repo. Upgrade; the repo does not ship a `CLAUDE.md` shim.
 
-Source: [Claude Code — How Claude remembers your project § AGENTS.md](https://code.claude.com/docs/en/memory#agents-md). If the `AGENTS.md` chain ever outgrows Codex's cap, raise `project_doc_max_bytes` in `~/.codex/config.toml` rather than dropping content from a file — but the cap is the design budget, and `esp32/AGENTS.md` is skipped whole when the two files exceed it.
+Source: [Claude Code — How Claude remembers your project § AGENTS.md](https://code.claude.com/docs/en/memory#agents-md). If the `AGENTS.md` chain ever outgrows Codex's cap, raise `project_doc_max_bytes` in `~/.codex/config.toml` rather than dropping content from a file — but the cap is the design budget, and `esp32/AGENTS.md` is skipped whole when the two files exceed it. `pnpm docs:check` (`scripts/check-docs.mjs`) fails when any root→nested `AGENTS.md` chain exceeds 32 KiB and when a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists inside the checkout; it cannot see parent directories, so a shadowing file above the repo is still on the developer.
 
 ## Supported-agents matrix
 

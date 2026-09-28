@@ -9,7 +9,7 @@
 // Sync pin — verified by `scripts/check-preview-mirror-sync.mjs` (CI). When the
 // origin changes, re-port (or confirm no visual impact given the deliberate
 // simplifications below) and bump the pin in the same commit.
-// SYNC-HASH bridge/src/tui/terrarium.ts 3a3fd52739be3d60647ac6d15deb01e720fbeea4
+// SYNC-HASH bridge/src/tui/terrarium.ts 0b5becb6538ee3f5e78aff254a935fef7f4ad488
 //
 // Scope / deliberate simplifications (vs the TS original):
 //   - No Braille sprites: creatures render as 3-char ASCII glyphs colored by

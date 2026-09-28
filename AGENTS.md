@@ -8,7 +8,8 @@ This is the repository's only root instruction file; there is no `CLAUDE.md`. Cl
 `AGENTS.md` whenever no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or
 any directory above it — never add one of those here, it would silently replace this file. Codex injects the
 root→cwd `AGENTS.md` chain and stops adding files once the combined size reaches `project_doc_max_bytes`
-(32 KiB default), so this file plus `esp32/AGENTS.md` must stay under that together; OpenCode and Antigravity
+(32 KiB default), so this file plus `esp32/AGENTS.md` must stay under that together (`pnpm docs:check` gates both the
+budget and any shadowing `CLAUDE.md`); OpenCode and Antigravity
 read it by convention. It is the **map**; **the rule bodies live in `.claude/rules/*.md` (tracked in git).** Each rule file
 declares `paths:` globs; Claude Code loads it automatically when a file matching those globs is touched. Codex,
 OpenCode and Antigravity have no path-conditional loading and must read the matching file **before the first edit**

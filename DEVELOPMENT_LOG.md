@@ -130,6 +130,8 @@ Two constraints shaped the merge. Codex injects the root→cwd `AGENTS.md` chain
 
 Live pointers to `CLAUDE.md` across docs, skills, workflows, rules and code comments were rewritten to `AGENTS.md`; devlog history and two test fixtures that quote the string were left as they were.
 
+Follow-up the same day: `scripts/check-docs.mjs` (`pnpm docs:check`, CI `design-system.yml`) now fails when any root→nested `AGENTS.md` chain exceeds the 32 KiB Codex budget or when a `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists inside the checkout, and reports the spare bytes (253 at the time of the change). The check cannot see parent directories.
+
 ## 2026-09-28 — Test suite audit: a real-daemon E2E, an honest coverage floor, and a public verification catalog
 
 An audit of what the tests actually prove. The Vitest suite itself was sound
