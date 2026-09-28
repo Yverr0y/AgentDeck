@@ -2440,6 +2440,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           if (res.destroyed) return;
           if (off >= staged.pcm.length) { res.end(); return; }
           const end = Math.min(off + CHUNK, staged.pcm.length);
+          // End with the final paced chunk: the board closes as soon as it
+          // receives Content-Length bytes, before another timer could fire.
+          if (end === staged.pcm.length) { res.end(staged.pcm.subarray(off, end)); return; }
           res.write(staged.pcm.subarray(off, end));
           off = end;
           setTimeout(writeNext, GAP_MS).unref?.();
