@@ -134,7 +134,7 @@ final class ProviderRailEvaluatorTests: XCTestCase {
     /// `usageStale` always true, while `effectiveOauthConnected()` reports true
     /// as soon as any claude-code session is cached. That trio must stay
     /// silent — a permanent "usage broken" line for every ordinary standalone
-    /// user is the failure this pins (CLAUDE.md § App Store build invariants).
+    /// user is the failure this pins (AGENTS.md § App Store build invariants).
     func testStandaloneDaemonShapeNeverClaimsAQuotaFailure() {
         var s = DashboardState()
         s.usageStale = true

@@ -1,6 +1,6 @@
 # GitHub Pages and Build Health
 
-Runbook for the published site surfaces and the CI report generator. Moved out of `CLAUDE.md` so it loads only when working on the site.
+Runbook for the published site surfaces and the CI report generator. Moved out of `AGENTS.md` so it loads only when working on the site.
 
 - **URL**: `https://puritysb.github.io/AgentDeck/` (overview) / `/hardware/` (**Devices**) / `/flash/` (**Flash** — browser ESP32 flasher) / `/demo/` (**Live Preview**) / `/design-system/` (**Design System** viewer) / `/reports/` (**Build Health**). `/docs/` redirects to the viewer; `/gallery/` redirects to `/hardware/`. Do not restore either route as a duplicate catalog.
 - **Workflow**: `.github/workflows/test-report.yml` — push to master → Vitest + daemon E2E + Android JUnit + demo build + design-system build → HTML report → GitHub Pages deploy. Robot Framework is intentionally excluded from GitHub-hosted runs: its meaningful `hw`/`protocol`/`perf` suites require connected boards, while the former `no-hw` subset only duplicated PlatformIO compilation. The assembly step publishes overview, devices, the flasher, live preview, design-system viewer, build health, and compatibility redirects.

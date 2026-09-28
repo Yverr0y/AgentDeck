@@ -151,7 +151,7 @@ coverage decision. `docs/esp32.md` (already cataloged) carries its documentation
 ## Rules of thumb
 
 1. New numeric/visual truth starts in a canonical file above, then mirrors
-   outward behind a gate — never as a per-surface literal (CLAUDE.md
+   outward behind a gate — never as a per-surface literal (AGENTS.md
    "Cross-platform rules are SSOT-first").
 2. New design documentation gets YAML frontmatter and a `catalog.json` entry so
    the viewer publishes it; `docs/design/` HTML is frozen.

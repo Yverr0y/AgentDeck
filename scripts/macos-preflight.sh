@@ -6,7 +6,7 @@ set -uo pipefail
 # agent halfway through. Development-only repository tool; it never runs inside
 # the app and changes no setting.
 #
-# Every probe has three answers (CLAUDE.md "A probe has three answers"):
+# Every probe has three answers (AGENTS.md "A probe has three answers"):
 #   granted  - the grant was observed
 #   denied   - the grant was observed to be missing
 #   unknown  - the probe could not look (timeout, unexpected error, missing tool)

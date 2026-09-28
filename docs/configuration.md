@@ -20,7 +20,7 @@ See the [Apple](apple-app.md#choose-your-dashboard) and
 ## Settings
 
 Settings live in `~/.agentdeck/settings.json` (the App Store macOS app uses its
-container path — see CLAUDE.md → User data dir). **The file is optional**: every
+container path — see AGENTS.md → User data dir). **The file is optional**: every
 loader merges its own built-in defaults, so a missing file is the normal case.
 Commands such as `agentdeck weather set` and `agentdeck daemon port` create it
 only when the user explicitly saves a setting. `config/default-settings.json` is

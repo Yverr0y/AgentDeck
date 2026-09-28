@@ -24,7 +24,7 @@ paths:
   - "docs/devices.md"
 ---
 # Wire contract and device surfaces
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Rules every surface (TS/Swift/Kotlin/C++) must agree on: optional-field merging, integer stamps, unknown agent
 types, timeline dedup, device-keyed work, deterministic renderers, and the Ulanzi/BLE packaging traps. The
 cross-platform SSOT catalogue is [docs/architecture.md](../../docs/architecture.md).

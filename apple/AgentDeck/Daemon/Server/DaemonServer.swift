@@ -9338,7 +9338,7 @@ final class DaemonServer {
     /// Decode relayed per-model scoped-limit dicts, preserving the Node daemon's
     /// worst-first order. A missing `active` is treated as INACTIVE (false): the
     /// wire producers only ever emit the positive signal, and an omitted flag must
-    /// never latch "binding"/critical treatment (CLAUDE.md wire-flag rule). This is
+    /// never latch "binding"/critical treatment (AGENTS.md wire-flag rule). This is
     /// pure relay consumption — the Swift daemon never parses raw OAuth `limits[]`.
     private func decodeScopedLimits(_ dict: [String: Any]) -> [ScopedUsageLimit] {
         guard let raw = dict["scopedLimits"] as? [[String: Any]] else { return [] }
@@ -9993,7 +9993,7 @@ final class DaemonServer {
                         if let sev = s.severity { d["severity"] = sev }
                         if let r = s.resetsAt { d["resetsAt"] = r }
                         // Emit the explicit boolean (never omit the falsy case) so a
-                        // downstream merge can't retain a stale "active" (CLAUDE.md).
+                        // downstream merge can't retain a stale "active" (AGENTS.md).
                         d["active"] = s.active ?? false
                         return d
                     }
@@ -10139,7 +10139,7 @@ final class DaemonServer {
     /// with no windows — because every client merges usage fields
     /// RETAIN-ON-ABSENT: omitting the key means "no information" and would pin a
     /// retired plan's gauge on the dashboard forever (the `usageStale` latch
-    /// shape, CLAUDE.md). Voiding has to ride the wire explicitly. Mirrors
+    /// shape, AGENTS.md). Voiding has to ride the wire explicitly. Mirrors
     /// `normalizeCodexRateLimits` in bridge/src/usage-event.ts.
     private static func codexRateLimitsPayload(
         _ limits: CodexRateLimitsLocal?,

@@ -220,7 +220,7 @@ final class ApmeParseJudgeTests: XCTestCase {
     /// that sends the field left the suite green.
     ///
     /// `1` means OFF and off means the field is absent, which is the promise
-    /// made in docs/apme.md, settings.ts and CLAUDE.md. It held on Node alone
+    /// made in docs/apme.md, settings.ts and AGENTS.md. It held on Node alone
     /// until this test existed: Swift POSTed `repetition_penalty: 1.0` and the
     /// user who "disabled" it still paid the 400 + retry probe on a strict
     /// server, and still got their endpoint marked.

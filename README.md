@@ -361,7 +361,7 @@ pnpm test
 
 [Build from source](docs/install.md) · [Testing](docs/testing.md) ·
 [Build health](https://puritysb.github.io/AgentDeck/reports/).
-Coding agents should start at [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md).
+Coding agents should start at [AGENTS.md](AGENTS.md).
 
 ## Community
 

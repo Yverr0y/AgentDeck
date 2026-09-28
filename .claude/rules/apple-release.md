@@ -11,7 +11,7 @@ paths:
   - "docs/testflight-qa-checklist.md"
 ---
 # App Store build invariants and releases
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 The macOS app ships through the App Store and must stay self-contained (Guidelines 2.5.2 / 4.2.3). Release
 procedure: [RELEASING.md](../../RELEASING.md). Feature matrix:
 [docs/appstore-feature-matrix.md](../../docs/appstore-feature-matrix.md). Reviewer text:

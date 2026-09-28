@@ -18,7 +18,7 @@ paths:
   - "docs/apme-pipeline.md"
 ---
 # APME eval invariants
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Rules for the APME eval module (`bridge/src/apme/`, Swift `Daemon/Apme/`): the canonical `SessionSample`, task/turn
 segmentation, judge chain, transport gate and parser. The measurements behind each rule are in
 [docs/apme.md](../../docs/apme.md); the incidents are in `DEVELOPMENT_LOG.md`. Every rule below is a

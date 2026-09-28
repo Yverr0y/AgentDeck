@@ -11,7 +11,7 @@
  * "retry now" / "send me the current status" message from the PI is
  * recognized. Keep the PI itself a dumb renderer: timestamps ride as raw
  * epoch-ms so the client derives "N ago" against its own clock rather than a
- * string baked at send time — the same rule CLAUDE.md applies to every other
+ * string baked at send time — the same rule AGENTS.md applies to every other
  * freshness field (a relative-time string frozen at send time goes stale the
  * moment the PI sits open without a new push).
  */

@@ -17,9 +17,9 @@ paths:
   - ".github/workflows/esp32*"
 ---
 # ESP32 firmware, flashing and serial ownership
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Release images, the two flashers (`/flash/` and `agentdeck esp32 flash`), post-write reset, the serial-suspend
-lease, and serial teardown. Provisioning/OTA/client contract live in [esp32/CLAUDE.md](../../esp32/CLAUDE.md)
+lease, and serial teardown. Provisioning/OTA/client contract live in [esp32/AGENTS.md](../../esp32/AGENTS.md)
 and [docs/esp32.md](../../docs/esp32.md). Heap discipline is the `esp32-heap-discipline` skill.
 
 ## Board map

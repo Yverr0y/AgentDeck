@@ -101,7 +101,7 @@ cat ~/.agentdeck/daemon.json 2>/dev/null || echo "not running"
 
 For macOS targets (`macos`, `apple`, `all`, or any run that ends in screenshots/E2E driven through System Events), also run `bash scripts/macos-preflight.sh --automation --accessibility --screen-recording --json` (add `--firewall apple/DerivedData/Build/Products/Debug/AgentDeck.app` once that app is built). Exit 2 means a grant is denied: relay each `fix` path to the user and stop the E2E part instead of letting a consent sheet stall it; exit 3 means it could not confirm — say so, never assume granted.
 
-Only deploy to devices that are actually connected. Skip missing devices with a warning, don't fail. If preflight access fails, follow `CLAUDE.md` Agent working agreements for execution-policy failures; retry only the affected command after resolving access, and do not infer device absence from an unreadable probe.
+Only deploy to devices that are actually connected. Skip missing devices with a warning, don't fail. If preflight access fails, follow `AGENTS.md` Agent working agreements for execution-policy failures; retry only the affected command after resolving access, and do not infer device absence from an unreadable probe.
 
 ### Step 1: Build (always first, unless target is bridge-only or esp32-only)
 
@@ -197,7 +197,7 @@ killall AgentDeck 2>/dev/null; sleep 0.5
 open -a "$PWD/apple/DerivedData/Build/Products/Debug/AgentDeck.app"
 ```
 
-Do not add or alter App Store UI text that asks users to install or launch external tools (App Review 4.2.3 — see `CLAUDE.md` "App Store build invariants").
+Do not add or alter App Store UI text that asks users to install or launch external tools (App Review 4.2.3 — see `AGENTS.md` "App Store build invariants").
 
 ### Step 5: Bridge/Daemon Restart
 

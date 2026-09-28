@@ -26,7 +26,7 @@ ls -t ~/.agentdeck/journal/*.jsonl 2>/dev/null | head -1 | xargs tail -n 400 | g
 grep -E "$EVENTS" /tmp/sdc-debug.log 2>/dev/null | tail -100 || echo "No debug log found"
 ```
 
-If access fails, follow `CLAUDE.md` Agent working agreements for execution-policy failures. Treat unreadable diagnostics as unknown, not proof that the bridge is stopped.
+If access fails, follow `AGENTS.md` Agent working agreements for execution-policy failures. Treat unreadable diagnostics as unknown, not proof that the bridge is stopped.
 
 ## Step 2: Analyze for Known Failure Patterns
 

@@ -110,7 +110,7 @@ final class ListenerLeakTests: XCTestCase {
 /// This is a decision test, not a substitute for driving the sequence:
 /// `DaemonService.init()` calls `start()` and binds a port, so the service has
 /// no test seam and the interleaving above cannot be replayed here. Splitting
-/// that initializer is the recorded prerequisite (CLAUDE.md).
+/// that initializer is the recorded prerequisite (AGENTS.md).
 final class ExternalTransitionStalenessTests: XCTestCase {
 
     func testATransitionIsStaleOnceANewerDaemonTookOwnership() {

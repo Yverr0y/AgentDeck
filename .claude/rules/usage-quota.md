@@ -11,7 +11,7 @@ paths:
   - "shared/src/d200h-layout.ts"
 ---
 # Usage and quota gauges
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Claude/Codex usage windows as they travel from producer to gauge: freshness vs staleness vs plan vs limit family,
 cache TTL vs poll interval, and quota authorization recovery. The wire-boolean rule for `usageStale` is in
 [devices-and-wire.md](devices-and-wire.md).

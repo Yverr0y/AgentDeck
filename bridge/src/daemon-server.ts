@@ -7184,7 +7184,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       //     since closed as `idle_gap`, while every other OpenClaw run in the
       //     store had closed at ~1800 s.
       //
-      //     The bound is the key's own idleness — what CLAUDE.md already says
+      //     The bound is the key's own idleness — what AGENTS.md already says
       //     each key owns. Dropping the key is not a loss:
       //     `openclawRunForSessionKey` re-opens lazily on that key's next
       //     event, which is the documented behaviour.

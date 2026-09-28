@@ -10,7 +10,7 @@ paths:
   - "docs/cli.md"
 ---
 # Managed sessions (CLI, PTY)
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 The legacy `agentdeck claude|codex|opencode|monitor` PTY path stays a product contract during the compatibility
 window (#273 / #278). CLI reference: [docs/cli.md](../../docs/cli.md).
 

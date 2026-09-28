@@ -497,7 +497,7 @@ export class SessionSlotManager {
             percent: scoped.percent, resetsAt: scoped.resetsAt,
             known: true, color: CLAUDE_USAGE_COLOR,
             // Missing `active` (relayed/legacy) → NOT binding, so an inactive cap
-            // renders muted rather than latching the critical ramp (CLAUDE.md).
+            // renders muted rather than latching the critical ramp (AGENTS.md).
             inactive: scoped.active !== true,
             scoped: true,
           }

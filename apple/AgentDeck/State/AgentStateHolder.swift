@@ -1018,7 +1018,7 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             s.sevenDayResetsAt = e.sevenDayResetsAt ?? s.sevenDayResetsAt
             // Overwrite (not retain-on-absent): the daemon emits the full scoped
             // set each frame, so an omitted key means "none now" — retaining would
-            // latch a phantom cap (CLAUDE.md wire-flag rule).
+            // latch a phantom cap (AGENTS.md wire-flag rule).
             s.scopedLimits = e.scopedLimits
         }
         if e.usageStale == true {

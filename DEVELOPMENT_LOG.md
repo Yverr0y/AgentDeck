@@ -122,6 +122,14 @@ optional heading marker. The verbatim live prompt and a user prompt headed
 "live 2026-09-11" vector had lost its `#`, which is why the suites never caught
 the miss.
 
+## 2026-09-29 — `AGENTS.md` is the only root instruction file; `CLAUDE.md` removed
+
+Claude Code 2.1.277+ reads `AGENTS.md` as the project instructions when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or above it (default `claude-md-or-agents-md`; verified against [code.claude.com/docs/en/memory](https://code.claude.com/docs/en/memory#agents-md) on 2026-09-29 with Claude Code 2.1.284). The repository therefore no longer needs two root instruction files: the former `CLAUDE.md` map became `AGENTS.md`, the Korean pointer that `AGENTS.md` used to be was folded into its opening section, and `esp32/CLAUDE.md` became `esp32/AGENTS.md`. `.claude/rules/*.md` keep loading by `paths:` alongside `AGENTS.md`.
+
+Two constraints shaped the merge. Codex injects the root→cwd `AGENTS.md` chain and skips whole files once the combined size reaches `project_doc_max_bytes` (32 KiB), so the root map had to shrink from 35.1 KB: evidence sentences whose owners already held them verbatim were cut back to their headline, and the rest moved verbatim into the owner (`docs/architecture.md` § Cross-platform SSOT catalogue, `docs/install.md` § Node runtime support, `docs/esp32.md` § WiFi OTA v1, `docs/linux.md`, `docs/streamdeck-layout.md` § References). The other constraint is the fallback itself: any `CLAUDE.md` or `CLAUDE.local.md` in or above the checkout silently replaces `AGENTS.md` for Claude Code, so `docs/agent-harness.md` now records that trap, the `instructionFiles` setting for a personal `CLAUDE.local.md`, and the 2.1.277/2.1.281 version floor.
+
+Live pointers to `CLAUDE.md` across docs, skills, workflows, rules and code comments were rewritten to `AGENTS.md`; devlog history and two test fixtures that quote the string were left as they were.
+
 ## 2026-09-28 — Test suite audit: a real-daemon E2E, an honest coverage floor, and a public verification catalog
 
 An audit of what the tests actually prove. The Vitest suite itself was sound
@@ -4838,7 +4846,7 @@ Android 프로덕션 파서의 새 프레임 수용, legacy→new→legacy/unloa
 
 ### Changes
 
-Reduced [AGENTS.md](AGENTS.md) to discovery and routing. [CLAUDE.md](CLAUDE.md) now owns current-task authorization, shared-worktree isolation, memory freshness, and checks by change type. Corrected fixed output-limit claims and stale skill-pointer descriptions in [the harness map](docs/agent-harness.md) and skills. Documentation-only local checks no longer imply a full application build; code, CI, and release gates remain explicit.
+Reduced [AGENTS.md](AGENTS.md) to discovery and routing. `CLAUDE.md` (the root map, renamed `AGENTS.md` on 2026-09-29) now owns current-task authorization, shared-worktree isolation, memory freshness, and checks by change type. Corrected fixed output-limit claims and stale skill-pointer descriptions in [the harness map](docs/agent-harness.md) and skills. Documentation-only local checks no longer imply a full application build; code, CI, and release gates remain explicit.
 
 Agent-local memory cleanup promotes shared-tree lessons into tracked agreements and treats prior release approvals and recovery commands as historical evidence. Required project behavior no longer depends on reading a particular agent's private memory.
 

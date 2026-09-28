@@ -491,7 +491,7 @@ describe('mergeRelayedSessionUsage', () => {
     expect(m.scopedLimits).toEqual([{ label: 'Fable', percent: 98, active: true }]);
     // The session asserts staleness about quota it never had — the daemon's own
     // explicit `false` must win, or the dashboard latches a "stale" badge over
-    // live percentages (CLAUDE.md wire-flag rule).
+    // live percentages (AGENTS.md wire-flag rule).
     expect(m.usageStale).toBe(false);
   });
 
@@ -576,7 +576,7 @@ describe('buildUsageEvent Codex plan reconciliation', () => {
   it('emits the account tier even with no rollout at all, so a client can RETRACT', () => {
     // Every client merges usage fields retain-on-absent, so omitting the key
     // means "no information" — the retired plan's gauge would stay pinned
-    // forever (the usageStale latch shape, CLAUDE.md).
+    // forever (the usageStale latch shape, AGENTS.md).
     const evt = buildUsageEvent(...args(null, { planType: 'free' })) as UsageEvent;
     expect(evt.codexRateLimits).toEqual({ planType: 'free' });
   });

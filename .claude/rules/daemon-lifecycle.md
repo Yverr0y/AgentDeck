@@ -26,7 +26,7 @@ paths:
   - "docs/ENTERPRISE-ROADMAP.md"
 ---
 # Daemon lifecycle, network posture and pairing
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Who owns port 9120, how a daemon starts/stops/restarts under its supervisor, what an unauthenticated LAN peer may
 reach, how a credential travels to a device, and how two daemons converge on one token. Reference:
 [docs/daemon.md](../../docs/daemon.md). The Swift-specific restart/teardown rules are in

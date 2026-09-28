@@ -23,7 +23,7 @@ paths:
   - "**/*.html"
 ---
 # Design system and documentation gates
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Aquarium-tide design system: spec [DESIGN.md](../../DESIGN.md), token SSOT [design/tokens.css](../../design/tokens.css),
 resource map [design/RESOURCES.md](../../design/RESOURCES.md). Lint: `bash design/lint.sh`;
 token mirrors: `python3 design/verify-tokens-sync.py`; docs: `pnpm docs:check`, `pnpm design-system:check`.

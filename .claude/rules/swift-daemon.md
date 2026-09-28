@@ -3,7 +3,7 @@ paths:
   - "apple/**"
 ---
 # Swift daemon and macOS app
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 Rules for the in-process Swift daemon (`@DaemonActor`), the SwiftUI app lifecycle, and Foundation traps. The
 App Store invariants are in [apple-release.md](apple-release.md); daemon lifecycle shared with Node is in
 [daemon-lifecycle.md](daemon-lifecycle.md).

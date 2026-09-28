@@ -11,7 +11,7 @@ paths:
   - "docs/gateway-protocol.md"
 ---
 # OpenClaw Gateway invariants
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 OpenClaw is observed over the Gateway WebSocket (live channel) AND its transcript files, and the two carry disjoint
 halves. These rules cover subscription, run scoping, the transcript feed, link stability, health frames and the
 approval lifetime. Protocol reference: [docs/gateway-protocol.md](../../docs/gateway-protocol.md).

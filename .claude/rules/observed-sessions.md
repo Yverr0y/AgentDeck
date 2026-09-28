@@ -25,7 +25,7 @@ paths:
   - "apple/AgentDeck/Daemon/Server/DaemonServer.swift"
 ---
 # Observed sessions, hooks and PERM
-<!-- Moved verbatim from CLAUDE.md (2026-09-10). Rule bodies are the SSOT for their domain; CLAUDE.md keeps only the map. -->
+<!-- Moved verbatim from the root map (then CLAUDE.md, 2026-09-10; AGENTS.md since 2026-09-29). Rule bodies are the SSOT for their domain; the root map keeps only the index. -->
 How each coding agent's session reaches the daemon (Claude/Codex/OpenCode hooks, Kiro transcripts), what a PERM
 claim may rest on, how subagents are counted, and the two id forms of an observed session. Hook installer snippet
 is mirrored byte-identically in `hooks/src/install.ts`, `setup/src/setup.ts` and `HookInstaller.swift`.

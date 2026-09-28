@@ -449,7 +449,7 @@ describe('ApmeCollector', () => {
     // The turn_end span emission was gated by a test; ACTING on it was not.
     // Reverting the collector's close left the whole suite green, so
     // `turns.end_source` — the column `apme stop-health` reads, and the reason
-    // CLAUDE.md gives for the column existing — was unverified end to end.
+    // AGENTS.md gives for the column existing — was unverified end to end.
     const collector = new ApmeCollector(store);
     const runId = collector.openRun({ sessionId: 's2', agentType: 'openclaw', projectName: 'p' });
     collector.ingestSpan('s2', span('turn_start', { 'agentdeck.prompt_text': 'go' }));

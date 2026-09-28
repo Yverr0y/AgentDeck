@@ -135,3 +135,10 @@ are in [Retired and Experimental Surfaces](retired-surfaces.md).
   target (`apple/project.yml`); `windows MinimumVersion: 10` follows Elgato's
   supported manifest form. The tested AgentDeck bridge baseline remains Windows
   11 as documented in [windows.md](windows.md).
+
+## References
+
+- **SDK Docs**: https://docs.elgato.com/streamdeck/sdk
+  - [Actions](https://docs.elgato.com/streamdeck/sdk/plugin-guides/actions) · [Keys](https://docs.elgato.com/streamdeck/sdk/plugin-guides/keys) · [Dials & Touch Strip](https://docs.elgato.com/streamdeck/sdk/plugin-guides/dials-touch-strip)
+  - [Manifest schema](https://docs.elgato.com/streamdeck/sdk/references/manifest) · [Touch Strip Layout](https://docs.elgato.com/streamdeck/sdk/references/touch-strip-layout) · [WebSocket API](https://docs.elgato.com/streamdeck/sdk/references/websocket-api)
+- **Plugin Samples**: https://github.com/elgatosf/streamdeck-plugin-samples (layouts, cat-keys, hello-world, data-sources, lights-out)

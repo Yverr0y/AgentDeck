@@ -457,7 +457,7 @@ export function codexSnapshotMatchesAccountPlan(
  * alternates hour to hour, so "newest line wins" silently switches quantities
  * mid-stream.
  *
- * Polarity is deliberate and follows the unknown-agent rule (CLAUDE.md): this is
+ * Polarity is deliberate and follows the unknown-agent rule (AGENTS.md): this is
  * an allow-list of the UNNAMED, never a deny-list of known scoped ids. A new
  * scoped family — OpenAI ships models on its own schedule — is excluded
  * automatically; the failure mode of a deny-list is that the new family renders

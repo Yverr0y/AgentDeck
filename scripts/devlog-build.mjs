@@ -8,7 +8,7 @@
  * time (measured 2026-09-10: 73 writes, 35 reads, most reads being conflict-marker
  * checks). A file per entry never conflicts; the aggregates are rebuilt, and a
  * conflict in an aggregate is resolved by rebuilding it — a generated value is
- * never a merge side (CLAUDE.md, cross-platform SSOT rule).
+ * never a merge side (AGENTS.md, cross-platform SSOT rule).
  *
  *   node scripts/devlog-build.mjs            # rebuild DEVELOPMENT_LOG.md, docs/devlog/YYYY-MM.md, docs/devlog/README.md
  *   node scripts/devlog-build.mjs --check    # exit 1 if any entry is malformed or an aggregate is stale (CI)

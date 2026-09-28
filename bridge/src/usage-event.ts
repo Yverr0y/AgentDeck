@@ -107,7 +107,7 @@ function normalizeCodexWindow(w?: CodexRateLimitWindow): CodexRateLimitWindow | 
  * the account tier is known the result is always an object — possibly one with
  * no windows — because every client merges usage fields RETAIN-ON-ABSENT: an
  * omitted `codexRateLimits` means "no information" and would pin a retired
- * plan's gauge on the dashboard forever (CLAUDE.md wire-boolean rule, same shape
+ * plan's gauge on the dashboard forever (AGENTS.md wire-boolean rule, same shape
  * as the `usageStale` latch). Voiding has to ride the wire as an explicit
  * windowless snapshot.
  */

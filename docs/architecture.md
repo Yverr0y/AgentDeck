@@ -71,8 +71,13 @@ Regression tests: `HTTPServerMainThreadStallTests` (transport must accept while 
 
 ## Cross-platform SSOT catalogue
 
-Every row is defined in its canonical source first and generated or mirrored outward behind a drift gate — never introduced as a per-platform literal. The rules that govern
-this table live in CLAUDE.md § Key Conventions ("Cross-platform rules are SSOT-first"); this is the index.
+Every row is defined in its canonical source first and generated or mirrored outward behind a drift gate — never introduced as a per-platform literal. The headline rule lives in
+AGENTS.md § Key Conventions ("Cross-platform rules are SSOT-first"); this is the index, and four rules govern every row (moved here verbatim from the root map on 2026-09-29):
+
+- **A comment-only edit still drifts** — JSDoc is carried into the Swift/Kotlin mirrors, and it also moves a `SYNC-HASH` blob hash, so grep `SYNC-HASH <path>` for every pin before editing any pinned origin.
+- **A generated or derived value is never a merge side**: when a `SYNC-HASH` pin or any generated mirror conflicts during a rebase/cherry-pick, neither branch's value is authoritative — both are stale the moment the pinned origin is resolved. Recompute from the resolved file (`git hash-object <pinned-path>`) and only then stage it; picking `--ours`/`--theirs` lands a pin that matches no file on disk and the gate goes green on a lie only if you are unlucky.
+- **Two SSOTs may split one table only over disjoint column sets bound by one gate**, never as a second copy (`shared/src/esp32-boards.ts` machine columns vs `docs/hardware-compatibility.md` human columns).
+- **Never add a new hand mirror** — the remaining debt is listed below.
 
 | Canonical source | Generator | Gate / note |
 |---|---|---|

@@ -18,6 +18,10 @@ one-command path in [README → Start here](../README.md#start-here) instead.
 | **Ulanzi Studio** | For D200H/D200X only | [Ulanzi Download Center](https://www.ulanzi.com/pages/downloads). Install AgentDeck from the separate [Ulanzi Studio Marketplace](https://ugc.ulanzistudio.com/contentView/1141). |
 | **iTerm2** | For PTY session management | Terminal management, voice paste, session switching |
 | **Supported coding agent** | For live sessions | Claude Code, Codex, OpenCode, Kiro CLI/IDE, OpenClaw, or Antigravity; observation depth differs by agent. |
+
+### Node runtime support
+
+The Node bridge/tooling supports the maintained, prebuild-verified even lines **22, 24, and 26**. Node 20 reached EOL in April 2026 and is intentionally unsupported; odd-numbered releases are not product targets. `package.json` declares the range and `pnpm-workspace.yaml`'s `engineStrict` makes it fatal, while `agentdeck diag native` opens an in-memory `better-sqlite3` database under the exact executable/ABI that will run the daemon. Windows daemon autostart pins that executable, so rerun `npx @agentdeck/setup --yes` after changing Node installations to reinstall native bindings and re-register the Scheduled Task.
 | **JDK 17+** | For Android | `brew install openjdk@17` |
 | **Stream Deck CLI** | Auto | Installed by `pnpm setup` if missing |
 | **Microphone + Speech Recognition** | For voice | Grant on first use (macOS Settings → Privacy). No sox, whisper, or model download — Apple SFSpeech on-device |

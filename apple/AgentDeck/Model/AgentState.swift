@@ -157,7 +157,7 @@ struct DashboardState: Sendable {
     /// `effectiveOauthConnected()` reports `true` whenever any `claude-code`
     /// session is cached. Synthesizing a reason from that trio told every
     /// ordinary standalone user their quota was broken — the opposite of the
-    /// "reads as feature-complete, never as broken" rule in CLAUDE.md
+    /// "reads as feature-complete, never as broken" rule in AGENTS.md
     /// § App Store build invariants. `missing` is not a failure either: an
     /// API-key or off-harness install has no OAuth credential by design, and
     /// `usageStale` already means "no numbers", never "authorization failed".

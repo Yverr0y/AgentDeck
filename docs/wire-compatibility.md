@@ -116,7 +116,7 @@ For any diff touching `shared/src/protocol.ts` or a payload builder:
 - [ ] Does it add a **row kind** or an **id namespace** to an existing collection? → §6 first.
 - [ ] Does any new boolean have an explicit `false` path? → §4.
 - [ ] Does a removed or renamed field have a consumer sweep, including code that *stores* it? → §3.
-- [ ] Is a new cross-surface constant defined once with a drift gate, rather than mirrored by hand? → CLAUDE.md, "Cross-platform rules are SSOT-first".
+- [ ] Is a new cross-surface constant defined once with a drift gate, rather than mirrored by hand? → AGENTS.md, "Cross-platform rules are SSOT-first".
 - [ ] Were the generated mirrors regenerated (`pnpm generate-protocol`) — remembering that a comment-only edit still drifts them?
 - [ ] Would a 1.0.x client that has never heard of this change render something wrong, or merely render nothing?
 
