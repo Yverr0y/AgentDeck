@@ -64,6 +64,14 @@ Validation: IPS10 firmware build, native host tests, workspace build/typecheck a
 
 Installed clean firmware `71469ab4` on the identified IPS10 (ESP32-P4 rev 1.3). Slow WiFi OTA was aborted, then USB full flash at 460800 baud verified all image hashes and reset the board. Direct serial read-back confirmed the new build and `[ES8311] speaker volume 40% (board default)` at boot. A subsequent read at uptime 43 s confirmed WiFi connected, wake detection ready/enabled and voice state `wake`. Serial ownership was returned to the daemon. The native palette baseline was reduced from 159 to 157 after replacing the two edited button color literals with existing tokens.
 
+## 2026-09-29 — The e-ink usage table fits its zone (#415)
+
+The Crema S Play capture (`marketplace/play/1.6.1/crema-01-working.png`) showed the usage row as `7d ▇▇▇▇▇▇▇□ 78%3d 9h`. Measured from that capture (density ≈1.875), the usage zone is about 239 dp wide. The row's fixed columns (indent 24 + label 50 + percent 58 + reset 74 dp) left 33 dp for the bar, and the bar's 72 dp floor pushed the table about 39 dp past the zone. The reset column, laid out last, kept only what remained, so `3d 9h` filled it edge to edge. The header row used `weight(1f)` inside the real width, so `used` also sat about 74 px left of the percentages.
+
+`UsageZone` now measures the percent and reset columns from their widest text (`100%!`, `23h 59m`, the current reset strings and the captions) in their real monospace style, so device font and system font scale are accounted for. It adds a 10 dp gap between them and derives the bar from what is left via `usageColumns`: at most 150 dp, and the label column shrinks toward 32 dp to keep a 32 dp bar before the bar gives way. The header and rows share those widths. `EinkUsageColumnsTest` pins the Crema width, a wide zone and a narrow zone.
+
+Reproduced and checked on an emulator set to Crema's geometry (`wm size 1072x1448`, `wm density 300`) with the demo feed. The previous build rendered `79%3d 9h`; the fixed build renders `78%   3d 9h` with both headers above their columns. The Play screenshot already in review still shows the old rendering; replace it when this ships.
+
 ## 2026-09-29 — Uninstall now removes the Codex block
 
 `uninstallCodexHooks` had no production caller: `node hooks/dist/install.js uninstall` (what `scripts/uninstall.sh` runs) removed the Claude, OpenCode and Kiro hooks but left the AgentDeck block in `~/.codex/config.toml`. Removing it there was unsafe until the fence stopped implying ownership ([2026-09-29 entry](docs/devlog/entries/2026-09-29-observation-review-config-ownership.md)); with generated-entry removal the uninstall action now calls it. A refusal (for example a hand-modified managed hook group) keeps the file byte-for-byte and prints `Codex hooks kept: <reason>` on stdout, because `scripts/uninstall.sh` discards stderr.
