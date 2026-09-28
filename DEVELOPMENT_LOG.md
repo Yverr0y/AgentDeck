@@ -24,6 +24,16 @@ The stable checkout was rebuilt and its supervised Node daemon restarted. A synt
 
 The physical check also exposed a misleading HTTP disconnect log: the board closes after reading Content-Length while the server previously waited one more pacing tick before ending the response. The final paced chunk now ends the response immediately. No extra burst is introduced. At the user's request, IPS10 speaker volume was reduced from its 70% default to 40% through the existing diagnostic command; the board confirmed 40%, codec register 0x32=0x77, and complete 100 ms playback. This is a runtime setting and returns to the firmware default after a reboot. Serial ownership was returned to the daemon after verification.
 
+## 2026-09-29 — IPS10 speaker volume defaults and device controls
+
+IPS10 now declares its own 40% speaker default (-36 dB), replacing the codec's inherited 70%. Other boards retain their own defaults. The voice drawer shows the current percentage above large minus/plus targets, adjusts in ten-point steps from 10–100%, disables each endpoint, and saves explicit user choices to the existing `ad-voice` NVS namespace. The drawer entry target is now 48 px high. Changing volume no longer plays a test tone, which could interrupt a spoken reply.
+
+The codec loads the saved choice during its initial probe. Codec restarts and diagnostic `setVolume` calls never write flash; repeated selections of an already-saved value also avoid writes. Save failures leave the immediate volume change in effect but display a failure notice. NVS access occurs only at boot and explicit user taps, with no render-loop allocation. The drawer reuses one fixed label buffer and its screen-owned controls.
+
+Regression coverage compiles the production codec against NVS/I2C doubles to check default level/register mapping, restore, invalid stored values, failed saves/retry and diagnostic isolation. The real LVGL drawer interaction checks exercise both buttons, limits, visible percentage and screen bounds.
+
+Validation: IPS10 firmware build, native host tests, workspace build/typecheck and 4,923 tests (two skipped) passed. Protocol generation left no drift; token, native palette, documentation and catalog checks passed. Design lint still reports 92 findings in untouched HTML/JS. Landscape simulator interactions passed in full; portrait volume interactions and screenshots passed before an unrelated existing peer-layout assertion (`Showing 3 of 10`) failed: the production layout uses two peers in narrow project columns. Both volume drawers were visually inspected. Persistence is covered by the production-code host test; physical touchscreen/save/reboot interaction is not yet measured.
+
 ## 2026-09-28 — Release round 1.6.0: two publish steps that failed after succeeding
 
 Every channel shipped at 1.6.0 (Android at 1.6.1). Two workflows reported
