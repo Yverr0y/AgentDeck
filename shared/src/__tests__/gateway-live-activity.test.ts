@@ -57,7 +57,7 @@ describe('Gateway live activity', () => {
     expect(attributed[0]).toMatchObject({ upsert: true, entry: { ts: first[0].entry.ts, runId: 'a' } });
     live.reset();
     expect(live.busy).toBe(false);
-    expect(live.dispatch(sessionKey, 'b', 'from deck', 3)[0].entry.raw).toBe('from deck');
+    expect(live.dispatch(sessionKey, 'b', 'from deck', 3.75)[0].entry).toMatchObject({ raw: 'from deck', ts: 3, startedAt: 3 });
   });
   it('does not treat unknown events or historical assistant messages as work', () => {
     const live = new GatewayLiveActivity();

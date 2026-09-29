@@ -56,7 +56,8 @@ struct GatewayLiveActivity {
         entry.startedAt = run.startedAt
         return entry
     }
-    mutating func ingest(_ event: String, _ p: [String: Any], now: Double) -> [GatewayLiveUpdate] {
+    mutating func ingest(_ event: String, _ p: [String: Any], now observedAt: Double) -> [GatewayLiveUpdate] {
+        let now = observedAt.rounded(.towardZero)
         let data = object(p["data"]), message = object(p["message"]), session = object(p["session"])
         let meta = object(message["__openclaw"])
         guard let sessionKey = string(p["sessionKey"]) ?? string(session["key"]) else { return [] }

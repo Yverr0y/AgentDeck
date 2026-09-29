@@ -13,7 +13,7 @@ final class GatewayLiveActivityTests: XCTestCase {
         for f in frames {
             let event = try XCTUnwrap(f["event"] as? String)
             let payload = try XCTUnwrap(f["payload"] as? [String: Any])
-            rows += live.ingest(event, payload, now: try XCTUnwrap(f["observedAt"] as? Double))
+            rows += live.ingest(event, payload, now: try XCTUnwrap(f["observedAt"] as? Double) + 0.75)
             if event == "session.tool" || (event == "chat" && payload["state"] as? String == "status") {
                 XCTAssertTrue(live.busy)
             }
@@ -24,6 +24,17 @@ final class GatewayLiveActivityTests: XCTestCase {
         XCTAssertTrue(rows[1].entry.detail?.contains("AGENTDECK_OC_CHAT_TOOL_OK") == true)
         XCTAssertGreaterThan((rows[1].entry.endedAt ?? 0) - (rows[1].entry.startedAt ?? 0), 20_000)
         XCTAssertEqual(rows[2].entry.raw, "AGENTDECK_OC_CHAT_DONE")
+        for row in rows {
+            for stamp in [row.entry.ts, row.entry.startedAt, row.entry.endedAt].compactMap({ $0 }) {
+                XCTAssertEqual(stamp, stamp.rounded(.towardZero))
+            }
+        }
+        XCTAssertEqual(rows[0].entry.ts, rows[2].entry.startedAt)
+        let rendered = try JSONDecoder().decode([TimelineEntry].self,
+            from: JSONEncoder().encode(rows.map { $0.entry }))
+        let groups = groupConsecutive(rendered)
+        XCTAssertEqual(groups.count, 2) // one request/answer group and one tool
+        XCTAssertEqual(groups.first?.mergedResponse?.raw, "AGENTDECK_OC_CHAT_DONE")
         XCTAssertEqual(Set(rows.compactMap { $0.entry.runId }).count, 1)
         XCTAssertTrue(rows.allSatisfy { $0.entry.automated == false })
         for f in frames {

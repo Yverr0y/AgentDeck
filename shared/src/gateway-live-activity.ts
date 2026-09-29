@@ -44,6 +44,7 @@ export class GatewayLiveActivity {
     return this.ingest('session.message', { sessionKey, runId, message: { role: 'user', content: prompt } }, now);
   }
   ingest(event: string, payload: unknown, now: number): GatewayLiveUpdate[] {
+    now = Math.trunc(now);
     const p = gatewayObject(payload), data = gatewayObject(p.data), message = gatewayObject(p.message);
     const session = gatewayObject(p.session), meta = gatewayObject(message.__openclaw);
     const sessionKey = string(p.sessionKey) ?? string(session.key);
