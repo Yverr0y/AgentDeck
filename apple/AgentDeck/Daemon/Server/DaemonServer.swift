@@ -8370,6 +8370,12 @@ final class DaemonServer {
     private func handleGatewayEvent(_ event: [String: Any]) {
         guard let type = event["type"] as? String else { return }
         switch type {
+        case "gateway_activity":
+            gatewaySessionState = gatewayPendingApproval != nil ? "awaiting_permission"
+                : (event["busy"] as? Bool == true ? "processing" : "idle")
+            if gatewaySessionState == "idle" { gatewayCurrentTool = nil }
+            broadcastStateUpdate()
+            broadcastSessionsList()
         case "gateway_chat":
             let chatPayload = event["payload"] as? [String: Any] ?? [:]
             let chatState = chatPayload["state"] as? String
@@ -8394,6 +8400,9 @@ final class DaemonServer {
                 gatewayPendingApproval = nil
             default:
                 gatewaySessionState = "processing"
+            }
+            if let busy = event["busy"] as? Bool {
+                gatewaySessionState = gatewayPendingApproval != nil ? "awaiting_permission" : (busy ? "processing" : "idle")
             }
             broadcastStateUpdate()
             // Only when the row's prompt actually went away — `default` fires on
@@ -8495,7 +8504,7 @@ final class DaemonServer {
                             "prompt": prompt,
                         ])
                     }
-                } else if entryType == "tool_exec" {
+                } else if entryType == "tool_exec", entry["liveProjection"] as? Bool != true {
                     // session.tool entries arrive via sessions.messages.subscribe.
                     // Routing + payload extraction lives in the static helper
                     // below so it stays unit-testable and so the start/end
@@ -8506,7 +8515,7 @@ final class DaemonServer {
                     let toolName = routed.data["tool_name"] as? String ?? ""
                     if routed.event == "tool_end" {
                         if gatewayCurrentTool == toolName { gatewayCurrentTool = nil }
-                    } else {
+                    } else if entry["timelineHidden"] as? Bool != true {
                         gatewayCurrentTool = toolName
                         if gatewaySessionState == "idle" { gatewaySessionState = "processing" }
                     }
@@ -12288,6 +12297,7 @@ final class DaemonServer {
     }
 
     private func appendGatewayTimelineEntry(_ rawEntry: [String: Any]) {
+        if rawEntry["timelineHidden"] as? Bool == true { return }
         var entry = DaemonTimelineEntry(
             ts: (rawEntry["ts"] as? NSNumber)?.doubleValue ?? rawEntry["ts"] as? Double ?? Date().timeIntervalSince1970 * 1000,
             type: rawEntry["type"] as? String ?? "event",
@@ -12320,7 +12330,7 @@ final class DaemonServer {
         // follow-up merges with the existing row by (type, taskId) instead
         // of stacking a duplicate. Non-task entries fall through to `add`
         // because their stable key is (ts, type).
-        if entry.type == "task_end", entry.taskId != nil {
+        if (entry.type == "task_end" && entry.taskId != nil) || rawEntry["upsert"] as? Bool == true {
             Task { await timelineStore.upsert(entry) }
         } else {
             // Gateway entries originate from the Node side (already projected /
@@ -12328,7 +12338,7 @@ final class DaemonServer {
             // dropped when projection mode is on.
             Task { await timelineStore.add(entry, bypassSuppression: true) }
         }
-        broadcastRaw(["type": "timeline_event", "entry": rawEntry] as [String: Any])
+        broadcastRaw(["type": "timeline_event", "entry": rawEntry, "upsert": rawEntry["upsert"] as? Bool ?? false] as [String: Any])
     }
 
     // MARK: - APME eval tick (30s loop)

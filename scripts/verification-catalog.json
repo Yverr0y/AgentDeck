@@ -525,6 +525,7 @@
         "bridge/src/__tests__/openclaw-*.test.ts",
         "bridge/src/__tests__/gateway-*.test.ts",
         "shared/src/__tests__/openclaw-*.test.ts",
+        "shared/src/__tests__/gateway-*.test.ts",
         "scripts/__tests__/gateway-*.test.ts"
       ]
     },

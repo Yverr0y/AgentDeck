@@ -492,7 +492,9 @@ export class BridgeTimelineStore {
     const tolerance = 1000;
     for (let i = this.entries.length - 1; i >= 0; i--) {
       const e = this.entries[i];
-      if (e.type === normalized.type && Math.abs(e.ts - normalized.ts) < tolerance) {
+      if (e.type === normalized.type && (!e.sessionId || !normalized.sessionId || e.sessionId === normalized.sessionId)
+        && (!e.runId || !normalized.runId || e.runId === normalized.runId)
+        && Math.abs(e.ts - normalized.ts) < tolerance) {
         this.entries[i] = {
           ...e,
           raw: normalized.raw,
