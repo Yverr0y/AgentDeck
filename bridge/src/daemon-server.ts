@@ -24,7 +24,7 @@ import { prepareForSerial } from './esp32-serial.js';
 import { OpenClawAdapter } from './adapters/openclaw.js';
 import { BridgeLogStream } from './log-stream.js';
 import { distBuildId } from './daemon-build-identity.js';
-import { PassiveSessionObserver, codexRolloutSummaryForSession } from './passive-observer.js';
+import { PassiveSessionObserver, codexRolloutSummaryForSession, collectProcessInfo, type ProcInfo } from './passive-observer.js';
 import { CodexExecChildren, type CodexExecChild, type ExecChildPeer } from './codex-exec-children.js';
 import { HookClaudeSessions } from './hook-claude-sessions.js';
 import { SessionTimelineRelay } from './session-timeline-relay.js';
@@ -125,9 +125,12 @@ const APME_ABANDONED_RUN_STALE_SEC = Math.max(
   Number(process.env.AGENTDECK_APME_ABANDON_SEC) || 7200,
 );
 /** How long a Codex session must be absent from every roster before its APME
- *  run is closed. Longer than one failed scan (lsof's 2 s timeout, up to a
- *  60 s slow-scan cooldown) and the 60 s a hook row outlives its Stop. */
-const CODEX_RUN_VANISH_GRACE_MS = 90_000;
+ *  run is closed. The agent idle gap, not a shorter grace: after a Stop the
+ *  hook row lives 60 s and presence then rests on the observer alone, which
+ *  cannot see a TUI's rollout on Windows or through a slow `lsof` — closing
+ *  sooner split a live session's run at every turn. At the idle gap the
+ *  collector would have closed the task anyway, so the run follows it. */
+const CODEX_RUN_VANISH_GRACE_MS = AGENT_IDLE_GAP_MS;
 /** Backlog tasks handed to the judge per eval tick when it is idle — see the drain. */
 const APME_TASK_JUDGE_DRAIN_PER_TICK = 1;
 /** How many backlog candidates the drain looks at to find one it may feed.
@@ -3155,7 +3158,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       const eventName = pathname.slice('/hooks/'.length);
       let body = '';
       req.on('data', (c: Buffer) => { body += c; if (body.length > 1_000_000) req.destroy(); });
-      req.on('end', () => {
+      req.on('end', async () => {
         let json: Record<string, unknown> = {};
         try { json = body ? JSON.parse(body) : {}; } catch { /* ignore */ }
         // The hook shell's parent pid (`X-AgentDeck-Pid: $PPID` in the
@@ -3208,9 +3211,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // rather than let through — a row minted now would have to be
         // retracted in five seconds.
         if (eventName.startsWith('codex_')) {
-          const verdict = codexExecChildren.noteHook(
+          let verdict = codexExecChildren.noteHook(
             eventName, json, passiveSessionObserver.processes(), execChildPeers(),
           );
+          // The table the observer holds is up to a scan old and a run that
+          // started since is not in it. One fresh `ps` (tens of ms, once per
+          // session) attaches the child before its first hook mints a row.
+          if (verdict.wantsFreshTable) {
+            const fresh = await collectProcessInfo().catch(() => [] as ProcInfo[]);
+            if (fresh.length > 0) {
+              verdict = codexExecChildren.noteHook(eventName, json, fresh, execChildPeers());
+            }
+          }
           if (verdict.childOnly) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ received: true, child: true }));
@@ -4897,8 +4909,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     }
     if (changed) core.broadcastSessionsList().catch(() => {});
     // Same cadence, same process table: attach headless `codex exec` runs to
-    // their launcher and complete the ones whose process is gone.
-    codexExecChildren.reconcile(passiveSessionObserver.execChildren(), passiveSessionObserver.processes());
+    // their launcher (the observer's exact pid→rollout link, or a pending
+    // hook-side run whose process is in this table now) and complete the
+    // ones whose process is gone.
+    codexExecChildren.reconcile(
+      passiveSessionObserver.execChildren(), passiveSessionObserver.processes(), execChildPeers(),
+    );
     sweepVanishedCodexRuns();
   };
   const coordinationTimer = setInterval(coordinationTick, 5_000);
@@ -4908,10 +4924,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // without a producer here its session shows in the HUD while the timeline
     // beside it stays empty. #218 taught the per-session QUERY to read Kiro's
     // own transcript; the main timeline is a STREAM, and this is what feeds it.
-    // A headless child appearing or leaving is a roster change in its own
-    // right (the observer compares its child list too) — attach it now rather
-    // than on the next coordination tick.
-    codexExecChildren.reconcile(passiveSessionObserver.execChildren(), passiveSessionObserver.processes());
     try {
       const observedKiro = passiveSessionObserver.collect([])
         .filter((s) => typeof s.agentType === 'string' && s.agentType.startsWith('kiro'));
@@ -4974,6 +4986,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // own hook row, an APME run, a hub-driver identity. Evidence lives on
       // the parent from here.
       retractCodexThread(child.sessionId, 'headless child');
+      // A prompt row its early hooks put on the strip would otherwise spin
+      // until the turn watchdog's 3-minute silence rule closed it.
+      core.bridgeTimeline.reapOrphanChatStarts(0, Date.now(), undefined, {
+        onlySessionId: child.sessionId, label: 'Folded into parent',
+      });
       log(`[agentdeck] codex exec ${child.sessionId.slice(0, 8)} is a child of ${child.parentAgentType} ${child.parentSessionId.slice(0, 8)}`
         + (child.cwd ? ` (${basename(child.cwd)})` : ''));
       applyExecChildResult(child, subagentTimeline?.handle({
@@ -5017,6 +5034,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     const peers: ExecChildPeer[] = [];
     for (const s of passiveSessionObserver.collect([])) {
       if (!(typeof s.pid === 'number' && s.pid > 0) || !s.agentType) continue;
+      if (codexExecChildren.knows(rawSessionId(s.id))) continue;
       peers.push({ sessionId: rawSessionId(s.id), pid: s.pid, agentType: s.agentType, projectName: s.projectName });
     }
     return peers;

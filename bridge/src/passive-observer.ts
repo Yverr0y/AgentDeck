@@ -368,6 +368,9 @@ export function foldHeadlessCodexSessions(
   const peers: ExecChildPeer[] = [];
   for (const s of observed) {
     if (!(typeof s.pid === 'number' && s.pid > 0) || !s.agentType) continue;
+    // A headless run is never a launcher here: a `codex exec` spawned by a
+    // folded child would otherwise attach to a row that is not rendered.
+    if (s.agentType === 'codex-cli' && isHeadlessCodexOriginator(s.codexOriginator)) continue;
     peers.push({ sessionId: rawSessionId(s.id), pid: s.pid, agentType: s.agentType, projectName: s.projectName });
   }
   const roster: ObservedSession[] = [];

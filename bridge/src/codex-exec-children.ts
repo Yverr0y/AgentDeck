@@ -20,18 +20,24 @@
 //     codex_exec`) and walks its ancestry to another observed session's pid.
 //     That is the authoritative link; it needs no cooperation from the hooks.
 //   • The hook path sees the run first (SessionStart lands before the next
-//     5 s scan) and asks this registry whether the id is a child. A headless
-//     rollout with no resolved parent yet is `pending`: its hooks are held out
-//     of the parent pipelines (no session row, no APME run) until the observer
-//     or a later hook resolves it, or `PENDING_TTL_MS` passes and it is judged
-//     standalone — a user's own `codex exec` in a terminal stays a session.
+//     5 s scan) and asks this registry whether the id is a child. The run's
+//     process is found by its `-C <cwd>` argv (or as the only unclaimed
+//     `codex exec` in the table) and its ancestry walked the same way. When
+//     the table the daemon holds is too old to show the process yet, the
+//     verdict is `pending` and the caller may retry once with a fresh table;
+//     a still-unresolved run's hooks FLOW — a user's own `codex exec` in a
+//     terminal must remain a session with a run, so holding its hooks is not
+//     an option — and the observer's scan attaches it a few seconds later if
+//     it turns out to be a child, retracting what the early hooks minted.
 //
 // Ownership rules match the ambient-thread filter: a verdict is per session
 // id, a decision to fold is sticky, and a child's terminal hook (or its
 // process exiting) is the completion that closes it on the parent.
 
 import { basename } from 'path';
+import { realpathSync } from 'fs';
 import type { LocatedCodexRolloutSummary, ProcInfo } from './passive-observer.js';
+import { CODEX_TERMINAL_EVENTS } from './hook-codex-sessions.js';
 
 /** `session_meta.originator` written by `codex exec`. */
 export const CODEX_EXEC_ORIGINATOR = 'codex_exec';
@@ -44,19 +50,24 @@ export function isHeadlessCodexOriginator(originator: string | undefined): boole
 }
 
 /** The argv shape of a headless run: the `codex` binary followed by the `exec`
- *  subcommand (global flags may sit between). `codex-code-mode-host` and the
- *  Electron helpers never match — their basename is not `codex`. */
+ *  subcommand (or its documented alias `e`); global flags may sit between.
+ *  `codex-code-mode-host` and the Electron helpers never match — their
+ *  basename is not `codex`. A path containing whitespace splits here and is
+ *  simply not matched: `ps` output carries no quoting to recover it from. */
 export function isCodexExecCommand(command: string): boolean {
   const argv = command.trim().split(/\s+/);
   if (argv.length < 2) return false;
-  const bin = basename(argv[0]).replace(/\.exe$/i, '');
+  const bin = binaryName(argv[0]);
+  let start = 1;
   if (bin === 'node' || bin === 'timeout') {
     // `node /opt/homebrew/bin/codex exec …` / `timeout 1500 codex exec …`
-    const idx = argv.findIndex((a, i) => i > 0 && basename(a).replace(/\.exe$/i, '') === 'codex');
-    return idx > 0 && argv.slice(idx + 1).some((a) => a === 'exec');
+    const idx = argv.findIndex((a, i) => i > 0 && binaryName(a) === 'codex');
+    if (idx <= 0) return false;
+    start = idx + 1;
+  } else if (bin !== 'codex') {
+    return false;
   }
-  if (bin !== 'codex') return false;
-  return argv.slice(1).some((a) => a === 'exec');
+  return argv.slice(start).some((a) => a === 'exec' || a === 'e');
 }
 
 /** `-C <dir>` / `--cd <dir>` / `--cd=<dir>` from a `codex exec` argv, or null. */
@@ -79,9 +90,12 @@ export interface ExecChildPeer {
 }
 
 /**
- * The nearest ancestor of `pid` whose pid is a peer session — the launching
+ * The nearest ancestor of `pid` whose pid is a peer — the launching
  * session. `pid` itself never matches (a Codex is not its own parent), and
- * the walk is cycle-safe against a stale table.
+ * the walk is cycle-safe against a stale table. Several peers may share one
+ * pid (every Codex Desktop conversation reports the app-server's); the first
+ * listed wins, deterministically, because nothing in the process table can
+ * tell those conversations apart.
  */
 export function nearestAncestorPeer(
   pid: number,
@@ -90,7 +104,8 @@ export function nearestAncestorPeer(
 ): ExecChildPeer | null {
   if (peers.length === 0) return null;
   const byPid = new Map(processes.map((p) => [p.pid, p]));
-  const peerByPid = new Map(peers.map((p) => [p.pid, p]));
+  const peerByPid = new Map<number, ExecChildPeer>();
+  for (const peer of peers) if (!peerByPid.has(peer.pid)) peerByPid.set(peer.pid, peer);
   let current = byPid.get(pid);
   const visited = new Set<number>([pid]);
   while (current && current.ppid > 1 && !visited.has(current.ppid)) {
@@ -116,9 +131,11 @@ export interface CodexExecChildObservation {
 
 export interface CodexExecChild {
   sessionId: string;
-  /** Set once a process is known — from the observer (exact) or an argv cwd
-   *  match on the hook path (best effort, corrected by the next scan). */
+  /** The `codex exec` process. `pidExact` says how it was found: the observer
+   *  mapped the rollout to it (exact), or the hook path picked it by argv
+   *  (best effort, corrected by the next scan). */
   pid?: number;
+  pidExact: boolean;
   cwd?: string;
   parentSessionId: string;
   parentAgentType: string;
@@ -141,18 +158,12 @@ type Verdict =
   | { kind: 'child' }
   | { kind: 'standalone'; at: number }
   | { kind: 'not-headless'; at: number }
-  | { kind: 'pending'; since: number; cwd?: string }
+  | { kind: 'pending'; since: number; cwd?: string; retried: boolean }
   | { kind: 'no-rollout'; at: number };
 
-/** Hook events that end a headless run. `codex exec` is one turn, so its
- *  Stop is its completion; an interrupt or a session end is too. */
-const TERMINAL_EVENTS = new Set(['codex_stop', 'codex_session_end', 'codex_turn_complete', 'codex_interrupt']);
-
 /** A headless rollout whose parent is still unresolved after this long is a
- *  standalone run: its hooks flow normally from then on. Long enough for two
- *  observer scans (5 s cadence, up to 60 s when a scan is slow) plus lsof's
- *  2 s timeout; short enough that a user's own `codex exec` shows up as a
- *  session while it is still running. */
+ *  standalone run for good. Long enough for several observer scans (5 s
+ *  cadence, up to 60 s when a scan is slow) plus lsof's 2 s timeout. */
 export const PENDING_TTL_MS = 60_000;
 /** A rollout not on disk at SessionStart is re-checked on the next hook, but
  *  not on every hook — one readdir walk per interval, not per tool call. */
@@ -160,15 +171,18 @@ const NO_ROLLOUT_RETRY_MS = 2_000;
 /** A finished child stays known this long so a trailing tool_end cannot
  *  resurrect it as a session; mirrors HookCodexSessions' tombstone. */
 const STOPPED_TTL_MS = 30 * 60_000;
-/** Cached negative verdicts expire so an id-space reuse cannot be misread
- *  forever (Codex ids are uuidv7, so this is belt and braces). */
+/** Cached verdicts expire so an id-space reuse cannot be misread forever
+ *  (Codex ids are uuidv7, so this is belt and braces). */
 const VERDICT_TTL_MS = 6 * 60 * 60_000;
 
 export interface HookVerdict {
-  /** The hook belongs to a child (attached or pending) and must not enter the
-   *  parent session's row, state, timeline, or APME pipelines. */
+  /** The hook belongs to an attached child and must not enter the parent
+   *  session's row, state, timeline, or APME pipelines. */
   childOnly: boolean;
   child?: CodexExecChild;
+  /** Headless, but its process is not in the table the caller passed — the
+   *  caller may read a fresh table and call again (once per session). */
+  wantsFreshTable?: boolean;
 }
 
 export interface CodexExecChildrenOptions {
@@ -178,6 +192,9 @@ export interface CodexExecChildrenOptions {
   locateRollout?: (sessionId: string) => LocatedCodexRolloutSummary | null;
   /** The finished run's reply (`lastAgentMessageFromCodexRollout`). */
   lastMessage?: (sessionId: string) => string;
+  /** Path canonicalization for the argv-vs-rollout cwd match: on macOS a
+   *  `-C /tmp/x` run reports `cwd: /private/tmp/x`. */
+  realpath?: (path: string) => string;
   now?: () => number;
 }
 
@@ -188,18 +205,19 @@ export class CodexExecChildren {
   private readonly verdicts = new Map<string, Verdict>();
   private readonly locateRollout: (sessionId: string) => LocatedCodexRolloutSummary | null;
   private readonly lastMessage: (sessionId: string) => string;
+  private readonly realpath: (path: string) => string;
   private readonly now: () => number;
 
   constructor(opts: CodexExecChildrenOptions = {}) {
     this.locateRollout = opts.locateRollout ?? (() => null);
     this.lastMessage = opts.lastMessage ?? (() => '');
+    this.realpath = opts.realpath ?? defaultRealpath;
     this.now = opts.now ?? Date.now;
   }
 
-  /** Attached or pending: the id is not an independent session. */
+  /** Attached: the id is not an independent session. */
   knows(sessionId: string): boolean {
-    if (this.children.has(sessionId)) return true;
-    return this.verdicts.get(sessionId)?.kind === 'pending';
+    return this.children.has(sessionId);
   }
 
   parentOf(sessionId: string): string | undefined {
@@ -213,8 +231,7 @@ export class CodexExecChildren {
   /**
    * Hook path. Decides, for a `codex_*` hook, whether its session is a
    * headless child — resolving the parent on the spot when the process table
-   * already shows the run — and drives the child's completion on its
-   * terminal hook.
+   * shows the run — and drives the child's completion on its terminal hook.
    */
   noteHook(
     eventName: string,
@@ -231,7 +248,7 @@ export class CodexExecChildren {
     const child = this.children.get(sessionId);
     if (child) {
       child.lastSeenAt = now;
-      if (TERMINAL_EVENTS.has(eventName) && child.stoppedAt == null) {
+      if (CODEX_TERMINAL_EVENTS.has(eventName) && child.stoppedAt == null) {
         const inline = typeof payload.last_assistant_message === 'string'
           ? payload.last_assistant_message.trim() : '';
         this.stop(child, inline || undefined, now);
@@ -266,30 +283,30 @@ export class CodexExecChildren {
       startedAt = located.summary.startedAt;
     }
 
-    // Headless. Find its process by argv cwd and walk to the launcher.
-    const resolved = this.resolveByCwd(sessionId, cwd, processes, peers);
+    // Headless. Find its process and walk to the launcher.
+    const resolved = this.resolveByArgv(sessionId, cwd, processes, peers);
     if (resolved.kind === 'child') {
       const attached = this.attach({
-        sessionId, pid: resolved.pid, cwd, parent: resolved.parent, startedAt, goal,
+        sessionId, pid: resolved.pid, pidExact: false, cwd, parent: resolved.parent, startedAt, goal,
       }, now);
-      if (TERMINAL_EVENTS.has(eventName)) this.stop(attached, undefined, now);
+      if (CODEX_TERMINAL_EVENTS.has(eventName)) this.stop(attached, undefined, now);
       return { childOnly: true, child: attached };
     }
     if (resolved.kind === 'standalone') {
       this.verdicts.set(sessionId, { kind: 'standalone', at: now });
       return { childOnly: false };
     }
-    // No process visible yet. Hold the hook out of the parent pipelines and
-    // let the observer (or the next hook) resolve it.
+    // No process visible in this table. The hooks flow — a standalone run
+    // must keep its session and run — while the verdict stays open for a
+    // fresh table (once) and for the observer's scan.
     const since = verdict?.kind === 'pending' ? verdict.since : now;
-    if (now - since > PENDING_TTL_MS || TERMINAL_EVENTS.has(eventName)) {
-      // Never resolved: a run this daemon could not attach is a standalone
-      // run. A terminal hook while pending means it is over either way.
+    const retried = verdict?.kind === 'pending' ? verdict.retried : false;
+    if (now - since > PENDING_TTL_MS || CODEX_TERMINAL_EVENTS.has(eventName)) {
       this.verdicts.set(sessionId, { kind: 'standalone', at: now });
-      return { childOnly: TERMINAL_EVENTS.has(eventName) };
+      return { childOnly: false };
     }
-    this.verdicts.set(sessionId, { kind: 'pending', since, cwd });
-    return { childOnly: true };
+    this.verdicts.set(sessionId, { kind: 'pending', since, cwd, retried: true });
+    return { childOnly: false, wantsFreshTable: !retried };
   }
 
   /**
@@ -302,6 +319,7 @@ export class CodexExecChildren {
   reconcile(
     observations: readonly CodexExecChildObservation[],
     processes: readonly ProcInfo[],
+    peers: readonly ExecChildPeer[] = [],
     now = this.now(),
   ): void {
     this.sweep(now);
@@ -311,13 +329,14 @@ export class CodexExecChildren {
       const existing = this.children.get(obs.sessionId);
       if (existing) {
         existing.pid = obs.pid;
+        existing.pidExact = true;
         existing.lastSeenAt = now;
         if (!existing.cwd && obs.cwd) existing.cwd = obs.cwd;
         if (!existing.goal && obs.goal) existing.goal = obs.goal;
         continue;
       }
       if (obs.parent) {
-        this.attach(obs, now);
+        this.attach({ ...obs, pidExact: true }, now);
       } else if (this.verdicts.get(obs.sessionId)?.kind !== 'standalone') {
         this.verdicts.set(obs.sessionId, { kind: 'standalone', at: now });
       }
@@ -325,28 +344,64 @@ export class CodexExecChildren {
     // An empty table is "could not look" (collectProcessInfo reports every
     // failure as []) — never a wave of completions.
     if (processes.length === 0) return;
+    // Pending runs the observer did not report: their process may be in this
+    // table now (a table read after the hook), so resolve them by argv.
+    for (const [sessionId, verdict] of this.verdicts) {
+      if (verdict.kind !== 'pending' || seen.has(sessionId)) continue;
+      const resolved = this.resolveByArgv(sessionId, verdict.cwd, processes, peers);
+      if (resolved.kind === 'child') {
+        this.attach({ sessionId, pid: resolved.pid, pidExact: false, cwd: verdict.cwd, parent: resolved.parent }, now);
+      } else if (resolved.kind === 'standalone' || now - verdict.since > PENDING_TTL_MS) {
+        this.verdicts.set(sessionId, { kind: 'standalone', at: now });
+      }
+    }
     const livePids = new Set(processes.map((p) => p.pid));
     for (const child of this.children.values()) {
       if (child.stoppedAt != null || child.pid == null) continue;
       if (seen.has(child.sessionId) || livePids.has(child.pid)) continue;
+      // A guessed pid may belong to a same-cwd sibling; its exit proves
+      // nothing about this child unless no run for that cwd is left at all.
+      if (!child.pidExact && child.cwd && this.liveExecForCwd(child.cwd, processes)) continue;
       this.stop(child, undefined, now);
     }
   }
 
-  private resolveByCwd(
+  private liveExecForCwd(cwd: string, processes: readonly ProcInfo[]): boolean {
+    const target = this.canonical(cwd);
+    return processes.some((p) => isCodexExecCommand(p.command)
+      && this.canonical(codexExecCwdFromCommand(p.command)) === target);
+  }
+
+  private canonical(path: string | null | undefined): string | null {
+    if (!path) return null;
+    const norm = path.replace(/\\/g, '/').replace(/\/+$/, '');
+    try { return this.realpath(norm).replace(/\\/g, '/').replace(/\/+$/, ''); } catch { return norm; }
+  }
+
+  private resolveByArgv(
     sessionId: string,
     cwd: string | undefined,
     processes: readonly ProcInfo[],
     peers: readonly ExecChildPeer[],
   ): { kind: 'child'; pid: number; parent: ExecChildPeer } | { kind: 'standalone' } | { kind: 'unknown' } {
-    if (!cwd || processes.length === 0) return { kind: 'unknown' };
+    if (processes.length === 0) return { kind: 'unknown' };
     const claimed = new Set<number>();
     for (const c of this.children.values()) {
       if (c.sessionId !== sessionId && c.pid != null && c.stoppedAt == null) claimed.add(c.pid);
     }
-    const candidates = processes.filter((p) =>
-      !claimed.has(p.pid) && isCodexExecCommand(p.command) && samePath(codexExecCwdFromCommand(p.command), cwd));
-    if (candidates.length === 0) return { kind: 'unknown' };
+    const unclaimed = processes.filter((p) => !claimed.has(p.pid) && isCodexExecCommand(p.command));
+    if (unclaimed.length === 0) return { kind: 'unknown' };
+    const target = this.canonical(cwd);
+    let candidates = target
+      ? unclaimed.filter((p) => this.canonical(codexExecCwdFromCommand(p.command)) === target)
+      : [];
+    // No argv cwd to match (`cd dir && codex exec …`): the one unclaimed run
+    // in the table is this one; several are indistinguishable here.
+    if (candidates.length === 0) {
+      const bare = unclaimed.filter((p) => codexExecCwdFromCommand(p.command) == null);
+      if (bare.length === 1) candidates = bare;
+      else return { kind: 'unknown' };
+    }
     // Prefer the binary itself over its `node`/`timeout` wrappers: ancestry is
     // the same either way, but the pid is what the vanish check watches.
     const ordered = [...candidates].sort((a, b) => wrapperRank(a.command) - wrapperRank(b.command));
@@ -358,13 +413,14 @@ export class CodexExecChildren {
   }
 
   private attach(obs: {
-    sessionId: string; pid: number; cwd?: string; parent: ExecChildPeer | null;
+    sessionId: string; pid: number; pidExact: boolean; cwd?: string; parent: ExecChildPeer | null;
     startedAt?: number; goal?: string;
   }, now: number): CodexExecChild {
     const parent = obs.parent!;
     const child: CodexExecChild = {
       sessionId: obs.sessionId,
       pid: obs.pid,
+      pidExact: obs.pidExact,
       cwd: obs.cwd,
       parentSessionId: parent.sessionId,
       parentAgentType: parent.agentType,
@@ -403,13 +459,14 @@ export class CodexExecChildren {
   }
 }
 
-function wrapperRank(command: string): number {
-  const bin = basename(command.trim().split(/\s+/)[0] ?? '').replace(/\.exe$/i, '');
-  return bin === 'codex' ? 0 : 1;
+function binaryName(token: string): string {
+  return basename(token).replace(/\.exe$/i, '');
 }
 
-function samePath(a: string | null, b: string): boolean {
-  if (!a) return false;
-  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
-  return norm(a) === norm(b);
+function wrapperRank(command: string): number {
+  return binaryName(command.trim().split(/\s+/)[0] ?? '') === 'codex' ? 0 : 1;
+}
+
+function defaultRealpath(path: string): string {
+  return realpathSync(path);
 }
