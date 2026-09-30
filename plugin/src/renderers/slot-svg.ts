@@ -106,6 +106,7 @@ export function renderSlotConfig(config: SessionSlotConfig, env: SlotRenderEnv):
         footnote: config.usageFootnote,
         inactive: config.usageInactive === true,
         luna: config.usageLuna,
+        credits: config.usageCredits,
       });
 
     }

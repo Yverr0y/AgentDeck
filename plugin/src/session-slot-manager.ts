@@ -1,5 +1,5 @@
 import { claudeWeeklyReadings, nextClaudeWeeklyMode, type ClaudeWeeklyMode } from '@agentdeck/shared';
-import { selectedLunaReserve } from '@agentdeck/shared';
+import { selectedLunaReserve, selectedCodexCredits } from '@agentdeck/shared';
 /**
  * SessionSlotManager — central state machine for v4 dynamic session-per-button layout.
  *
@@ -7,7 +7,7 @@ import { selectedLunaReserve } from '@agentdeck/shared';
  * - List View: each button shows one session (OC first, then CC by startedAt)
  * - Detail View: button 1=BACK, button 2=session info, buttons 3-7=options, button 8=ESC/STOP
  */
-import type { SessionInfo, StatusCardTone, StatusIconKind, CodexRateLimits, CodexLunaReserve, ScopedUsageLimit } from '@agentdeck/shared';
+import type { SessionInfo, StatusCardTone, StatusIconKind, CodexRateLimits, CodexLunaReserve, SelectedCodexCredits, ScopedUsageLimit } from '@agentdeck/shared';
 import { State, sortSessions, assignDisplayNames, foldCodexSessionsForDisplay, aliasModelName, Brand, formatScopedLabel, scopedLimitClaimsUsageKey, codexWindowsBeside, usageStripRank, usageWindowKind, usageWindowLabel, codexUsageFootnote, summarizeQuestionForKey, approvalReasonHead, UI } from '@agentdeck/shared';
 import type { PromptOption } from '@agentdeck/shared';
 import { dlog } from './log.js';
@@ -44,6 +44,7 @@ export interface UsageGauge {
    *  strip in `USAGE_STRIP_ORDER`. */
   scoped?: boolean;
   luna?: CodexLunaReserve;
+  credits?: SelectedCodexCredits;
   weeklyPair?: [UsageGauge, UsageGauge];
 }
 
@@ -84,6 +85,7 @@ export interface SessionSlotConfig {
   usageResetsAt?: string;
   usageFootnote?: string;
   usageLuna?: CodexLunaReserve;
+  usageCredits?: SelectedCodexCredits;
   usageWeekly?: UsageGauge[];
   usageWeeklyCycle?: boolean;
   /** Scoped cap that isn't the binding one — muted ramp, never critical. */
@@ -287,6 +289,7 @@ export class SessionSlotManager {
   private _zaiSecondary: CodexWindowSnapshot | null = null;
   private _zaiSecondaryIsMcp = false;
   private _codexLunaReserve: CodexLunaReserve | undefined;
+  private _codexCredits: SelectedCodexCredits | undefined;
   /** When the Codex snapshot behind both windows was written (see
    *  `CodexRateLimits.capturedAt`). Freshness is derived per repaint from this,
    *  never stored as a boolean — a stored flag would freeze exactly like the
@@ -454,6 +457,7 @@ export class SessionSlotManager {
       ? { percent: cx.secondary.usedPercent, resetsAt: cx.secondary.resetsAt, windowMinutes: cx.secondary.windowMinutes, stale: cx.secondary.stale === true }
       : null;
     this._codexLunaReserve = selectedLunaReserve(cx);
+    this._codexCredits = selectedCodexCredits(cx);
     this._codexCapturedAt = cx?.capturedAt;
     // Worst-first already (active desc, then percent desc) — only [0] can ever
     // reach a key, so the rest is dead work here. Paging through them lives on
@@ -512,6 +516,17 @@ export class SessionSlotManager {
     // present window by its own length (windowMinutes), never by slot: Codex now
     // sometimes reports the weekly (10080-min) window as `primary` with
     // `secondary` null, so a slot-based "7D = secondary" would drop the gauge.
+    // Once a plan window is exhausted the fallbacks replace the Codex windows:
+    // the credits being spent first, then the Luna reserve. Each is its own
+    // key; the strip pages when they do not all fit.
+    if (this._codexCredits) {
+      gauges.push({
+        agent: 'codex', window: '5h', label: 'CREDITS',
+        percent: 100,
+        resetsAt: this._codexCredits.regularResetsAt,
+        known: true, color: CODEX_USAGE_COLOR, credits: this._codexCredits,
+      });
+    }
     if (this._codexLunaReserve) {
       gauges.push({
         agent: 'codex', window: '5h', label: 'LUNA',
@@ -520,7 +535,7 @@ export class SessionSlotManager {
         known: true, color: CODEX_USAGE_COLOR, luna: this._codexLunaReserve,
       });
     }
-    for (const w of this._codexLunaReserve ? [] : codexWindows) {
+    for (const w of this._codexLunaReserve || this._codexCredits ? [] : codexWindows) {
       gauges.push({
         agent: 'codex', window: usageWindowKind(w.windowMinutes), label: usageWindowLabel(w.windowMinutes) || '5H',
         percent: w.percent, resetsAt: w.resetsAt,
@@ -863,6 +878,7 @@ export class SessionSlotManager {
             usageFootnote: g.footnote,
             usageInactive: g.inactive === true,
             usageLuna: g.luna,
+            usageCredits: g.credits,
             usageWeeklyCycle: g.weeklyPair != null,
             usageWeekly: g.weeklyPair ? claudeWeeklyReadings(g.weeklyPair[0], g.weeklyPair[1], this.weeklyModes.get(this.usagePageKey(layout))) : undefined,
           };
