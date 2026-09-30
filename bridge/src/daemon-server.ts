@@ -24,11 +24,12 @@ import { prepareForSerial } from './esp32-serial.js';
 import { OpenClawAdapter } from './adapters/openclaw.js';
 import { BridgeLogStream } from './log-stream.js';
 import { distBuildId } from './daemon-build-identity.js';
-import { PassiveSessionObserver } from './passive-observer.js';
+import { PassiveSessionObserver, codexRolloutSummaryForSession } from './passive-observer.js';
+import { CodexExecChildren, type CodexExecChild, type ExecChildPeer } from './codex-exec-children.js';
 import { HookClaudeSessions } from './hook-claude-sessions.js';
 import { SessionTimelineRelay } from './session-timeline-relay.js';
 import { SessionFocusRelay } from './session-focus-relay.js';
-import { SubagentTimelineTracker } from './subagent-timeline.js';
+import { SubagentTimelineTracker, type SubagentTimelineResult } from './subagent-timeline.js';
 import { CoordinationTracker, type RelationObservation } from './coordination-evidence.js';
 import { HookOpenCodeSessions } from './hook-opencode-sessions.js';
 import {
@@ -123,6 +124,10 @@ const APME_ABANDONED_RUN_STALE_SEC = Math.max(
   600,
   Number(process.env.AGENTDECK_APME_ABANDON_SEC) || 7200,
 );
+/** How long a Codex session must be absent from every roster before its APME
+ *  run is closed. Longer than one failed scan (lsof's 2 s timeout, up to a
+ *  60 s slow-scan cooldown) and the 60 s a hook row outlives its Stop. */
+const CODEX_RUN_VANISH_GRACE_MS = 90_000;
 /** Backlog tasks handed to the judge per eval tick when it is idle — see the drain. */
 const APME_TASK_JUDGE_DRAIN_PER_TICK = 1;
 /** How many backlog candidates the drain looks at to find one it may feed.
@@ -299,7 +304,7 @@ import { readFileSync, statSync, writeFileSync, appendFileSync } from 'fs';
 import { readFile, rm } from 'fs/promises';
 import { sampleEventLoopDelay } from './event-loop-telemetry.js';
 import { tmpdir, networkInterfaces, type NetworkInterfaceInfo } from 'os';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { homedir } from 'os';
 import {
   BRIDGE_WS_PORT,
@@ -1645,6 +1650,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // Codex sessions known only from `codex_*` hooks — the backstop for when the
   // process scan can't see one (lsof timeout, no rollout held open).
   const hookCodexSessions = new HookCodexSessions();
+  // Headless `codex exec` runs folded under the session that launched them —
+  // see bridge/src/codex-exec-children.ts. Hooks consult it before any parent
+  // pipeline; the observer feeds it from process ancestry on every scan.
+  const codexExecChildren = new CodexExecChildren({
+    locateRollout: codexRolloutSummaryForSession,
+    lastMessage: lastAgentMessageFromCodexRollout,
+  });
+  // Codex sessions this daemon opened (or re-adopted) an APME run for. Codex
+  // has no SessionEnd hook, so a codex run's only close used to be the
+  // abandoned-run reaper — which skips every run the collector still holds.
+  // 6 runs from 9/29–9/30 sat open 26 h after their sessions exited
+  // (2026-10-01). A run whose session has left every roster for
+  // CODEX_RUN_VANISH_GRACE_MS is closed by `sweepVanishedCodexRuns`.
+  const codexApmeSessions = new Set<string>();
+  const codexRosterAbsentSince = new Map<string, number>();
   const hookClaudeSessions = new HookClaudeSessions();
   // Who last moved the hub's global state machine — see hub-state-identity.ts.
   const hubDriver = new HubStateDriverTracker();
@@ -3175,22 +3195,27 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           if (ambient.firstSeen && ambient.sessionId) {
             const sid = ambient.sessionId;
             log(`[agentdeck] Codex ${ambient.reason ?? 'background'} thread ${sid.slice(0, 8)}: not the user's work, its hooks are not recorded`);
-            hookCodexSessions.forget(sid);
-            codexOtel.forget(sid);
-            subagentTimeline?.forget(sid);
-            coordination.forget(sid);
-            hookSessionsSeen.delete(sid);
-            hookSessionLastSeenAt.delete(sid);
-            const runId = apme?.collector.getRunId(sid);
-            if (apme && runId) {
-              apme.collector.releaseRun(runId);
-              try { apme.store.deleteRun(runId); }
-              catch (err) { debug('APME', `deleteRun for ambient thread ${sid.slice(0, 8)} failed: ${String(err)}`); }
-            }
+            retractCodexThread(sid, 'ambient thread');
           }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ received: true, background: true }));
           return;
+        }
+        // A headless `codex exec` launched by another observed session is
+        // that session's child, not a session: its hooks drive the parent's
+        // subagent census (through the registry's lifecycle) and nothing
+        // else. While its parent is still unresolved the hooks are held out
+        // rather than let through — a row minted now would have to be
+        // retracted in five seconds.
+        if (eventName.startsWith('codex_')) {
+          const verdict = codexExecChildren.noteHook(
+            eventName, json, passiveSessionObserver.processes(), execChildPeers(),
+          );
+          if (verdict.childOnly) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ received: true, child: true }));
+            return;
+          }
         }
         const earlyHookSid = typeof json.session_id === 'string' && json.session_id
           ? json.session_id : 'daemon-hook';
@@ -3510,6 +3535,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             // vocabulary (user_prompt_submit / tool_start / …), so raw
             // codex_* / opencode_* names would silently skip turn management.
             apme.collector.ingestHook(hookSid, boundary, json);
+            if (hookAgentType === 'codex-cli' && apme.collector.getRunId(hookSid)) {
+              codexApmeSessions.add(hookSid);
+              codexRosterAbsentSince.delete(hookSid);
+            }
           }
           // Coordination evidence carried BY the hook itself: a received
           // cross-session envelope, a SendMessage call, a `claude -p` launch.
@@ -4867,6 +4896,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       if (persistRelation(rel)) changed = true;
     }
     if (changed) core.broadcastSessionsList().catch(() => {});
+    // Same cadence, same process table: attach headless `codex exec` runs to
+    // their launcher and complete the ones whose process is gone.
+    codexExecChildren.reconcile(passiveSessionObserver.execChildren(), passiveSessionObserver.processes());
+    sweepVanishedCodexRuns();
   };
   const coordinationTimer = setInterval(coordinationTick, 5_000);
   coordinationTimer.unref?.();
@@ -4875,6 +4908,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // without a producer here its session shows in the HUD while the timeline
     // beside it stays empty. #218 taught the per-session QUERY to read Kiro's
     // own transcript; the main timeline is a STREAM, and this is what feeds it.
+    // A headless child appearing or leaving is a roster change in its own
+    // right (the observer compares its child list too) — attach it now rather
+    // than on the next coordination tick.
+    codexExecChildren.reconcile(passiveSessionObserver.execChildren(), passiveSessionObserver.processes());
     try {
       const observedKiro = passiveSessionObserver.collect([])
         .filter((s) => typeof s.agentType === 'string' && s.agentType.startsWith('kiro'));
@@ -4926,7 +4963,112 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // worth a broadcast of its own.
   codexOtel.onChanged = () => core.maybeBroadcastSessionsList();
   codexOtel.isBackgroundThread = (threadId) => codexAmbientSessions.isAmbient(threadId);
-  codexOtel.isHookOwnedThread = (threadId) => hookCodexSessions.knows(threadId);
+  // A folded child is owned too: `codex exec` exports its OTel spans in one
+  // batch at exit, which would otherwise synthesize a `codex-app` row for the
+  // thread the roster just deliberately left out.
+  codexOtel.isHookOwnedThread = (threadId) =>
+    hookCodexSessions.knows(threadId) || codexExecChildren.knows(threadId);
+  codexExecChildren.lifecycle = {
+    onStart(child) {
+      // Anything the child's first hooks minted before it was attached: its
+      // own hook row, an APME run, a hub-driver identity. Evidence lives on
+      // the parent from here.
+      retractCodexThread(child.sessionId, 'headless child');
+      log(`[agentdeck] codex exec ${child.sessionId.slice(0, 8)} is a child of ${child.parentAgentType} ${child.parentSessionId.slice(0, 8)}`
+        + (child.cwd ? ` (${basename(child.cwd)})` : ''));
+      applyExecChildResult(child, subagentTimeline?.handle({
+        eventName: 'SubagentStart',
+        payload: execChildPayload(child),
+        sessionId: child.parentSessionId,
+        agentType: child.parentAgentType,
+        projectName: child.parentProjectName,
+      }));
+    },
+    onStop(child, summary) {
+      applyExecChildResult(child, subagentTimeline?.handle({
+        eventName: 'SubagentStop',
+        payload: { ...execChildPayload(child), ...(summary ? { last_assistant_message: summary } : {}) },
+        sessionId: child.parentSessionId,
+        agentType: child.parentAgentType,
+        projectName: child.parentProjectName,
+      }));
+    },
+  };
+  function execChildPayload(child: CodexExecChild): Record<string, unknown> {
+    return {
+      agent_id: child.sessionId,
+      agent_type: 'codex exec',
+      // The topic directory is the one thing that tells twelve siblings
+      // apart when the run said nothing.
+      ...(child.cwd ? { task_subject: basename(child.cwd) } : {}),
+    };
+  }
+  function applyExecChildResult(
+    child: CodexExecChild,
+    result: SubagentTimelineResult | undefined,
+  ): void {
+    if (!result) return;
+    if (result.sampleEvent) apme?.collector.noteSubagentLifecycle(child.parentSessionId, result.sampleEvent);
+    if (result.censusChangedFor) core.broadcastSessionsList().catch(() => {});
+  }
+  /** Observed sessions with a pid — the launchers a headless run may descend
+   *  from. Bare ids, since that is how hooks and the census name them. */
+  function execChildPeers(): ExecChildPeer[] {
+    const peers: ExecChildPeer[] = [];
+    for (const s of passiveSessionObserver.collect([])) {
+      if (!(typeof s.pid === 'number' && s.pid > 0) || !s.agentType) continue;
+      peers.push({ sessionId: rawSessionId(s.id), pid: s.pid, agentType: s.agentType, projectName: s.projectName });
+    }
+    return peers;
+  }
+  /** Undo everything a Codex thread's hooks created before it was classified
+   *  as not-a-session (ambient suggestion thread, headless child). */
+  function retractCodexThread(sid: string, reason: string): void {
+    hookCodexSessions.forget(sid);
+    codexOtel.forget(sid);
+    subagentTimeline?.forget(sid);
+    coordination.forget(sid);
+    hookSessionsSeen.delete(sid);
+    hookSessionLastSeenAt.delete(sid);
+    codexApmeSessions.delete(sid);
+    codexRosterAbsentSince.delete(sid);
+    const runId = apme?.collector.getRunId(sid);
+    if (apme && runId) {
+      apme.collector.releaseRun(runId);
+      try { apme.store.deleteRun(runId); }
+      catch (err) { debug('APME', `deleteRun for ${reason} ${sid.slice(0, 8)} failed: ${String(err)}`); }
+    }
+  }
+  /** Close the APME run of a Codex session that has left every roster —
+   *  observer rows, hook rows and OTel-synthesized rows — for the grace
+   *  period. Codex has no SessionEnd hook, so this is a codex run's normal
+   *  close; the grace absorbs one failed `lsof` scan and the 60 s a hook row
+   *  outlives its Stop. */
+  function sweepVanishedCodexRuns(now = Date.now()): void {
+    if (!apme || codexApmeSessions.size === 0) return;
+    const present = new Set<string>();
+    for (const s of passiveSessionObserver.collect([])) {
+      if (s.agentType === 'codex-cli' || s.agentType === 'codex-app') present.add(rawSessionId(s.id));
+    }
+    for (const s of hookCodexSessions.snapshot()) present.add(s.sessionId);
+    for (const s of codexOtel.applyTo([], now)) present.add(rawSessionId(s.id));
+    for (const sid of codexApmeSessions) {
+      if (!apme.collector.getRunId(sid)) {
+        codexApmeSessions.delete(sid);
+        codexRosterAbsentSince.delete(sid);
+        continue;
+      }
+      if (present.has(sid)) { codexRosterAbsentSince.delete(sid); continue; }
+      const since = codexRosterAbsentSince.get(sid);
+      if (since == null) { codexRosterAbsentSince.set(sid, now); continue; }
+      if (now - since < CODEX_RUN_VANISH_GRACE_MS) continue;
+      try { apme.collector.closeRun(sid); }
+      catch (err) { debug('APME', `closeRun for vanished codex ${sid.slice(0, 8)} failed: ${String(err)}`); }
+      codexApmeSessions.delete(sid);
+      codexRosterAbsentSince.delete(sid);
+      debug('APME', `closed codex run ${sid.slice(0, 8)}: its session left the roster ${Math.round((now - since) / 1000)}s ago`);
+    }
+  }
   hookCodexSessions.onChanged = () => core.maybeBroadcastSessionsList();
   hookOpenCodeSessions.onChanged = () => core.maybeBroadcastSessionsList();
 
