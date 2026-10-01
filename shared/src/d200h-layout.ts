@@ -1,6 +1,8 @@
 import { claudeWeeklyReadings, type ClaudeWeeklyMode } from './claude-weekly-view.js';
 import { usageColor } from './usage-severity.js';
-import { selectedLunaReserve } from './usage-presentation.js';
+import { selectedLunaReserve, selectedCodexCredits, formatCreditBalance } from './usage-presentation.js';
+import type { SelectedCodexCredits } from './usage-presentation.js';
+import { remainingPercentSvgText, creditCoinSvg } from './svg-renderers/usage-reserve-marks.js';
 /**
  * D200H / deck layout engine used by the Ulanzi Studio plugin
  * (plugin-ulanzi) and Apple device previews. Given the current agent state it
@@ -286,8 +288,31 @@ export function renderLunaReserveTile(reserve: CodexLunaReserve): string {
     + `<g transform="translate(117,4) scale(0.75) translate(0,0)"><path d="${CODEX_LOGO_PATH}" fill="${Brand.codex}" fill-rule="evenodd"/></g>`
     + `<circle cx="72" cy="57" r="29" fill="${moon}"/>`
     + `<circle cx="60" cy="51" r="29" fill="${BG}"/>`
-    + `<text x="72" y="103" text-anchor="middle" font-family="Arial,sans-serif" font-size="27" font-weight="bold" fill="${usageColor(used)}">${active ? `${remaining}% LEFT` : 'EMPTY'}</text>`
+    + (active
+      ? remainingPercentSvgText({ x: 72, y: 103, size: 27, fill: usageColor(used), remaining })
+      : `<text x="72" y="103" text-anchor="middle" font-family="Arial,sans-serif" font-size="27" font-weight="bold" fill="${usageColor(used)}">EMPTY</text>`)
     + `<text x="72" y="121" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" font-weight="bold" fill="${DIM}">LUNA RESERVE</text>`
+    + (reset ? `<text x="72" y="138" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="${DIM}">RESET IN ${escXml(reset)}</text>` : '')
+    + `</svg>`;
+}
+
+/**
+ * Purchased-credit tile used in place of the Codex gauges once a plan window
+ * is exhausted and a balance remains (`selectedCodexCredits`). A balance is a
+ * count with no cap, so no severity ramp and no fill; the reset line says when
+ * the plan window returns and credits stop being spent.
+ */
+export function renderCodexCreditsTile(credits: SelectedCodexCredits): string {
+  const W = 144, H = 144, BG = UI.popupBgDeep, DIM = UI.idleDark;
+  const reset = formatResetCountdown(credits.regularResetsAt);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`
+    + `<rect width="${W}" height="${H}" rx="12" fill="${BG}"/>`
+    + `<text x="12" y="17" font-family="JetBrains Mono, monospace" font-size="11" font-weight="bold" fill="${Tide.s50}">CODEX</text>`
+    + `<circle cx="126" cy="13" r="9" fill="${UI.popupBgMid}" opacity="0.8"/>`
+    + `<g transform="translate(117,4) scale(0.75) translate(0,0)"><path d="${CODEX_LOGO_PATH}" fill="${Brand.codex}" fill-rule="evenodd"/></g>`
+    + creditCoinSvg(72, 57, 26, UI.attn, BG)
+    + `<text x="72" y="104" text-anchor="middle" font-family="Arial,sans-serif" font-size="29" font-weight="bold" fill="${Tide.s50}">${escXml(formatCreditBalance(credits.balance))}</text>`
+    + `<text x="72" y="121" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" font-weight="bold" fill="${Tide.s50}">CREDITS LEFT</text>`
     + (reset ? `<text x="72" y="138" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="${DIM}">RESET IN ${escXml(reset)}</text>` : '')
     + `</svg>`;
 }
@@ -530,13 +555,20 @@ function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.
   // key; the SD+ encoder can zoom into additional scoped caps separately.
   const cx = state.codexRateLimits;
   const luna = selectedLunaReserve(cx);
-  const lunaTile: SessionDeckCell | undefined = luna
+  // Purchased credits being spent once a plan window is exhausted. Like the
+  // Luna reserve it replaces the Codex windows; when both are live they are
+  // separate keys, and the reserve is the one that yields if the strip is full.
+  const spending = selectedCodexCredits(cx);
+  const spendingTile: SessionDeckCell | undefined = spending
+    ? { svg: renderCodexCreditsTile(spending), action }
+    : undefined;
+  let lunaTile: SessionDeckCell | undefined = luna
     ? { svg: renderLunaReserveTile(luna), action }
     : undefined;
   const allCodexWindows = [cx?.primary, cx?.secondary].filter((w): w is CodexRateLimitWindow => w != null);
   const worstScoped = known ? state.scopedLimits?.[0] : undefined;
   const scopedClaims = scopedLimitClaimsUsageKey(worstScoped, allCodexWindows.length);
-  const codexWindows = luna ? [] : codexWindowsBeside(allCodexWindows, scopedClaims);
+  const codexWindows = luna || spending ? [] : codexWindowsBeside(allCodexWindows, scopedClaims);
   // Keep the cap as data so every mode uses the same renderer and severity.
   const scopedTank: UsageTankData | undefined = scopedClaims && worstScoped
     ? {
@@ -586,8 +618,11 @@ function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.
     ? { svg: renderCreditsTile({ limitId: cx.limitId, balance: cx.credits?.balance, unlimited: cx.credits?.unlimited }), action }
     : undefined;
   const pairedWeekly = scopedTank != null && claudeWindows.some(w => w.window === '7d');
-  const logicalCount = claudeWindows.length + codexWindowData.length + zaiWindowData.length
-    + (scopedTank ? 1 : 0) - (pairedWeekly ? 1 : 0) + (creditsTile ? 1 : 0) + (lunaTile ? 1 : 0);
+  const baseCount = claudeWindows.length + codexWindowData.length + zaiWindowData.length
+    + (scopedTank ? 1 : 0) - (pairedWeekly ? 1 : 0) + (creditsTile ? 1 : 0) + (spendingTile ? 1 : 0);
+  // Credits outrank the reserve: they are what the account is spending.
+  if (spendingTile && lunaTile && baseCount + 1 > budget) lunaTile = undefined;
+  const logicalCount = baseCount + (lunaTile ? 1 : 0);
   const compactCodex = logicalCount > budget && codexWindowData.length === 2;
   const afterCodex = logicalCount - (compactCodex ? 1 : 0);
   const stillOverflows = afterCodex > budget;
@@ -637,6 +672,7 @@ function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.
   }
   tiles.push(...cellsFor('codex', codexWindowData, compactCodex));
   tiles.push(...cellsFor('zai', zaiWindowData, compactZai));
+  if (spendingTile) tiles.push(spendingTile);
   if (lunaTile) tiles.push(lunaTile);
   if (creditsTile) tiles.push(creditsTile);
   return tiles;

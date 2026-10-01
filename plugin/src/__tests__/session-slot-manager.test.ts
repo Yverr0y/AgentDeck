@@ -675,6 +675,40 @@ describe('SessionSlotManager list-view usage tiles', () => {
     expect(plainTypes.filter((t) => t === 'usage')).toHaveLength(4);
   });
 
+  it('seats the purchased-credit balance ahead of the Luna reserve once a Codex window is exhausted', () => {
+    const credits = { hasCredits: true, unlimited: false, balance: '62500' };
+    const exhausted = { ...CODEX_LIMITS, secondary: { ...CODEX_LIMITS.secondary!, usedPercent: 100 }, credits };
+    const manager = new SessionSlotManager();
+    manager.updateUsage({ fiveHourPercent: 42, sevenDayPercent: 17, codexRateLimits: exhausted });
+    manager.updateSessions(fewSessions(3));
+    expect(manager.getSlotConfig(14, SD_CLASSIC_LAYOUT)).toMatchObject({
+      type: 'usage', usageLabel: 'CREDITS', usageAgent: 'codex',
+      usageCredits: { balance: 62500 },
+    });
+    const types = Array.from({ length: 15 }, (_, i) => manager.getSlotConfig(i, SD_CLASSIC_LAYOUT).type);
+    expect(types.filter((t) => t === 'usage')).toHaveLength(3);
+
+    // With a reserve too, both are keys: credits first, then LUNA.
+    const both = new SessionSlotManager();
+    both.updateUsage({ fiveHourPercent: 42, sevenDayPercent: 17, codexRateLimits: {
+      ...exhausted, lunaReserve: { usedPercent: 32, available: true },
+    } });
+    both.updateSessions(fewSessions(3));
+    expect(both.getSlotConfig(13, SD_CLASSIC_LAYOUT)).toMatchObject({ usageLabel: 'CREDITS' });
+    expect(both.getSlotConfig(14, SD_CLASSIC_LAYOUT)).toMatchObject({ usageLabel: 'LUNA' });
+
+    // A zero balance is not being spent: the exhausted window stays.
+    const broke = new SessionSlotManager();
+    broke.updateUsage({ fiveHourPercent: 42, sevenDayPercent: 17, codexRateLimits: {
+      ...exhausted, credits: { hasCredits: false, unlimited: false, balance: '0' },
+    } });
+    broke.updateSessions(fewSessions(3));
+    const labels = Array.from({ length: 15 }, (_, i) => broke.getSlotConfig(i, SD_CLASSIC_LAYOUT))
+      .filter((c) => c.type === 'usage').map((c) => c.usageLabel);
+    expect(labels).not.toContain('CREDITS');
+    expect(labels).toContain('7D');
+  });
+
   it('does NOT reserve usage on Stream Deck+ (encoder carries usage)', () => {
     const manager = new SessionSlotManager();
     manager.updateUsage({ fiveHourPercent: 42, sevenDayPercent: 17, codexRateLimits: CODEX_LIMITS });
