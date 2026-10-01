@@ -973,17 +973,52 @@ describe('SessionSlotManager scoped cap vs the Codex usage keys', () => {
     expect(slots.some(s => s.type === 'usage-page')).toBe(false);
   });
 
-  it('pages only when the row overflows and recovers when the usage set shrinks', () => {
+  it('folds z.ai onto one key instead of paging when that makes the row fit', () => {
+    const manager = new SessionSlotManager();
+    manager.updateUsage({ fiveHourPercent: 22, sevenDayPercent: 46,
+      codexRateLimits: { primary: { usedPercent: 30, windowMinutes: 300 }, secondary: { usedPercent: 12, windowMinutes: 10080 } },
+      zaiRateLimits: { primary: { usedPercent: 36, windowMinutes: 300 }, secondary: { usedPercent: 42, windowMinutes: 1440, quantity: 'mcp' } },
+    });
+    // Six readings on a five-key row: z.ai 5H + MCP share the last key.
+    const row = [10, 11, 12, 13, 14].map((i) => manager.getSlotConfig(i, SD_CLASSIC_LAYOUT));
+    expect(row.some((s) => s.type === 'usage-page')).toBe(false);
+    expect(row.map((s) => s.usageAgent)).toEqual(['claude', 'claude', 'codex', 'codex', 'zai']);
+    expect(row[4]).toMatchObject({ usageZaiCycle: true });
+    expect(row[4].usageZai?.map((g) => g.label)).toEqual(['5H', 'MCP']);
+    // A press cycles both → 5H → MCP → both.
+    expect(manager.handleSlotPress(14, SD_CLASSIC_LAYOUT)).toMatchObject({ action: 'cycle-zai-mode' });
+    const shown = () => manager.getSlotConfig(14, SD_CLASSIC_LAYOUT).usageZai?.map((g) => g.label);
+    expect(manager.cycleZaiMode(SD_CLASSIC_LAYOUT)).toBe('first');
+    expect(shown()).toEqual(['5H']);
+    expect(manager.cycleZaiMode(SD_CLASSIC_LAYOUT)).toBe('second');
+    expect(shown()).toEqual(['MCP']);
+    expect(manager.cycleZaiMode(SD_CLASSIC_LAYOUT)).toBe('both');
+    expect(shown()).toEqual(['5H', 'MCP']);
+  });
+
+  it('keeps one z.ai window per key when the row has room', () => {
+    const manager = new SessionSlotManager();
+    manager.updateUsage({ fiveHourPercent: 22, sevenDayPercent: 46,
+      zaiRateLimits: { primary: { usedPercent: 36, windowMinutes: 300 }, secondary: { usedPercent: 42, windowMinutes: 1440, quantity: 'mcp' } },
+    });
+    const row = [11, 12, 13, 14].map((i) => manager.getSlotConfig(i, SD_CLASSIC_LAYOUT));
+    expect(row.map((s) => s.usageLabel)).toEqual(['5H', '7D', '5H', 'MCP']);
+    expect(row.some((s) => s.usageZaiCycle)).toBe(false);
+  });
+
+  it('pages only when the row still overflows after folding, and recovers when the usage set shrinks', () => {
+    // Stream Deck Neo: four keys per row, three of them free for usage.
+    const NEO: DeckLayout = { columns: 4, rows: 2, keyCount: 8, family: 'streamdeckneo' };
     const manager = new SessionSlotManager();
     manager.updateUsage({ fiveHourPercent: 22, sevenDayPercent: 46,
       codexRateLimits: { primary: { usedPercent: 30, windowMinutes: 300 }, secondary: { usedPercent: 12, windowMinutes: 10080 } },
       zaiRateLimits: { primary: { usedPercent: 36, windowMinutes: 300 }, secondary: { usedPercent: 42, windowMinutes: 10080 } },
     });
-    expect(manager.getSlotConfig(14, SD_CLASSIC_LAYOUT)).toMatchObject({ type: 'usage-page', label: '1/2' });
-    manager.cycleUsagePage(SD_CLASSIC_LAYOUT);
-    expect(manager.getSlotConfig(14, SD_CLASSIC_LAYOUT)).toMatchObject({ type: 'usage-page', label: '2/2' });
-    manager.updateUsage({ fiveHourPercent: 22, sevenDayPercent: 46, codexRateLimits: { primary: { usedPercent: 30, windowMinutes: 300 }, secondary: { usedPercent: 12, windowMinutes: 10080 } }, zaiRateLimits: {} });
-    expect(manager.getSlotConfig(11, SD_CLASSIC_LAYOUT)).toMatchObject({ type: 'usage', usageAgent: 'claude' });
+    expect(manager.getSlotConfig(7, NEO)).toMatchObject({ type: 'usage-page', label: '1/2' });
+    manager.cycleUsagePage(NEO);
+    expect(manager.getSlotConfig(7, NEO)).toMatchObject({ type: 'usage-page', label: '2/2' });
+    manager.updateUsage({ fiveHourPercent: 22, sevenDayPercent: 46, codexRateLimits: {}, zaiRateLimits: {} });
+    expect(manager.getSlotConfig(6, NEO)).toMatchObject({ type: 'usage', usageAgent: 'claude' });
   });
 
   it('shares the weekly key with Fable even when there is spare capacity', () => {

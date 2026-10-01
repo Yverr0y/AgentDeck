@@ -24,7 +24,7 @@
 // against; `scripts/check-preview-mirror-sync.mjs` verifies they match the
 // current `git hash-object` of each file and fails CI when the origin drifts
 // ahead of this mirror. Update them whenever you re-port.
-// SYNC-HASH shared/src/d200h-layout.ts 0d83e5ef834d0bfe5373f6ad150da2596c0fa8d3
+// SYNC-HASH shared/src/d200h-layout.ts 7f5dc168d8a976c727953ad7471ba635c4a377db
 // SYNC-HASH shared/src/session-utils.ts 98fc5e85f9d92f3180466111b7e16d7c01862bf7
 //
 // INTENTIONALLY OMITTED (not needed by a read-only preview):
@@ -879,16 +879,17 @@ public enum D200HLayoutModel {
         if spendingTile != nil && lunaTile != nil && baseCount + 1 > budget { lunaTile = nil }
         let logicalCount = baseCount + (lunaTile == nil ? 0 : 1)
         let compactCodex = logicalCount > budget && codexPair.count == 2
-        let stillOverflows = logicalCount - (compactCodex ? 1 : 0) > budget
+        let afterCodex = logicalCount - (compactCodex ? 1 : 0)
+        // z.ai folds next, ahead of Claude (TS: Claude's 5H is the reading a
+        // user glances at; the folded z.ai key cycles 5H + MCP / 5H / MCP on
+        // the device — the preview shows its default "both" view).
+        let compactZai = afterCodex > budget && zaiPair.count == 2
+        let afterZai = afterCodex - (compactZai ? 1 : 0)
         let pairScopedWith7D = pairedWeekly
-        let compactClaude = stillOverflows && !pairScopedWith7D && claudePair.count == 2
-        // Third step of the same cascade (TS #348): with all three providers
-        // live the strip is six readings on three keys and z.ai compacts to a
-        // pair tile too — nothing dropped.
-        let afterClaude = logicalCount - (compactCodex ? 1 : 0) - (compactClaude ? 1 : 0)
-        let compactZai = afterClaude > budget && zaiPair.count == 2
+        let compactClaude = afterZai > budget && !pairScopedWith7D && claudePair.count == 2
+        let afterClaude = afterZai - (compactClaude ? 1 : 0)
         let compactAllClaude = scopedPair != nil && !claudePair.isEmpty
-            && afterClaude - (compactZai ? 1 : 0) > budget
+            && afterClaude > budget
         func cells(_ agent: String, _ tiles: [(D200HSlotKind, String, String)], _ pair: [D200HUsagePairWindow], compact: Bool) -> [(D200HSlotKind, String, String)] {
             compact ? [(.usagePair(agent: agent, windows: pair), pair.map(\.label).joined(separator: " · "), agent)] : tiles
         }

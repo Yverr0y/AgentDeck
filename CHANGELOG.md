@@ -54,6 +54,10 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
   Luna reserve stays beside it; a single-reading surface shows credits first.
 - Stream Deck / D200H: the Luna tile's `100% LEFT` no longer clips its final
   letter; `LEFT` is set smaller than the number.
+- Stream Deck / D200H: when the usage row is crowded, z.ai's 5H and MCP windows
+  share one key. Each press switches it between both readings, 5H only and MCP
+  only, the same way the Claude weekly key switches with its per-model cap. A
+  row with room still gives each window its own key.
 
 ## 2026-09-28 — npm 1.6.0 · Apple 1.6.0 · ESP32 1.6.0 · Stream Deck 1.6.0 · Ulanzi 1.6.0
 
