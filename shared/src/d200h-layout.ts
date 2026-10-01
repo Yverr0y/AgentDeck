@@ -1,4 +1,5 @@
 import { claudeWeeklyReadings, type ClaudeWeeklyMode } from './claude-weekly-view.js';
+import { zaiPairReadings, type ZaiPairMode } from './zai-pair-view.js';
 import { usageColor } from './usage-severity.js';
 import { selectedLunaReserve, selectedCodexCredits, formatCreditBalance } from './usage-presentation.js';
 import type { SelectedCodexCredits } from './usage-presentation.js';
@@ -541,7 +542,7 @@ export function renderCreditsTile(data: { limitId?: string; balance?: string; un
  * button space hosts usage efficiently, one window per key instead of
  * compacted pairs).
  */
-function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.length, weeklyMode: ClaudeWeeklyMode = 'both'): SessionDeckCell[] {
+function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.length, weeklyMode: ClaudeWeeklyMode = 'both', zaiMode: ZaiPairMode = 'both'): SessionDeckCell[] {
   const action: DeckAction = { kind: 'command', command: { type: 'query_usage' } };
   const known = state.usageKnown !== false;
   const claudeWindows: UsageTankData[] = [];
@@ -625,7 +626,12 @@ function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.
   const logicalCount = baseCount + (lunaTile ? 1 : 0);
   const compactCodex = logicalCount > budget && codexWindowData.length === 2;
   const afterCodex = logicalCount - (compactCodex ? 1 : 0);
-  const stillOverflows = afterCodex > budget;
+  // z.ai folds next, ahead of Claude: Claude's 5H is the reading a user
+  // glances at mid-session, while z.ai's 5H and MCP quota read fine on one
+  // key whose press cycles both → 5H → MCP (like the weekly key below).
+  const compactZai = afterCodex > budget && zaiWindowData.length === 2;
+  const afterZai = afterCodex - (compactZai ? 1 : 0);
+  const stillOverflows = afterZai > budget;
   // Weekly readings always share one key. 5H is the
   // window that actually moves during a session — it is the reading a user
   // glances at — while 7D and the per-model weekly cap are both weekly and are
@@ -636,12 +642,11 @@ function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.
   // Third step of the same cascade: with all three providers live the strip is
   // 6 logical readings on 3 keys, and every provider compacts to one pair tile
   // — nothing is dropped, each key keeps one provider's two windows.
-  const afterClaude = afterCodex - (compactClaude ? 1 : 0);
-  const compactZai = afterClaude > budget && zaiWindowData.length === 2;
+  const afterClaude = afterZai - (compactClaude ? 1 : 0);
   // Seven readings (Claude + its scoped cap, Codex, z.ai) need one
   // three-row Claude tile at the tightest budget; never truncate a provider.
   const compactAllClaude = scopedTank != null && claudeWindows.length > 0
-    && afterClaude - (compactZai ? 1 : 0) > budget;
+    && afterClaude > budget;
   const cellsFor = (agent: 'claude' | 'codex' | 'zai', windows: UsageTankData[], compact: boolean): SessionDeckCell[] => {
     if (compact && windows.length === 2) {
       return [{ svg: renderUsagePairGauge(agent, [windows[0], windows[1]]), action }];
@@ -671,7 +676,15 @@ function buildUsageTiles(state: DashState, budget: number = USAGE_PREFERRED_POS.
     if (selectedWeekly.length) tiles.push(renderReadings(selectedWeekly, weeklyAction));
   }
   tiles.push(...cellsFor('codex', codexWindowData, compactCodex));
-  tiles.push(...cellsFor('zai', zaiWindowData, compactZai));
+  if (compactZai) {
+    const readings = zaiPairReadings(zaiWindowData[0], zaiWindowData[1], zaiMode);
+    tiles.push({
+      svg: readings.length === 2 ? renderUsagePairGauge('zai', [readings[0], readings[1]]) : renderUsageGauge(readings[0]),
+      action: { kind: 'zai-mode' },
+    });
+  } else {
+    tiles.push(...cellsFor('zai', zaiWindowData, false));
+  }
   if (spendingTile) tiles.push(spendingTile);
   if (lunaTile) tiles.push(lunaTile);
   if (creditsTile) tiles.push(creditsTile);
@@ -864,6 +877,7 @@ export type DeckAction =
   | { kind: 'open'; sessionId: string }   // enter detail (+ focus_session)
   | { kind: 'back' }                      // return to list
   | { kind: 'weekly-mode' }              // cycle 7D + scoped / 7D / scoped
+  | { kind: 'zai-mode' }                 // cycle z.ai 5H + MCP / 5H / MCP
   | { kind: 'page'; delta: number }       // paginate current view
   | { kind: 'command'; command: ButtonCommand }
   | { kind: 'launch' }                    // daemon down → open the companion app locally
@@ -893,6 +907,8 @@ export interface DeckView {
    */
   showUsage?: boolean;
   claudeWeeklyMode?: ClaudeWeeklyMode;
+  /** Which z.ai reading a folded z.ai key shows (`buildUsageTiles`). */
+  zaiPairMode?: ZaiPairMode;
 }
 
 /** Row-major position order ("0_0","1_0",…,"4_2"). */
@@ -1065,7 +1081,7 @@ function buildList(
     // window per key instead of compacted pairs. The growth never takes a key
     // from a session — `spare` is computed AFTER the roster, and when sessions
     // overflow there is no spare by construction.
-    const stripTiles = buildUsageTiles(state, undefined, view.claudeWeeklyMode);
+    const stripTiles = buildUsageTiles(state, undefined, view.claudeWeeklyMode, view.zaiPairMode);
     const maxReserve = Math.max(0, slots.length - 1);
     const preferred = sortPositions(USAGE_PREFERRED_POS.filter((p) => slots.includes(p)));
     const stripCount = Math.min(stripTiles.length, USAGE_PREFERRED_POS.length, maxReserve);
@@ -1074,7 +1090,7 @@ function buildList(
     const budget = spare > 0
       ? Math.min(stripTiles.length + spare, maxReserve)
       : USAGE_PREFERRED_POS.length;
-    const usageTiles = spare > 0 ? buildUsageTiles(state, budget, view.claudeWeeklyMode) : stripTiles;
+    const usageTiles = spare > 0 ? buildUsageTiles(state, budget, view.claudeWeeklyMode, view.zaiPairMode) : stripTiles;
     const reserveCount = Math.min(usageTiles.length, budget, maxReserve);
     // Fill the strip from its RIGHT end so a missing tile frees the LEFTMOST key
     // (which flows back to sessions) and the gauges stay flush against the clock
