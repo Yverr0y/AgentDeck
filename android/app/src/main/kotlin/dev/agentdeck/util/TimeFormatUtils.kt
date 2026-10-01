@@ -214,7 +214,7 @@ fun codexCreditBalance(credits: CodexCredits?): Double {
     if (credits == null) return -1.0
     if (credits.unlimited == true) return Double.POSITIVE_INFINITY
     if (credits.hasCredits == false) return 0.0
-    val n = credits.balance?.takeIf { it.isNotEmpty() }?.toDoubleOrNull() ?: return -1.0
+    val n = credits.balance?.trim()?.takeIf { it.isNotEmpty() }?.toDoubleOrNull() ?: return -1.0
     return if (n.isFinite()) n else -1.0
 }
 
@@ -238,8 +238,8 @@ fun activeCodexCredits(limits: CodexRateLimits?, nowMs: Long = System.currentTim
     // The LATEST exhausted reset: credits are spent until every exhausted
     // window is back, so the earlier reset would promise relief too soon.
     val regularResetsAt = listOfNotNull(limits.primary, limits.secondary)
-        .filter { live(it) >= 100 && it.resetsAt != null }
-        .maxByOrNull { epoch(it.resetsAt) ?: Long.MIN_VALUE }
+        .filter { live(it) >= 100 && epoch(it.resetsAt) != null }
+        .maxByOrNull { epoch(it.resetsAt)!! }
         ?.resetsAt
     return ActiveCodexCredits(balance, regularResetsAt)
 }

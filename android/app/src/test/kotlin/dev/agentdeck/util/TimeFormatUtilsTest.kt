@@ -308,6 +308,9 @@ class TimeFormatUtilsTest {
         assertEquals(0.0, codexCreditBalance(CodexCredits(hasCredits = false, unlimited = false, balance = "0")), 0.0)
         assertEquals(Double.POSITIVE_INFINITY, codexCreditBalance(CodexCredits(hasCredits = true, unlimited = true)), 0.0)
         assertEquals(-1.0, codexCreditBalance(CodexCredits(hasCredits = true, unlimited = false, balance = "n/a")), 0.0)
+        // Padding is trimmed as on the TS/Swift mirrors; a blank balance is unknown.
+        assertEquals(62500.0, codexCreditBalance(CodexCredits(hasCredits = true, unlimited = false, balance = " 62500 ")), 0.0)
+        assertEquals(-1.0, codexCreditBalance(CodexCredits(hasCredits = true, unlimited = false, balance = "  ")), 0.0)
     }
 
     @Test

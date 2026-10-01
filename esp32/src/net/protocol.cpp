@@ -309,6 +309,7 @@ static void handleUsageUpdate(JsonObject& obj) {
                 const char* text = cr["balance"].as<const char*>();
                 char* end = nullptr;
                 const double v = text ? strtod(text, &end) : 0;
+                if (text && end != text) while (*end == ' ' || *end == '\t') ++end;
                 if (text && end != text && *end == '\0' && std::isfinite(v)) g_state.codexCreditBalance = v;
             } else if (cr["balance"].is<double>()) {
                 const double v = cr["balance"].as<double>();

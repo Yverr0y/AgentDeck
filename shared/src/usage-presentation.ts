@@ -69,7 +69,8 @@ export function codexCreditBalance(credits?: CodexCredits): number {
   if (!credits) return -1;
   if (credits.unlimited === true) return Infinity;
   if (credits.hasCredits === false) return 0;
-  const n = credits.balance == null || credits.balance === '' ? NaN : Number(credits.balance);
+  const text = credits.balance?.trim();
+  const n = text ? Number(text) : NaN;
   return Number.isFinite(n) ? n : -1;
 }
 
@@ -97,7 +98,7 @@ export function selectedCodexCredits(limits?: CodexRateLimits, now = Date.now())
   const secondary = liveCodexPercent(limits?.secondary, now);
   if (!usageCreditsActive(primary, secondary, balance)) return undefined;
   const exhausted = [limits?.primary, limits?.secondary]
-    .filter((w) => w && liveCodexPercent(w, now) >= 100 && w.resetsAt)
+    .filter((w) => w && liveCodexPercent(w, now) >= 100 && w.resetsAt && Number.isFinite(Date.parse(w.resetsAt)))
     .map((w) => w!.resetsAt!)
     .sort((a, b) => Date.parse(b) - Date.parse(a));
   // The LATEST exhausted reset: credits are spent until every exhausted window

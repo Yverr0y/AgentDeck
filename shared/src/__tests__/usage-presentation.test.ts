@@ -48,6 +48,9 @@ describe('shared usage display policy', () => {
       expect(codexCreditBalance({ hasCredits: false, unlimited: false, balance: '0' })).toBe(0);
       expect(codexCreditBalance({ hasCredits: true, unlimited: true })).toBe(Infinity);
       expect(codexCreditBalance({ hasCredits: true, unlimited: false, balance: 'n/a' })).toBe(-1);
+      // Padding is trimmed the same way on every mirror; a blank balance is unknown, not zero.
+      expect(codexCreditBalance({ hasCredits: true, unlimited: false, balance: ' 62500 ' })).toBe(62500);
+      expect(codexCreditBalance({ hasCredits: true, unlimited: false, balance: '  ' })).toBe(-1);
     });
     it('shows credits only while a live window is exhausted and a balance remains', () => {
       const now = Date.parse('2026-10-01T00:00:00Z');
@@ -68,6 +71,15 @@ describe('shared usage display policy', () => {
       const now = Date.parse('2026-10-01T00:00:00Z');
       const out = selectedCodexCredits({
         primary: { usedPercent: 100, windowMinutes: 300, resetsAt: '2026-10-01T03:00:00Z' },
+        secondary: { usedPercent: 100, windowMinutes: 10080, resetsAt: '2026-10-05T00:00:00Z' },
+        credits: { hasCredits: true, unlimited: false, balance: '12' },
+      }, now);
+      expect(out?.regularResetsAt).toBe('2026-10-05T00:00:00Z');
+    });
+    it('ignores an unparseable reset instead of letting it win the sort', () => {
+      const now = Date.parse('2026-10-01T00:00:00Z');
+      const out = selectedCodexCredits({
+        primary: { usedPercent: 100, windowMinutes: 300, resetsAt: 'garbage' },
         secondary: { usedPercent: 100, windowMinutes: 10080, resetsAt: '2026-10-05T00:00:00Z' },
         credits: { hasCredits: true, unlimited: false, balance: '12' },
       }, now);
