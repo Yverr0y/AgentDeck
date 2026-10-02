@@ -450,7 +450,7 @@
     {
       "id": "observed",
       "name": "Agent observation & hooks",
-      "question": "Are Claude, Codex, OpenCode, Kiro and Antigravity sessions seen, attributed and gated correctly from their hooks and transcripts?",
+      "question": "Are Claude, Codex, OpenCode, Kiro, Antigravity and Hermes sessions seen, attributed and gated correctly from their hooks and transcripts?",
       "icon": "◈",
       "match": [
         "hooks/src/__tests__/*.test.ts",
@@ -464,6 +464,7 @@
         "bridge/src/__tests__/codex-rollout-response.test.ts",
         "bridge/src/__tests__/codex-turn-manager.test.ts",
         "bridge/src/__tests__/kiro-*.test.ts",
+        "bridge/src/__tests__/hermes-sessions.test.ts",
         "bridge/src/__tests__/opencode-*.test.ts",
         "bridge/src/__tests__/observed-*.test.ts",
         "bridge/src/__tests__/passive-observer.test.ts",
@@ -623,6 +624,7 @@
         "plugin-ulanzi/src/__tests__/*.test.ts",
         "shared/src/__tests__/svg-renderers/*.test.ts",
         "shared/src/__tests__/brand-assets-contract.test.ts",
+        "shared/src/__tests__/hermes-brand.test.ts",
         "scripts/__tests__/plugin-deployment.test.ts"
       ]
     },

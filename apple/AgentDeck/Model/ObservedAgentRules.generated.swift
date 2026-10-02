@@ -23,6 +23,7 @@ enum ObservedAgentRules {
         "observed:antigravity:",
         "observed:kiro:",
         "observed:kiro-ide:",
+        "observed:hermes:",
     ]
 
     /// Agents whose observed per-tool rows would drown their own prompt and

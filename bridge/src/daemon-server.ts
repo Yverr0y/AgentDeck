@@ -211,6 +211,7 @@ import { CodexOtelTracker, CODEX_OTEL_TRACES_PATH, spanNameSummary } from './cod
 import { HookCodexSessions, buildCodexPermissionQuestion } from './hook-codex-sessions.js';
 import { HubStateDriverTracker, resolveHubFrameIdentity, shapeHubFrame } from './hub-state-identity.js';
 import { CodexAmbientSessions } from './codex-ambient-hooks.js';
+import { HermesSessions } from './hermes-sessions.js';
 import { ObservedTurnWatchdogs } from './observed-turn-watchdogs.js';
 import {
   getApmeInitFailure,
@@ -1242,11 +1243,11 @@ export function enrichGatewayTimelineEntry<T extends { agentType?: string; proje
 export function classifyObservedHookEvent(
   eventName: string,
   mapped: string,
-): { boundary: string; agentType: 'claude-code' | 'codex-cli' | 'opencode' | 'antigravity' | 'kiro-cli' | 'kiro-ide' } {
+): { boundary: string; agentType: 'claude-code' | 'codex-cli' | 'opencode' | 'antigravity' | 'kiro-cli' | 'kiro-ide' | 'hermes' } {
   if (eventName === 'codex_subagent_start' || eventName === 'codex_subagent_stop') {
     return { boundary: eventName, agentType: 'codex-cli' };
   }
-  const prefixed = /^(codex|opencode|antigravity|kiro|kiro_ide)_(agent_spawn|session_start|session_end|user_prompt_submit|tool_start|tool_end|stop|turn_complete|interrupt|notification|permission_request|permission_asked|permission_replied|question_asked|question_replied|question_rejected)$/
+  const prefixed = /^(codex|opencode|antigravity|kiro|kiro_ide|hermes)_(agent_spawn|session_start|session_end|user_prompt_submit|tool_start|tool_end|stop|turn_complete|interrupt|notification|permission_request|permission_asked|permission_replied|question_asked|question_replied|question_rejected)$/
     .exec(eventName);
   if (!prefixed) return { boundary: mapped, agentType: 'claude-code' };
   return {
@@ -1259,6 +1260,7 @@ export function classifyObservedHookEvent(
     agentType: prefixed[1] === 'codex' ? 'codex-cli'
       : prefixed[1] === 'opencode' ? 'opencode'
       : prefixed[1] === 'antigravity' ? 'antigravity'
+      : prefixed[1] === 'hermes' ? 'hermes'
       : prefixed[1] === 'kiro_ide' ? 'kiro-ide'
       : 'kiro-cli',
   };
@@ -1653,6 +1655,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // Codex sessions known only from `codex_*` hooks — the backstop for when the
   // process scan can't see one (lsof timeout, no rollout held open).
   const hookCodexSessions = new HookCodexSessions();
+  const hermesSessions = new HermesSessions();
   // Headless `codex exec` runs folded under the session that launched them —
   // see bridge/src/codex-exec-children.ts. Hooks consult it before any parent
   // pipeline; the observer feeds it from process ancestry on every scan.
@@ -1984,6 +1987,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         status: 'ok', mode: 'daemon', state: snap.state,
+        hermesObserver: 1,
         gateway: gatewayAdapter?.isAlive() ? 'connected' : 'disconnected',
         // A link that keeps reconnecting reads `connected` at every sample.
         // This is the field that says the samples were lying (null = stable).
@@ -3185,6 +3189,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // off. State-machine calls stay Claude-only (`mapped`): observed
         // codex/opencode *state* is owned by the passive observer's turn
         // semantics, not these hooks.
+        // Reject unsupported/stale Hermes events before generic attribution. Older
+        // Hermes callbacks must never invent Claude rows or resurrect a closed chat.
+        if (eventName.startsWith('hermes_') && !hermesSessions.note(eventName, json)) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ received: false }));
+          return;
+        }
         const { boundary, agentType: hookAgentType } = classifyObservedHookEvent(eventName, mapped);
         // A Codex/OpenCode Interrupt is the user's Ctrl+C: the turn ended with
         // no Stop, and the collector must not read it as a normal stop.
@@ -5088,6 +5099,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     }
   }
   hookCodexSessions.onChanged = () => core.maybeBroadcastSessionsList();
+  hermesSessions.onChanged = () => core.maybeBroadcastSessionsList();
   hookOpenCodeSessions.onChanged = () => core.maybeBroadcastSessionsList();
 
   // ===== Gateway adapter lifecycle =====
@@ -5109,9 +5121,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // Claude hooks correct only existing row state/tool before awaiting wins.
     const passive = hookClaudeSessions.applyTo(passiveSessionObserver.collect(sessions));
     const observed = applyAwaitingOverlayToObserved(
-      hookOpenCodeSessions.applyTo(
+      hermesSessions.applyTo(hookOpenCodeSessions.applyTo(
         hookCodexSessions.applyTo(codexOtel.applyTo(passive)),
-      ),
+      )),
     )
       .map((s) => {
         // Steering feedback for observed Claude sessions: devices render

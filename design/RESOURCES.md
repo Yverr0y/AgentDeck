@@ -39,6 +39,9 @@ index. If a location or gate changes, update this file in the same commit.
 | Android LCD aquarium habitat | `assets/terrarium/aquarium-habitat.blend` | `assets/terrarium/export-habitat.py`; manual Blender export and on-device visual review |
 | Native 3D aquarium study / TRMNL plate | `assets/terrarium/living-aquarium.blend` | `export-living-aquarium.py` / `export-paper-aquarium.py` in the same directory; native preview and panel review |
 | Native 3D agent residents | `assets/terrarium/3d-residents.blend`, built from `design/brand/*.svg` | `build-3d-residents.py` + `export-android-residents.py`; Apple import and Android asset tests |
+| Hermes mermaid adaptation | `assets/terrarium/hermes-mermaid.blend` + `build-hermes-mermaid.py` | USDZ for Apple. The GLB export is a build output, not committed (`.gitignore`): rerun the builder to regenerate it. `HermesAquariumTests` verifies import, articulation and lifecycle. Original Nous girl brand geometry stays in `design/brand/hermes.svg`. |
+| Hermes connected character candidate | `build-hermes-character.py` → `assets/terrarium/hermes-character.blend` (build output, not committed; reviewed copy in the `assets-hermes-character-candidate` prerelease) | Editable CC0-topology adaptation, USDZ/GLB and RealityKit import/snapshot tools. Review candidate only; original-face and surface-quality gates remain incomplete in `docs/hermes-agent.md`, #428. |
+| Hermes reconstruction study | `assets/terrarium/reconstruct-hermes.py` + `evaluate-hermes-reconstruction.py` | Pinned TripoSR method comparison only; ignored diagnostic GLB/renders. No app asset replacement. Research and rejection criteria: `docs/hermes-agent.md`, #428. |
 | Published image crops | `docs/media/` | regenerated from `assets/`, never hand-edited |
 | Doc-to-viewer binding | `agentdeck-design-system/catalog.json` | `pnpm design-system:check` |
 | Documentation coverage | `catalog.json` → `coverage.scan` / `coverage.exclusions` | `pnpm design-system:check` — a `docs/*.md` that is neither cataloged nor excluded-with-a-reason fails the build |
@@ -66,7 +69,7 @@ The original six monochrome SVG marks in `design/brand/` come from one upstream 
 `sha512-Inx1TYkjLH6YeHOIHeVW9+OM/xxRnk8TmcQVKquFUDBmE3X9sUuRGt7kALrrDBNNAbrWz7Qq6fAiFj9E9Mmw9Q==`.
 This table used to hold Kiro alone, which read as though Kiro were the one mark
 with a licensing question; the other five were simply undocumented. They stand
-or fall together, and they stand: the path geometry of all six is byte-identical
+or fall together, and they stand: the path geometry of the original six is byte-identical
 to upstream (verified 2026-08-16 against the packed tarball; `kiro.svg` differs
 only by a trailing newline and `antigravity.svg` only by a self-closing `<path/>`).
 
@@ -85,6 +88,16 @@ asked for anything beyond that.
 | opencode | `icons/opencode.svg` | the opencode project |
 | OpenClaw | `icons/openclaw.svg` | the OpenClaw project |
 | z.ai | `https://z-cdn.chatglm.cn/z-ai/static/logo.svg` (captured 2026-09-20; `zai.svg` stores the Z strokes verbatim, mark without the upstream app-icon plate) | Z.ai / Zhipu AI |
+| Hermes Agent / Nous girl | `icons/hermesagent.svg` | Nous Research |
+
+Hermes was verified against the same pinned tarball on 2026-09-30. The
+current upstream desktop brand component and icon generator use the Nous girl
+(`NousResearch/hermes-agent@16c59d0e`, `assets/nous-girl-{black,white}.svg`).
+The CLI also uses a caduceus; the repository's older winged-messenger sprite
+has no confirmed current UI caller. Those are research references, not
+alternative generated masks. Preserve the official face geometry in
+`shared/src/svg-renderers/hermes-brand.ts`; its regression test compares every
+path against `design/brand/hermes.svg`. Native/matrix rollout is tracked in #423.
 
 Re-verify a mark against upstream with:
 

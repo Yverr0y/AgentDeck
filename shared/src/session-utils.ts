@@ -35,7 +35,7 @@ export const OPENCODE_PENDING_REQUEST_LIMIT = 64;
  * `claude-code` as an agent and `observed:claude:` as an id.
  */
 export const OBSERVED_SESSION_AGENT_KEYS = [
-  'claude', 'codex', 'codex-app', 'opencode', 'antigravity', 'kiro', 'kiro-ide',
+  'claude', 'codex', 'codex-app', 'opencode', 'antigravity', 'kiro', 'kiro-ide', 'hermes',
 ] as const;
 
 /** `observed:<key>:` for every key above — the form clients actually match. */

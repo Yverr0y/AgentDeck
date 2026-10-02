@@ -11,6 +11,117 @@ On the Stream Deck keypad and the D200H, z.ai's two windows (5H and the MCP tool
 - **D200H** (`shared/src/d200h-layout.ts` `buildUsageTiles`): the compaction cascade is now Codex → z.ai → Claude → three-row Claude. z.ai used to compact last, after Claude's 5H and 7D had already been merged; Claude's 5H is the reading a user glances at mid-session, so z.ai yields first. The full six-reading three-key strip is unchanged. The macOS D200H preview (`D200HLayoutModel.swift`) mirrors the new order; its SYNC-HASH pin is bumped.
 - **Stream Deck** (`plugin/src/session-slot-manager.ts`): the row used to page as soon as the readings outnumbered the row. Folding z.ai first means six readings now fit a classic 15-key deck's five-key row with no page key. Paging still applies when the row overflows after folding (for example a Neo's three-key row).
 
+## 2026-10-02 — Hermes mermaid: likeness, motion and laptop state cues
+
+### Problem
+
+The bundled Hermes mermaid still read as "not her". In profile her eyes were
+front-projected drawings. The app's sun washed out the painted face and drew
+heavy shadows. She tumbled side-on as she swam, and she did not look like an
+agent. Once she held a laptop, the waiting and error states looked identical
+to idle.
+
+### Solution
+
+The head is rebuilt by measurement in `assets/terrarium/hermes-head/`. The
+pass log is `assets/terrarium/hermes-head/NOTES.md`.
+
+**Model:**
+- 3D eyes are cut into the face (`eyes3d.py`); the cut-out faces are reused
+  as the closed lid.
+- The face is flat-lit: albedo 0.35 plus a texture-coloured glow.
+- The bob is fitted to the sheets, with a flared hem, two-tier flips, the
+  Nous shine band and clasps at both headband ends.
+- The hair is near-neutral black.
+
+**Motion (`HermesSwim`):**
+- She leans into her travel head-first; yaw is capped so she no longer turns
+  side-on.
+- Her head counter-rotates toward the viewer. She floats softly, curls her
+  tail at rest and twirls once when work completes.
+
+**Agent:**
+- She holds a laptop that carries the canonical `design/brand/hermes.svg` as
+  a sticker, and she swims at 1.35× the shared resident size.
+- Waiting turns the laptop round to show an amber `--status-awaiting` screen.
+- Error sags the lid shut with her head bowed.
+- The rig manifest gains two additive controls, `laptop` and
+  `hermes_laptop_lid`.
+
+### Pitfalls
+
+- **RealityKit black pixels.** Single pure 0/0/0 pixels come from sliver
+  triangles (a bevel modifier's narrow strips) or from interpolated normals at
+  lighting terminators. Material settings do not move them. Check the
+  triangles' minimum angle, then try flat shading.
+- **Glow strength in USD.** Blender's USD export drops Emission Strength for a
+  textured emissive. Write it as the `UsdUVTexture` `scale` input after
+  export; RealityKit honours it.
+- **Cues hidden by a prop.** An arm-raise cue went up behind the laptop. Judge
+  state cues on rendered frames, not on pose numbers.
+- **On-device measurement.**
+  - `xctrace --attach` could not find a process that `devicectl` had
+    launched. Use `xctrace record --launch` over USB.
+  - The Game Performance template kept only about 8 s of GPU intervals.
+  - The phone's auto-lock silently fails launches.
+- **Rejected direction.** Longer hair with one big C-curl turned the bob into
+  a shapeless block, and a black curl vanishes against dark water.
+
+### Verification
+
+- HermesAquariumTests pass (10/10, including a waiting-laptop test on the
+  bundled model).
+- `pnpm build`, `typecheck` and `test` pass: 5073 tests.
+- The iOS build passes.
+- On an iPhone 14 Pro Max at thermal state Serious, Hermes held 57-60 fps
+  (frame-interval p99 29 ms).
+
+PR #427.
+
+## 2026-10-01 — Hermes face sheet, rebuilt app mesh and a turnaround-fit tool
+
+### Problem
+
+Every 3D Hermes candidate read as uncanny or "not her", and more than a dozen
+iterations kept moving the target. The face was tuned as numbers inside the
+Blender builder with no approved design to match. The body was built from
+separate tubes and balls that met in visible steps. Each fix to head size, hair
+or jaw was judged by eye against a concept that no view actually pinned down.
+
+### Solution
+
+- The face is designed as a flat 2D sheet first (`assets/terrarium/hermes_face.py`)
+  and approved, then laid onto a head fitted to its outline, unchanged.
+  Features are read off the official mark: heavy lid over a high iris, spiky
+  outer lashes, a hooked nostril stroke and an M-shaped upper lip. Fine brows
+  and a long, nearly straight jaw were added at the user's request.
+- The app mesh (`build-hermes-mermaid.py`, schema-2 contract unchanged) now has:
+  - A white **headset**, not a hairband: a band into the hair, a clasp, earcups
+    hidden.
+  - Hair highlights from lighting, not painted decals.
+  - Bangs formed by the hair shell itself.
+  - One voxel-fused torso/arm/hand surface. An arm owns a vertex only when its
+    source surface is nearer than the torso's.
+  - Low-poly hair with flicked ends.
+- The user then chose to lock the design as a 2D turnaround before any further
+  3D work. `references/hermes-turnaround-brief.md` is the image-generation brief
+  (views, canvas rules, decisions not to regress). `fit-hermes-views.py`
+  measures a model against those views by silhouette IoU per class, plus hair
+  height and width.
+
+### Key design decisions
+
+- Rejected along the way and recorded in `docs/hermes-agent.md`:
+  - An unlit "ink print" rendering: it read as a sticker.
+  - Diamond-faceted body: it read as pieces.
+  - A separate fringe sheet: seams and a visor.
+  - Sharp flick teeth: horns.
+- 3D proportions are now fitted to approved views by measurement, not by eye.
+  The v18 mesh against the older turnaround: hair IoU 0.54 (front), hair height
+  0.47 against 0.54.
+- Image generation is outside Claude's tools; Codex generates the turnaround
+  from the brief.
+
 ## 2026-10-01 — Headless `codex exec` runs become children of their launcher, and Codex runs finally close
 
 A Claude session in another project ran a script that fanned 49 topics out through `xargs -P 4 … codex exec -C <scratchpad>/gen/work/<topic>`. Every job is a real `codex` process holding a rollout and firing the user-global lifecycle hooks, so the Node daemon minted 49 `codex-cli` sessions named after scratchpad directories (`2020s_ai_hw`, `2030s_future_sw`, …) — four live at a time, rotating through every deck — and 49 APME runs. All 49 runs, plus six from 9/29–9/30, were still open 26 hours after their processes exited: Codex has no `SessionEnd` hook, a codex run closed on nothing else, and the abandoned-run reaper skips every run the collector still holds (`isLiveRun`).
@@ -53,6 +164,169 @@ Local rollouts on 2026-09-30 carried the shape this is built for: `plan_type: "p
 ### Not yet verified
 
 PlatformIO firmware builds and `esp32/sim/render.sh` did not run: the package mirror `sin1.contabostorage.com` refused connections. The ESP32 host tests and `-fsyntax-only` checks passed. `design/lint.sh` needs bash 4 or newer and did not run on stock macOS bash.
+
+## 2026-09-30 — Hermes skinned rig and explicit visual evaluation
+
+The Hermes Blender model now has 13 deformation bones for spine, continuous
+body/tail, independently spreading fins and shoulder/elbow/wrist chains. Head,
+pupils, lids, brows, lips and hair have separate rest-relative controls. A single
+numeric pose contract drives both the Swift runtime and Blender review: delayed
+tail waves, asymmetrical work gestures, occasional double blinks and damped gaze.
+The imported RealityKit skeleton is cached per resident; incomplete assets fall
+back instead of silently losing animation. Reduce Motion still freezes poses.
+
+A real USDZ regression caught closed-lid meshes omitted by Blender's hidden-mesh
+export. They are now exported, then hidden/activated by the native rig. Tests
+check real skeleton motion, independent clones, repeated-pose stability, visible
+closed lids, gaze bounds, scene pause/resume and session removal. Native targeted
+coverage passed: 9 Hermes tests plus 30 existing terrarium tests (39 total).
+
+Visual evaluation is separate and **failed**. Fixed front/portrait/profile views
+at 640 px and 96 px are compared against the official Nous girl and selected
+concept. Eye proportions, band width, nose contour, torso length and tail rest
+curve were adjusted, but hair masses/seams, doll-like expression, side-on fin
+volume still need redesign. The initially hidden waiting hand was brought
+forward to the cheek; arbitrary-view clearance remains unverified. Generated concepts
+are not presented as implemented geometry. `docs/hermes-agent.md` records these
+findings; reproducible views come from `evaluate-hermes-model.py`. Local review
+images and HTML stay under ignored `diagnostics/hermes-mermaid/`.
+
+The PR remains Draft, not visually approved. Native intake/device integration
+and physical-device verification remain open in #425. No real delegation or
+successful collaboration is inferred from cosmetic peer interactions.
+
+Latest steering strengthens identity preservation: original head accessory,
+bob/fringe, expression and face shape must be retained, with only the mermaid
+body extended. A new concept reference was generated and its wrongly forked
+accessory tip corrected in a second pass. It is labeled concept-only; source
+contour fidelity and mesh implementation remain open. iOS Simulator Debug and
+macOS Release builds passed, as did the local ad-hoc-signed Release App Store
+invariant check. The final rig was captured for 24 seconds in the actual iPad
+Simulator using a deterministic local fixture.
+
+The user then identified the concept's paddle-like arms as unnatural. A focused
+built-in image edit (`hermes-mermaid-arms-v4.png`) preserves the head appearance
+and adds shoulder connections, elbow bends, wrists and asymmetric hand poses.
+The hand detail is an authoring reference to simplify at dashboard scale. This
+iteration changes concept references only, not the USDZ or runtime animation.
+
+## 2026-09-30 — #423: Hermes observer preview and upstream identity research
+
+Hermes integration starts as explicit Node-daemon observation: the Python plugin
+exports bounded turn/tool lifecycle events without changing agent behavior.
+`on_session_end` closes a run, not the conversation; finalize/reset closes the
+identity. Profile + session hashing separates conversations, delegated children
+stay out of the top-level deck, and unknown receiver versions are refused.
+
+Visual identity was checked against the official icon generator, desktop
+BrandMark, CLI caduceus and repository messenger sprite. Shared deck rendering
+uses the unchanged Nous girl geometry from the existing pinned Lobe Icons
+package. Invented creatures are excluded. Native terrarium/firmware coverage
+and live CLI/gateway capture remain review gates under #423; see
+[Hermes study](docs/hermes-agent.md).
+
+## 2026-09-30 — Hermes production modeling research and rejected reconstruction studies
+
+Researched Blender deformation topology, relative facial shapes, export limits,
+CC0 base meshes and image-to-3D tooling. The required production sequence now
+starts with a faithful neutral head sculpt before body rigging and motion.
+Detailed evidence and constraints are consolidated in `docs/hermes-agent.md`;
+[#428](https://github.com/puritysb/AgentDeck/issues/428) tracks acceptance.
+
+A CC0 topology experiment was rejected for generic facial identity, folded band,
+jagged material boundaries and collapsing forearms. A separate local TripoSR
+run produced actual 37,036-vertex / 73,960-triangle geometry on Apple M4 MPS:
+24.69 seconds initially and 16.46 seconds in the pinned reproduction. Four mesh
+views at 640 and 96 px fail face/accessory fidelity and surface quality. It is
+unrigged, has no expression shapes and is not watertight. Neither experiment
+replaces the app's USDZ or GLB, nor is either presented as visually approved.
+
+The repo retains a single-character reconstruction input, its exact built-in
+image-generation prompts, a pinned inference wrapper and a Blender mesh-view
+renderer. Generated geometry, comparison pages and isolated dependencies stay
+in ignored diagnostics. Hunyuan3D was not executed because its license excludes
+South Korea. Meshy/Tripo cloud generation was not invoked. No native runtime
+changes, deployment or merge; #427 remains Draft pending visual acceptance.
+
+## 2026-09-30 — Hermes Nous girl mermaid and native motion
+
+The user's aquarium direction is a cute mermaid derived from the Nous girl
+portrait. Added a Blender authoring source, reproducible mesh/export script,
+Apple USDZ, and portable GLB. A continuous bob shell, blunt fringe, portrait curl,
+large eyes and broad two-lobed fin replace the rejected sphere-assembled model.
+The compact official Hermes mark remains unchanged in deck and Apple rows.
+
+Apple's 3D aquarium now projects observed Hermes sessions separately, retains
+focus and active-child counts, and removes departed residents. A deterministic
+velocity-based controller drives bounded three-dimensional travel, banking,
+lagged tail/fin strokes, blinking, waiting gestures and settling after work.
+Working motion follows observed processing; proximity-based greetings and
+neighbour responses are cosmetic and never imply task delegation. The standard
+Canvas renderer also shows a selectable Hermes mermaid. Reduced Motion freezes
+motion and preserves live labels.
+
+Visual review uses a Blender rendering of the actual mesh and motion values
+sampled from the app's `HermesSwim` controller. The generated turnaround is an
+authoring reference, not the delivered model. No runtime model download,
+subprocess, or new prompt-routing capability is added.
+
+Native observer intake, Android renderer wiring, matrix glyphs and real Hermes
+CLI/gateway conversation verification remain in #425/#426. This is native Apple
+rendering for the Node observer preview, not whole-product Hermes support.
+
+Validation: 37 native tests passed (7 Hermes and 30 existing terrarium tests),
+iOS Simulator Debug and macOS Release builds passed, and the local Release
+artifact passed `verify-appstore-archive.sh` after ad-hoc signing with the
+project's entitlements. This is an invariant check, not distribution signing or
+a store submission. Documentation and design-system checks passed. Visual
+acceptance and physical-device verification are still pending.
+
+## 2026-09-30 — Hermes app review and first live CLI capture
+
+The iPad Simulator ran the actual Apple 3D aquarium with deterministic Hermes,
+Claude, Codex and OpenCode state fixtures. The user rejected the runtime
+mermaid's face and proportions; the model is not visually accepted. Two new
+concept sheets were generated, with the latest following the user's explicit
+request to keep the original Nous girl face. They remain authoring references,
+not replacements for the current USDZ. Further mesh work must be checked
+against the reference in the actual app before visual acceptance.
+
+An isolated Node daemon received one real Hermes CLI turn using the installed
+upstream commit `6d42313deee63b13dbf2f262d9a31cf603d3f1bc` and configured
+`zai` / `glm-5.3` provider. Start, prompt, two terminal tool pairs, one Stop and
+finalization were observed. The final response and two tool calls reached APME
+with the correct model/provider and Stop boundary. A sanitized captured fixture
+now tests replay; gateway, multi-turn/reset/cancel and shutdown guarantees remain
+open in #426.
+
+The observer now honors the existing `AGENTDECK_DATA_DIR` override, allowing a
+throwaway receiver without changing the production daemon registry. An explicit
+missing registry never falls back to another daemon. Ten focused Vitest tests
+passed, including the Python transport suite's 14 cases. The app review used
+fixtures; it is distinct from the separate live CLI/Node capture.
+
+## 2026-09-30 — Hermes connected character candidate and native visual checks
+
+Rebuilt a separate editable Blender candidate from the credited CC0 Blender
+Studio topology. Corrected neck flare, irregular tail-ring winding, arm/hand
+weight assignment, source-measured joint positions and the fitted garment's
+armpit boundary. Added an independent crown accessory, eye-surface lids with
+middle-blink corrections and lower-hair deformation. The candidate exports
+13 bones and 11 relative shape names with neutral defaults.
+
+Actual Blender and standalone RealityKit renders exposed defects that a
+successful export missed, including a floating band edge and a blink that
+pulled the forehead into the eye socket. Replaced that facial deformation with
+separate upper/lower lid surfaces. Builder/evaluator gates cover monotonic
+rings, hand-vs-tail weights, normalized skin weights and zero defaults; a
+RealityKit CLI checks import, clone isolation, repeated weights and Y-up bounds.
+
+The original facial likeness, thick bob/side locks, lid margins and surface
+joins remain incomplete. Technical checks do not claim aesthetic acceptance.
+The candidate and review commands are tracked under assets/terrarium; renders,
+geometry counts and native captures remain in ignored diagnostics. The current
+app resource and runtime are unchanged, so prior app tests apply to the earlier
+rig only. #428 and Draft PR #427 remain open for visual and integration work.
 
 ## 2026-09-29 — "What we verify" stops calling non-required checks blocking
 
