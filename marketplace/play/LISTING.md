@@ -8,6 +8,19 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Nothing in the app changes between them.
 
+## 1.7.0 — production submitted (2026-10-04)
+
+Uploaded the signed **24 (1.7.0)** AAB and submitted a full production rollout.
+Publishing overview now shows **Changes in review**, initially running quick
+checks. Managed publishing is disabled. The three-language release copy is
+saved in [1.7.0/release-notes.json](1.7.0/release-notes.json). Existing gallery
+assets were retained; the older pre-release Crema captures were not uploaded.
+The console showed one non-blocking native-debug-symbol warning.
+
+The signed APK is already available in the
+[Android GitHub Release](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.7.0).
+Google Play's last verified public version remains 1.6.1 (23).
+
 ## 1.6.1 public — delivery readback (2026-10-03)
 
 The public listing serves 1.6.1. Play Console's publishing overview has no pending
