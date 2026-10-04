@@ -8,6 +8,19 @@
 > and `1.0.2` (2026-07-28).
 > This file stays the source of the listing copy and asset inventory for future revisions.
 
+## 1.7.0 — submitted for review (2026-10-04)
+
+Uploaded the exact package from successful
+[Stream Deck release CI](https://github.com/puritysb/AgentDeck/actions/runs/37164391977),
+source `2ee27840`, package version **1.7.0.0**, SDK 3 and DRM enabled.
+Maker Console shows **Pending review · 1.7**. Automatic publication is off;
+the processed-package encoder review loop remains required before publication.
+Published 1.6 remains available, and the unrelated old 1.4 Ready to publish entry
+was left untouched.
+
+Release notes describe Hermes read-only sessions, Codex credits, compact z.ai
+cards, Luna labels and persistence of manually selected usage providers.
+
 ## 1.6 published and public (2026-10-03)
 
 Maker Console showed **Ready to publish · 1.6**. The processed-package checks

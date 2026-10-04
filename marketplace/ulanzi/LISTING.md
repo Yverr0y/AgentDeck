@@ -10,6 +10,19 @@ content-record mismatch reported in the original support thread with the
 reproduction URL and AgentDeck UUID/category. **Resolved:** the published record
 is `/contentView/1141` and resolves to AgentDeck.
 
+## 1.7.0 — submitted for review (2026-10-04)
+
+Created a new review version from published 1.6.0. The first submission was
+interrupted by session expiry; after signing in again, one review record was
+created and verified under **Works under review (1)**. All seven saved locale
+pairs match [1.7.0/listing-locales.json](1.7.0/listing-locales.json). The uploader
+replaced locale copy and selected unsupported devices; the final saved review
+has D200/D200H/D200X selected and **Dial/AU05 excluded**. Hermes is explicitly
+read-only. The existing banner and regenerated equivalent cover are retained.
+
+Source `2ee27840`; tag `ulanzi-v1.7.0` was pushed after submission. The public
+listing remains last verified at 1.6.0; review submission is not publication.
+
 ## 1.6.0 public — listing verification (2026-10-03)
 
 The signed-in published-work record and the normal public listing at
