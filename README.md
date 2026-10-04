@@ -308,15 +308,13 @@ advance independently; you do not need to update every device together.
 | Ulanzi D200H / D200X LCD keys | [Ulanzi Marketplace](https://ugc.ulanzistudio.com/contentView/1141); D200X encoders are not supported | `ulanzi-v*` |
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
 
-**Store status, 2026-10-03:** Apple iOS and macOS 1.6.0 (7501), Google Play
-1.6.1 (23), Elgato 1.6 and Ulanzi 1.6.0 are public. Elgato 1.6 was published
-from Maker Console and verified on the public Marketplace today; Ulanzi's
-public listing also reports 1.6.0. All four npm packages serve 1.6.0, and ESP32
-1.6.0 firmware assets are available on GitHub. Apple 1.7.0 has uploaded candidates
-but has not been submitted for review. See [delivery tracking](https://github.com/puritysb/AgentDeck/issues/414)
-for the remaining Play screenshot comparison and the
-[release readback](docs/devlog/entries/2026-10-03-platform-release-readback.md)
-for the next release's verification conditions.
+**Store status, 2026-10-04:** Apple iOS and macOS 1.7.0 (7701) are waiting
+for review, submitted separately at 08:53 and 08:54 KST. Public versions remain
+Apple 1.6.0 (7501), Google Play 1.6.1 (23), Elgato 1.6 and Ulanzi 1.6.0.
+All four npm packages serve 1.6.0; ESP32 1.6.0 assets are on GitHub. The other
+platforms' 1.7.0 candidates are in preparation, not yet delivered. See the
+[submission receipt](docs/devlog/entries/2026-10-04-platform-release-preparation.md)
+and [previous public readback](docs/devlog/entries/2026-10-03-platform-release-readback.md).
 
 Mobile apps and hardware are companion surfaces: keep a daemon running on your
 computer. Supported ESP32 boards offer Wi-Fi OTA after the first USB flash;
