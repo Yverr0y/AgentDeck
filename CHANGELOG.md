@@ -45,7 +45,7 @@ file's own rule forbids reconstructing its notes. The commit above is the
 record. `npm 1.0.16` (`37c674b8`) is a different case and needs nothing — it was
 bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
-## Unreleased
+## 2026-10-04 — npm 1.7.0, Android 1.7.0, ESP32 1.7.0, Stream Deck 1.7.0, Ulanzi 1.7.0
 
 - ESP32 WiFi OTA reaches boards the daemon is driving over USB. Those boards
   turn their WiFi radio off while serial is active, so `agentdeck esp32-ota`
@@ -84,6 +84,16 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
   share one key. Each press switches it between both readings, 5H only and MCP
   only, the same way the Claude weekly key switches with its per-model cap. A
   row with room still gives each window its own key.
+
+- Stream Deck remembers an explicitly selected usage provider across temporary
+  missing data and reconnects, including Claude Extra and Codex Credits.
+- Ulanzi connects to a healthy WSL2 daemon on loopback port 9120 even without a
+  Windows daemon registry. Registry ports are checked through bounded health
+  requests instead of treating a Linux PID as a Windows process. Custom ports
+  still use daemon.json; unrelated port scanning is not enabled.
+- Codex POSIX lifecycle hooks send their actual launching PID. Hermes cancelled
+  turns retain their interruption label, Gateway tools retain conversation
+  context, and expired Gateway sessions close their pending evaluation run.
 
 ## 2026-10-03 — Apple 1.7.0
 

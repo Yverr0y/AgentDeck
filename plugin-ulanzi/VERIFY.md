@@ -126,7 +126,10 @@ first thing to check is the encode/push log above, not the socket.
 
 ## Notes
 - The main service auto-discovers the daemon port from `daemon.json` (Node CLI or
-  App Store Swift sandbox), so it works against either daemon.
+  App Store Swift sandbox), validates `/health`, and falls back to loopback 9120
+  when the registry is unavailable (including Windows Studio + WSL2). Registry
+  PIDs do not need to exist in Studio’s process namespace. Custom ports require
+  a registry entry; an explicit `AGENTDECK_DATA_DIR` disables the fallback.
 - `AGENTDECK_DEBUG=1` (set by `pnpm sim`) enables verbose logs.
 - This whole path is dev tooling; nothing here ships in the App Store app.
 
