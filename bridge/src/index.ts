@@ -48,6 +48,7 @@ import {
   findAvailablePort,
   detectTmuxSession,
   resolveDaemonTarget,
+  findDaemonPortAsync,
   deriveRemoteAttachOpts,
   isLoopbackHost,
   type DaemonTarget,
@@ -66,6 +67,7 @@ import {
 } from './modules/index.js';
 import { allModulesOff, type ModuleConfigs } from './modules/types.js';
 import type { HookServer } from './hook-server.js';
+import { createDaemonHookForwarder } from './managed-hook-harness.js';
 import {
   onESP32Message,
   sendWifiProvisionToAll,
@@ -259,6 +261,18 @@ export async function startSession(opts: SessionOptions): Promise<void> {
   adapter.on('event', (evt: AdapterEvent) => {
     if (evt.source === 'hook' && evt.event.startsWith('codex_')) codexHookSeenEarly = true;
   });
+
+  // Another harness's hooks (a Codex run inside this PTY inherits
+  // AGENTDECK_PORT) belong to their own observed session on the local daemon.
+  // Installed before the PTY spawns: hooks arrive the moment it does.
+  const managedHookServer = (adapter as { getHookServer?: () => HookServer }).getHookServer?.();
+  managedHookServer?.setForeignHookForwarder(createDaemonHookForwarder({
+    ownPort: () => port,
+    findDaemonPort: async () => {
+      const daemon = await findDaemonPortAsync();
+      return daemon ? daemon.httpPort ?? daemon.port : null;
+    },
+  }));
 
   // ===== Start adapter (creates HTTP server, spawns process) =====
   try {
