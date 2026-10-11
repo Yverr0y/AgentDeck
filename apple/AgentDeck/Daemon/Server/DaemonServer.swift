@@ -550,6 +550,16 @@ enum CodexRolloutResponseReader {
         (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
     }
 
+    /// A rollout's last `maxBytes` as whole lines, or nil when the file cannot
+    /// be opened — unreadable is "no information", never an empty rollout.
+    static func tailLines(atPath path: String, maxBytes: Int) -> [String]? {
+        let url = URL(fileURLWithPath: path)
+        guard let probe = try? FileHandle(forReadingFrom: url) else { return nil }
+        try? probe.close()
+        return readTail(url, maxBytes: maxBytes)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+    }
+
     private static func readTail(_ url: URL, maxBytes: Int) -> String {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
         defer { try? handle.close() }
@@ -1290,7 +1300,14 @@ final class DaemonServer {
     /// jobs) — the second census axis beside `subagentCensus`. Fed by the hook
     /// pid header + hook payloads, reconciled against `sysctl` every 5 s.
     private let coordinationTracker = CoordinationTracker()
-    private var claudeBackgroundTasks = ClaudeBackgroundTasks()
+    /// Background work every agent keeps running after its turn, keyed by the
+    /// bare session id (shared/src/background-work.ts). Claude, Codex and the
+    /// generic `<agent>_background_*` hooks all feed this one tracker.
+    private var backgroundWork = BackgroundWorkTracker()
+    /// Codex background terminals, read from the rollout after each turn and
+    /// polled while any remain (Codex's hooks carry no task list).
+    private var codexBackgroundTerminals = CodexBackgroundTerminals()
+    private var codexBackgroundPollTask: Task<Void, Never>?
     private let ciWaits = CiWaitTracker()
     private var coordinationTickTask: Task<Void, Never>?
     private var subagentBurstSeq = 0
@@ -5827,6 +5844,14 @@ final class DaemonServer {
             DaemonLogger.shared.debug("Hook", "Codex \(event) already ingested from another hook command; twin dropped")
             return
         }
+        // Generic `<agent>_background_*` hooks (and each agent's session-reset
+        // and child-stop events) feed the shared background-work tracker. The
+        // three background events mean nothing else, so they stop here.
+        if let op = BackgroundWorkHooks.op(event, payload: json),
+           BackgroundWorkHooks.apply(op, to: &backgroundWork, now: Self.backgroundNowMs()) {
+            broadcastSessionsList()
+        }
+        if BackgroundWorkHooks.isEvent(event) { return }
 
         // Hermes has its own small lifecycle (handleHermesHook). It must not
         // enter the generic pipeline below, whose unknown-event fallback mints
@@ -5890,7 +5915,14 @@ final class DaemonServer {
         let backgroundEvent = ["stop": "Stop", "stop_failure": "StopFailure",
             "subagent_stop": "SubagentStop", "notification": "Notification",
             "session_start": "SessionStart", "session_end": "SessionEnd"][event] ?? event
-        if claudeBackgroundTasks.note(backgroundEvent, payload: json) { broadcastSessionsList() }
+        if ClaudeBackgroundTasks.note(backgroundEvent, payload: json, into: &backgroundWork) { broadcastSessionsList() }
+        if event.hasPrefix("codex_") {
+            if codexBackgroundTerminals.note(event, payload: json, io: codexBackgroundIO(),
+                                             work: &backgroundWork, now: Self.backgroundNowMs()) {
+                broadcastSessionsList()
+            }
+            armCodexBackgroundPoll()
+        }
 
         // Child lifecycle is telemetry-only. Consume it before resurrection,
         // state, APME, and steering bookkeeping so a child's tool hooks can
@@ -9138,6 +9170,8 @@ final class DaemonServer {
                 self.recoverAbandonedAwaitingSessions()
                 await self.evictStaleHookSessions()
                 self.settleStaleCodexProcessingSessions()
+                // A lost background finish must not hold a creature working forever.
+                if !self.backgroundWork.reap(now: Self.backgroundNowMs()).isEmpty { self.broadcastSessionsList() }
                 await self.evictStaleClientRegistrations()
             }
         }
@@ -11204,6 +11238,7 @@ final class DaemonServer {
         gatewayHealthTask?.cancel(); usageTickTask?.cancel()
         antigravityPollTask?.cancel()
         initialUsageTask?.cancel()
+        codexBackgroundPollTask?.cancel(); codexBackgroundPollTask = nil
         displayStateResyncTask?.cancel(); displayStateResyncTask = nil
 
         Task { @MainActor in self.voiceAssistant?.stop() }
@@ -11452,10 +11487,77 @@ final class DaemonServer {
             if let risk = badge.risk { d["reviewRisk"] = risk }
             if let findings = badge.findings { d["reviewFindings"] = findings }
         }
-        if s.agentType == "claude-code", s.controlMode == "observed" {
-            return claudeBackgroundTasks.project(ObservedAgentRules.rawSessionId(s.id), session: d)
+        return backgroundWork.project(Self.backgroundWorkKey(s.id), session: d)
+    }
+
+    /// The bare session id every background adapter keys on, whatever row form
+    /// carries it (`observed:<agent>:`, `codex:`, `opencode:`).
+    private static func backgroundWorkKey(_ rowId: String) -> String {
+        let raw = ObservedAgentRules.rawSessionId(rowId)
+        for prefix in ["codex:", openCodeSessionPrefix] where raw.hasPrefix(prefix) {
+            return String(raw.dropFirst(prefix.count))
         }
-        return d
+        return raw
+    }
+
+    private nonisolated static func backgroundNowMs() -> Double { Date().timeIntervalSince1970 * 1000 }
+
+    /// Rollout reads go through the `~/.codex` bookmark when one exists (the
+    /// sandboxed app), falling back to a direct read (unsandboxed builds).
+    private func codexBackgroundIO() -> CodexBackgroundTerminalIO {
+        CodexBackgroundTerminalIO(
+            readTail: { path, bytes in
+                AppPreferences.shared.withCodexDirectoryAccess { _ in
+                    CodexRolloutResponseReader.tailLines(atPath: path, maxBytes: bytes)
+                } ?? CodexRolloutResponseReader.tailLines(atPath: path, maxBytes: bytes)
+            },
+            stat: { path in
+                let read = { () -> String? in
+                    guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                          let size = attrs[.size] as? NSNumber, let modified = attrs[.modificationDate] as? Date else { return nil }
+                    return "\(size.int64Value):\(Int64(modified.timeIntervalSince1970 * 1000))"
+                }
+                return AppPreferences.shared.withCodexDirectoryAccess { _ in read() } ?? read()
+            },
+            locate: { sid in
+                AppPreferences.shared.withCodexDirectoryAccess { dir in
+                    CodexRolloutResponseReader.locateRollout(
+                        sessionId: sid, sessionsRoot: dir.appendingPathComponent("sessions", isDirectory: true))?.path
+                } ?? CodexRolloutResponseReader.locateRollout(sessionId: sid)?.path
+            },
+            isAlive: { pid in
+                // kill(pid, 0) answers EPERM for everything under the App
+                // Sandbox; sysctl KERN_PROC_PID needs no entitlement and
+                // returns an empty record for a pid that no longer exists.
+                guard pid > 0 else { return nil }
+                var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+                var info = kinfo_proc()
+                var size = MemoryLayout<kinfo_proc>.stride
+                guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return nil }
+                if size == 0 { return false }
+                return size == MemoryLayout<kinfo_proc>.stride && Int(info.kp_proc.p_pid) == pid ? true : nil
+            })
+    }
+
+    private func armCodexBackgroundPoll() {
+        guard codexBackgroundPollTask == nil, !codexBackgroundTerminals.watchedSessions.isEmpty else { return }
+        codexBackgroundPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Double(CodexBackgroundTerminals.pollSeconds)))
+                guard let self, !Task.isCancelled else { return }
+                let io = self.codexBackgroundIO()
+                let now = Self.backgroundNowMs()
+                var changed = false
+                for sid in self.codexBackgroundTerminals.watchedSessions {
+                    changed = self.codexBackgroundTerminals.refresh(sid, io: io, work: &self.backgroundWork, now: now) || changed
+                }
+                if changed { self.broadcastSessionsList() }
+                if self.codexBackgroundTerminals.watchedSessions.isEmpty {
+                    self.codexBackgroundPollTask = nil
+                    return
+                }
+            }
+        }
     }
 
     /// Compact "what is this agent doing right now" one-liner — a single shared
