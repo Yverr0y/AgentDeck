@@ -2,59 +2,115 @@ import SwiftUI
 import RealityKit
 
 /// Background tasks drawn as jar buddies: small clay jars with a face, fins
-/// and a tail that swim lazy loops beside their creature like pet fish, one
-/// per running task. While a task runs its lid jiggles and bubbles simmer
-/// from the mouth; a finished task pops its lid with a spin and a sparkle and
-/// the buddy shrinks away where it was. Generic: any creature kind, 2D or 3D,
-/// with a background-task count gets buddies. Shared by the Apple Canvas and
+/// and a tail that orbit their creature the way a moon circles its planet,
+/// one per running task; tasks beyond the three jars ride the same orbit as
+/// tiny pearl moonlets. They share one gently tilted orbit, evenly spaced,
+/// at a constant angular speed: across the front of the creature (larger,
+/// drawn over it) and around the back (smaller, a little faded, hidden behind
+/// it). While a task runs its lid jiggles and bubbles simmer from the mouth;
+/// a finished task pops its lid with a spin and a sparkle and the buddy
+/// shrinks away where it was. Generic: any creature kind, 2D or 3D, with a
+/// background-task count gets buddies. Shared by the Apple Canvas and
 /// RealityKit accents. Buddies are tasks, never extra residents or a second
-/// count of child agents: subagents are wired satellites on a dashed, tilted
-/// ring, while buddies wander free with no ring or wire. Only geometry and
-/// opacity move; nothing pulses in brightness (DESIGN.md §10 rule 4).
+/// count of child agents: subagents are wired satellites on a dashed ring
+/// tilted the other way, while buddies orbit with no ring or wire. Only
+/// geometry and opacity move; nothing pulses in brightness (DESIGN.md §10 rule 4).
 ///
 /// Every offset is in body-radius units relative to the creature centre,
 /// x toward screen right, y up, z toward the viewer.
 enum BackgroundWorkPresentation {
     static let maxBuddies = 3
-    /// Wander and jiggle rate; the phase only advances while motion is allowed.
+    /// Jiggle rate; the phase only advances while motion is allowed.
     static let radiansPerSecond: Float = 0.85
+    /// One full orbit, seconds. The angular speed is constant.
+    static let lapSeconds: Float = 12
     static let finishSeconds: Float = 1.4
     static let bubblesPerFinish = 3
     static let simmerPerBuddy = 2
     /// Belly radius, about a quarter of the creature's height with lid and fins.
     static let buddyRadius: Float = 0.18
-    /// Wander bounds, centre of the buddy: always beside the body (clear of it
-    /// and of the name tag above), never below the feet.
-    static let innerX: Float = 1.4
-    static let lowestY: Float = -0.5
-    static let highestY: Float = 0.25
-    /// How quickly buddies catch up when their creature swims (per second),
-    /// and how quickly a buddy settles into a new lane when space changes.
+    /// The orbit: half-width and half-height as seen (a circle viewed from a
+    /// little above), a slight tilt the opposite way to the subagent ring
+    /// (-0.28), and its centre a touch below the body centre so the far half
+    /// stays under the name tag.
+    static let orbitRadius: Float = 1.62
+    static let orbitHeight: Float = 0.3
+    static let orbitTilt: Float = 0.1
+    static let orbitCenterY: Float = -0.12
+    /// Size and opacity on the far side; the near side is a touch larger and opaque.
+    static let farScale: Float = 0.86
+    static let nearScale: Float = 1.08
+    static let farOpacity: Float = 0.72
+    /// How quickly the orbit catches up when its creature swims (per second),
+    /// and how quickly buddies re-space when the count changes.
     static let followRate: Float = 2.5
     static let settleRate: Float = 3
-    /// A side with no other creature centre this close (body radii) is open water.
-    static let openRoom: Float = 4.5
     /// The name tag above a creature, in body radii: a finish never pops into it.
     static let tagHalfWidth: Float = 1.3
     static let tagBottom: Float = 0.55
     static let tagTop: Float = 1.7
-    /// Closest a buddy centre may come to its owner's centre sideways: the
-    /// body's half width plus the jar and its fins.
+    /// Smallest orbit half-width: the body's half width plus the jar and its fins.
     static let bodyClearance: Float = 1 + buddyRadius * 1.3
-    /// Where buddies hover, above the name tag, when neither side has room.
-    static let stackY: Float = 1.98
+
+    /// Tasks beyond the jars are pearl moonlets: tiny clay beads on the same
+    /// orbit, strung evenly through the gaps between the jars like beads on a
+    /// necklace, one per task up to this cap (12 tasks drawn one to one); the
+    /// label carries any count beyond it.
+    static let maxPearls = 9
+    static let pearlRadius: Float = buddyRadius / 3
+    /// Most finishes in flight at once: one group's jars plus as many pearls.
+    static let maxFinishes = maxBuddies * 2
+
+    /// Smallest legible sizes on screen (points): below these a creature shows
+    /// its task label without pearls, then without jars.
+    static let minJarPoints: Float = 2.6
+    static let minPearlPoints: Float = 1.5
+    static func showsJars(bodyPixels r: Float) -> Bool { buddyRadius * farScale * r >= minJarPoints }
+    static func showsPearls(bodyPixels r: Float) -> Bool { pearlRadius * farScale * r >= minPearlPoints }
+
+    enum Axis { case horizontal, vertical }
+    /// Holds an orbit centre (points) so the whole orbit, jars and their lids
+    /// included, stays on the canvas; a canvas smaller than the orbit centres it.
+    static func onCanvas(_ value: Float, body r: Float, extent: Float, axis: Axis) -> Float {
+        let low: Float, high: Float
+        switch axis {
+        case .horizontal:
+            low = (orbitRadius + buddyRadius * nearScale * 1.4) * r
+            high = low
+        case .vertical:
+            // Screen y grows downward: the far half rises, the near half dips.
+            low = (orbitCenterY + orbitHeight + 0.04 + buddyRadius * 2.2) * r
+            high = (orbitHeight - orbitCenterY + 0.04 + buddyRadius * nearScale * 1.2) * r
+        }
+        guard extent > low + high else { return extent / 2 }
+        return min(max(value, low), extent - high)
+    }
+
+    /// Pearl colours: sand blushed with coral, so a pearl reads warm and solid
+    /// next to the cool, hollow air bubbles. Mixed once from tokens.
+    static let pearlBody = mix(DesignTokens.Tide.s100, DesignTokens.Coral.s500, 0.3)
+    static let pearlShade = mix(DesignTokens.Tide.s300, DesignTokens.Coral.s500, 0.45)
+    private static func mix(_ a: Color, _ b: Color, _ t: Float) -> Color {
+        let env = EnvironmentValues()
+        let x = a.resolve(in: env), y = b.resolve(in: env)
+        return Color(Color.Resolved(red: x.red + (y.red - x.red) * t, green: x.green + (y.green - x.green) * t,
+                                    blue: x.blue + (y.blue - x.blue) * t, opacity: 1))
+    }
 
     static func visibleCount(_ count: Int) -> Int { min(maxBuddies, max(0, count)) }
-    static func overflow(_ count: Int) -> Int { max(0, count - maxBuddies) }
+    static func pearlCount(_ count: Int) -> Int { min(maxPearls, max(0, count - maxBuddies)) }
     static func label(_ count: Int) -> String {
         "\(count) background task" + (count == 1 ? "" : "s")
     }
+    /// Orbit angle for a jiggle phase: constant angular speed, one lap per `lapSeconds`.
+    static func orbitAngle(_ phase: Float) -> Float { phase / radiansPerSecond * 2 * .pi / lapSeconds }
 
-    /// Free water on each side of a creature: the distance (body radii) to the
-    /// nearest other creature centre on that side, within a vertical band.
+    /// Free water around a creature: the distance (body radii) to the nearest
+    /// other creature centre on each side, within a vertical band.
     struct Room: Equatable {
         var left: Float = .infinity
         var right: Float = .infinity
+        var nearest: Float { min(left, right) }
         /// Adds one neighbour at `offset` (body radii, relative to the owner).
         mutating func note(_ offset: SIMD2<Float>, band: Float = 2.5) {
             guard abs(offset.y) < band, abs(offset.x) > 0.01 else { return }
@@ -62,74 +118,108 @@ enum BackgroundWorkPresentation {
         }
     }
 
-    /// Which side buddy `index` keeps to. With open water on both sides they
-    /// alternate, the roomier side first; otherwise the whole group keeps to
-    /// the roomier side, so none swims in among a neighbour's things.
-    static func side(index: Int, room: Room) -> Float {
-        let first: Float = room.right >= room.left ? 1 : -1
-        guard room.left >= openRoom, room.right >= openRoom else { return first }
-        return index % 2 == 0 ? first : -first
+    /// The orbit's half-width for the room around its owner. The orbit is
+    /// centred on its owner, so ownership is never in doubt; with a neighbour
+    /// close by it shrinks (and flattens with it) so buddies stay nearer their
+    /// own creature, down to just clear of the body.
+    static func reach(_ room: Room) -> Float {
+        max(bodyClearance, min(orbitRadius, room.nearest * 0.5 - 0.1))
     }
 
-    /// The lane on one side: where the loop starts and how much of it fits. A
-    /// buddy stays nearer its owner than the neighbour on that side, so in a
-    /// cramped spot the loop shrinks instead of drifting toward the neighbour.
-    /// Returns nil when even the tightest loop beside the body would reach
-    /// halfway to the neighbour: then the group hovers above the tag instead.
-    static func lane(side: Float, room: Room) -> (inner: Float, scale: Float)? {
-        let gap = side > 0 ? room.right : room.left
-        let limit = min(innerX + 0.86, gap * 0.5 - 0.12)
-        guard limit >= bodyClearance + 0.1 else { return nil }
-        let inner = max(bodyClearance, min(innerX, limit - 0.08))
-        return (inner, max(0.08, min(1, (limit - inner - 0.05) / 0.8)))
+    /// Evenly spaced slot `index` of `count`, radians.
+    static func spacing(index: Int, count: Int) -> Float {
+        Float(index) * 2 * .pi / Float(max(1, visibleCount(count)))
+    }
+
+    /// Pearl `index` of `pearls`, as an offset from jar 0: pearls fill the
+    /// gaps between the jars round-robin and spread evenly within each gap.
+    /// Pearls only exist with all jars out, so the gaps are equal.
+    static func pearlSpacing(index: Int, pearls: Int) -> Float {
+        let n = maxBuddies, gap = 2 * Float.pi / Float(n)
+        let g = index % n, slot = index / n
+        let inGap = pearls / n + (g < pearls % n ? 1 : 0)
+        return Float(g) * gap + gap * Float(slot + 1) / Float(max(1, inGap) + 1)
+    }
+
+    /// Under Reduce Motion the orbit holds still with every buddy on the near
+    /// side, spread across the front of the creature.
+    static func stillAngle(index: Int, count: Int) -> Float {
+        let n = Float(max(1, visibleCount(count)))
+        return -.pi / 2 + (Float(index) - (n - 1) / 2) * 0.85
+    }
+
+    /// Pearls under Reduce Motion: strung across the same near arc as the jars.
+    static func stillPearlAngle(index: Int, pearls: Int) -> Float {
+        let p = Float(max(1, pearls))
+        return -.pi / 2 + ((Float(index) + 0.5) / p - 0.5) * 2.2
+    }
+
+    /// The point on the orbit at angle `theta`. sin θ > 0 is the far half
+    /// (behind the creature, z < 0), sin θ < 0 the near half.
+    static func orbit(_ theta: Float, room: Room = Room()) -> SIMD3<Float> {
+        let a = reach(room)
+        let b = orbitHeight * a / orbitRadius
+        let x0 = a * cos(theta), y0 = b * sin(theta)
+        let c = cos(orbitTilt), s = sin(orbitTilt)
+        return SIMD3(x0 * c - y0 * s, orbitCenterY + x0 * s + y0 * c, -a * sin(theta))
     }
 
     struct Buddy: Equatable {
         /// Belly centre.
         var center: SIMD3<Float>
-        /// Belly radius in body radii.
+        /// Belly radius in body radii, depth size included.
         var radius: Float
-        /// +1 swimming toward screen right, -1 toward the left.
+        /// Turn toward the direction of travel: +1 swimming toward screen
+        /// right, -1 toward the left, passing quickly through 0 as it rounds a side.
         var facing: Float
-        /// Lean into the climb or dive, radians.
+        /// Lean along the orbit's slope, radians.
         var tilt: Float
+        /// +1 nearest the viewer, -1 farthest (behind the creature).
+        var depth: Float
+        var opacity: Float
         /// Lid hop above its seat, in buddy radii.
         var lidLift: Float
         /// Fin beat 0…1 and tail swing, radians.
         var fin: Float
         var tail: Float
+        var isBehind: Bool { depth < 0 }
     }
 
-    /// Where buddy `index` is in its loop. Each has its own speed, loop size
-    /// and phase, so the group never moves in step. `index` may run past the
-    /// last visible buddy: that is where a buddy beyond the cap finishes.
-    static func path(index: Int, phase: Float, room: Room = Room()) -> SIMD3<Float> {
-        let i = Float(index)
-        let side = side(index: index, room: room)
-        let t = phase * (0.55 + 0.17 * Float(index % 3)) + i * 2.1
-        guard let (inner, scale) = lane(side: side, room: room) else {
-            // No room beside the body: small bobbing loops in a row above the tag.
-            let x = (Float(index % 3) - 1) * 0.44 + 0.08 * cos(t)
-            return [x, stackY + 0.06 * sin(t) + 0.03 * sin(phase * 3.1 + i), 0.14 + 0.03 * Float(index % 3)]
-        }
-        let reach = (0.28 + 0.06 * Float(index % 3)) * scale
-        let x = side * (inner + reach + reach * cos(t) + 0.05 * scale * sin(t * 2.3 + i))
-        let y = -0.08 + 0.34 * sin(t) + 0.05 * sin(t * 2.3 + i) + 0.03 * sin(phase * 3.1 + i)
-        return [x, max(lowestY, min(highestY, y)), 0.14 + 0.03 * Float(index % 3)]
-    }
-
-    static func buddy(index: Int, phase: Float, room: Room = Room()) -> Buddy {
-        let here = path(index: index, phase: phase, room: room)
-        let ahead = path(index: index, phase: phase + 0.02, room: room)
+    /// Buddy `index` at orbit angle `theta`. `index` only staggers the jiggle,
+    /// fins and tail so buddies never move in step.
+    static func buddy(index: Int, theta: Float, phase: Float, room: Room = Room()) -> Buddy {
+        let here = orbit(theta, room: room)
+        let ahead = orbit(theta + 0.02, room: room)
         let dx = ahead.x - here.x, dy = ahead.y - here.y
-        let facing: Float = dx >= 0 ? 1 : -1
+        let depth = -sin(theta)
+        let near = (depth + 1) / 2
         let i = Float(index)
         // Staggered little hops: the lid sits still most of the time.
         let hop = pow(max(0, sin(phase * 3.4 + i * 2.3)), 6)
-        return Buddy(center: here, radius: buddyRadius, facing: facing,
-                     tilt: max(-0.3, min(0.3, atan2(dy, abs(dx) + 1e-4) * 0.5)) * facing,
+        return Buddy(center: here, radius: buddyRadius * (farScale + (nearScale - farScale) * near),
+                     facing: max(-1, min(1, depth * 4)),
+                     tilt: max(-0.3, min(0.3, atan2(dy, abs(dx) + 1e-4))) * (dx >= 0 ? 1 : -1),
+                     depth: depth, opacity: farOpacity + (1 - farOpacity) * near,
                      lidLift: hop * 0.18,
                      fin: abs(sin(phase * 6 + i)), tail: sin(phase * 7 + i * 1.7) * 0.45)
+    }
+
+    /// A pearl moonlet on the orbit: a tiny bead with no face, sized and
+    /// faded by depth exactly like a jar.
+    struct Pearl: Equatable {
+        var center: SIMD3<Float>
+        var radius: Float
+        var depth: Float
+        var opacity: Float
+        var isBehind: Bool { depth < 0 }
+    }
+
+    static func pearl(theta: Float, room: Room = Room()) -> Pearl {
+        let depth = -sin(theta)
+        let near = (depth + 1) / 2
+        return Pearl(center: orbit(theta, room: room),
+                     radius: pearlRadius * (farScale + (nearScale - farScale) * near),
+                     depth: depth, opacity: farOpacity + (1 - farOpacity) * near)
     }
 
     /// Moves a finish clear of its creature's name tag: a pop rises about
@@ -138,7 +228,7 @@ enum BackgroundWorkPresentation {
         let top = p.y + buddyRadius * 3, bottom = p.y - buddyRadius
         guard abs(p.x) < tagHalfWidth + buddyRadius, top > tagBottom, bottom < tagTop else { return p }
         let side: Float = p.x < 0 ? -1 : 1
-        return [side * (tagHalfWidth + buddyRadius * 1.5), p.y, p.z]
+        return SIMD3(side * (tagHalfWidth + buddyRadius * 1.5), p.y, p.z)
     }
 
     struct Bubble: Equatable {
@@ -148,16 +238,16 @@ enum BackgroundWorkPresentation {
     }
 
     /// The jar mouth, where bubbles leave.
-    static func mouth(_ buddy: Buddy) -> SIMD3<Float> { buddy.center + [0, buddy.radius * 1.35, 0.02] }
+    static func mouth(_ buddy: Buddy) -> SIMD3<Float> { buddy.center + SIMD3(0, buddy.radius * 1.35, 0.02) }
 
     /// Simmer bubble `k` of a running buddy: it rises from the mouth and fades
     /// before the next leaves. `slot` staggers buddies.
     static func simmer(_ buddy: Buddy, slot: Int, k: Int, phase: Float) -> Bubble {
         let raw = phase * 0.45 + Float(slot) * 0.37 + Float(k) * 0.5
         let t = raw - floor(raw)
-        return Bubble(center: mouth(buddy) + [sin(t * 6 + Float(slot)) * 0.03, t * 0.4, 0],
+        return Bubble(center: mouth(buddy) + SIMD3(sin(t * 6 + Float(slot)) * 0.03, t * 0.4, 0),
                       radius: 0.022 + 0.012 * Float(k),
-                      opacity: (1 - t) * 0.8)
+                      opacity: (1 - t) * 0.8 * buddy.opacity)
     }
 
     /// One finished buddy, `age` seconds after its count dropped.
@@ -191,48 +281,77 @@ enum BackgroundWorkPresentation {
         let progress = age / finishSeconds
         let lift = age * (0.7 + 0.25 * Float(k))
         let wobble = sin(age * 5 + Float(k) * 2) * 0.05
-        return Bubble(center: mouth + [wobble + (Float(k) - 1) * 0.07, lift, 0.02],
+        return Bubble(center: mouth + SIMD3(wobble + (Float(k) - 1) * 0.07, lift, 0.02),
                       radius: 0.035 + 0.015 * Float(k % 2) + 0.02 * progress,
                       opacity: 1 - progress)
     }
 }
 
-/// Per-creature buddy memory: the last explicit task count, where the
-/// buddies are following, how much room they have, and the finishes still playing.
+/// Per-creature buddy memory: the last explicit task count, where the orbit
+/// is centred (it lags the creature), each buddy's spacing on the orbit, the
+/// room around the owner and the finishes still playing.
 struct BackgroundBrood: Equatable {
     typealias P = BackgroundWorkPresentation
     /// A finish plays where its buddy was, not with the creature: `base` is the
     /// followed position (caller's coordinates) when the count dropped.
     struct Finish: Equatable {
+        /// The jar that leaves; for a pearl, only its centre, radius, depth
+        /// and opacity matter.
         var buddy: P.Buddy
         var base: SIMD2<Float>
         var age: Float
+        /// A pearl moonlet's finish: a small sparkle pop, no lid or puff.
+        var isPearl = false
     }
     /// Last explicit count from the producer; nil until one arrives.
     private(set) var known: Int?
     private(set) var working = false
     private(set) var finishes: [Finish] = []
-    /// The point the buddies circle: it lags the creature when it swims.
+    /// The orbit centre: it lags the creature when it swims.
     private(set) var follow: SIMD2<Float>?
     /// Free water around the owner, from the last advance.
     private(set) var room = P.Room()
-    /// Each buddy's settled centre: it eases toward its lane, so a change of
-    /// side or a shrinking loop is a swim, never a jump. Sized once.
-    private var settled = [SIMD3<Float>](repeating: .zero, count: P.maxBuddies)
+    /// Reduce Motion: the orbit holds still on the near side.
+    private(set) var still = false
+    /// Each buddy's angular offset on the orbit: it eases toward even spacing
+    /// when the count changes, so buddies glide apart or together. Sized once.
+    /// Fixed-size vectors, not arrays: the per-frame easing never touches the heap.
+    private var offsets = SIMD4<Float>(repeating: 0)
+    /// Each pearl's offset from jar 0, easing the same way.
+    private var pearlOffsets = SIMD16<Float>(repeating: 0)
     private(set) var hasSettled = false
 
     /// Buddies to show: only a working creature has them out.
     var count: Int { working ? known ?? 0 : 0 }
     var isEmpty: Bool { count == 0 && finishes.isEmpty }
 
-    /// Offset of the followed point from the creature, in caller coordinates.
+    /// Offset of the orbit centre from the creature, in caller coordinates.
     func lag(from position: SIMD2<Float>) -> SIMD2<Float> { (follow ?? position) - position }
 
-    /// Buddy `index` as drawn: its pose in the loop, at its settled centre.
+    /// Orbit angle of buddy `index` at `phase`.
+    func angle(index: Int, phase: Float) -> Float {
+        if still { return P.stillAngle(index: index, count: count) }
+        let offset = hasSettled && index < P.maxBuddies ? offsets[index] : P.spacing(index: index, count: count)
+        return P.orbitAngle(phase) + offset
+    }
+
+    /// Buddy `index` as drawn.
     func buddy(index: Int, phase: Float) -> P.Buddy {
-        var pose = P.buddy(index: index, phase: phase, room: room)
-        if hasSettled, index < settled.count { pose.center = settled[index] }
-        return pose
+        P.buddy(index: index, theta: angle(index: index, phase: phase), phase: phase, room: room)
+    }
+
+    /// Pearl moonlets to show: tasks beyond the jars, capped.
+    var pearls: Int { P.pearlCount(count) }
+
+    /// Orbit angle of pearl `index` at `phase`: it turns with the jars.
+    func pearlAngle(index: Int, phase: Float) -> Float {
+        if still { return P.stillPearlAngle(index: index, pearls: pearls) }
+        let offset = hasSettled && index < P.maxPearls ? pearlOffsets[index] : P.pearlSpacing(index: index, pearls: pearls)
+        return P.orbitAngle(phase) + (hasSettled ? offsets[0] : 0) + offset
+    }
+
+    func pearl(index: Int, phase: Float) -> P.Pearl {
+        P.pearl(theta: pearlAngle(index: index, phase: phase), room: room)
     }
 
     /// Records one snapshot. `explicit` is the producer's count; nil means
@@ -254,29 +373,46 @@ struct BackgroundBrood: Equatable {
             known = nil
         }
         working = nowWorking
+        still = !animate
         if !animate { finishes.removeAll(); return }
         guard let now = known, explicit != nil, now < previous, shown > 0, nowWorking || now == 0 else { return }
-        // Only buddies that visibly leave pop, from the end of the group: a
-        // drop that stays above the cap (12 → 11) changes the "+n", not a buddy,
-        // and a task that never had a buddy (4 → 2 with 3 shown) pops nothing.
+        // Only what visibly leaves pops, from the end: pearls go first, the
+        // last pearl with a small sparkle, and jars only once no pearl
+        // remains. A drop that stays above every cap (20 → 19) changes the
+        // label alone.
+        let base = follow ?? position
+        let firstPearl = nowWorking ? P.pearlCount(now) : 0
+        for index in (firstPearl..<P.pearlCount(shown)).reversed() {
+            let theta = P.orbitAngle(phase) + (hasSettled ? offsets[0] + pearlOffsets[index] : P.pearlSpacing(index: index, pearls: P.pearlCount(shown)))
+            let pearl = P.pearl(theta: theta, room: room)
+            var bead = P.buddy(index: index, theta: theta, phase: phase, room: room)
+            bead.center = pearl.center
+            bead.radius = pearl.radius
+            finishes.append(Finish(buddy: bead, base: base, age: 0, isPearl: true))
+        }
         let first = nowWorking ? P.visibleCount(now) : 0
         for index in first..<P.visibleCount(shown) {
-            finishes.append(Finish(buddy: buddy(index: index, phase: phase), base: follow ?? position, age: 0))
+            let theta = P.orbitAngle(phase) + (hasSettled ? offsets[index] : P.spacing(index: index, count: shown))
+            finishes.append(Finish(buddy: P.buddy(index: index, theta: theta, phase: phase, room: room), base: base, age: 0))
         }
-        // Bounded: at most one group's worth of finishes is ever in flight.
-        if finishes.count > P.maxBuddies {
-            finishes.removeFirst(finishes.count - P.maxBuddies)
+        // Bounded: the oldest (pearls first) give way, so jars always play.
+        if finishes.count > P.maxFinishes {
+            finishes.removeFirst(finishes.count - P.maxFinishes)
         }
     }
 
-    /// Advances the follow point, each buddy's settled centre and finish ages.
-    /// Without time (Reduce Motion, a paused scene) everything snaps in place.
+    /// Advances the orbit centre, the spacing and finish ages. Without time
+    /// (Reduce Motion, a paused scene, the first frame) spacing snaps in place.
     mutating func advance(dt: Float, position: SIMD2<Float>, room: P.Room, phase: Float) {
         self.room = room
-        let snap = dt <= 0 || !hasSettled
-        for index in settled.indices {
-            let target = P.path(index: index, phase: phase, room: room)
-            settled[index] = snap ? target : settled[index] + (target - settled[index]) * (1 - exp(-dt * P.settleRate))
+        let blend: Float = dt <= 0 || !hasSettled ? 1 : 1 - exp(-dt * P.settleRate)
+        let n = count, p = pearls
+        for index in 0..<P.maxBuddies {
+            // Shortest way round, so re-spacing never sends a buddy the long way.
+            offsets[index] += remainder(P.spacing(index: index, count: n) - offsets[index], 2 * .pi) * blend
+        }
+        for index in 0..<P.maxPearls {
+            pearlOffsets[index] += remainder(P.pearlSpacing(index: index, pearls: p) - pearlOffsets[index], 2 * .pi) * blend
         }
         hasSettled = true
         guard dt > 0, let current = follow else { follow = position; return }
@@ -458,8 +594,8 @@ final class AquariumResidents {
             let item = next[index]
             let position = residents[item.id]?.position ?? .zero
             if broods[item.id] == nil { broods[item.id] = BackgroundBrood() }
-            broods[item.id]?.observe(explicit: state.backgroundTaskCounts[item.id], working: item.activity == .working,
-                                     position: [position.x, position.y], phase: backgroundPhase, animate: animate)
+            broods[item.id, default: BackgroundBrood()].observe(explicit: state.backgroundTaskCounts[item.id], working: item.activity == .working,
+                                     position: SIMD2(position.x, position.y), phase: backgroundPhase, animate: animate)
             next[index].backgroundTasks = broods[item.id]?.count ?? 0
         }
         let ids = Set(next.map(\.id))
@@ -566,10 +702,10 @@ final class AquariumResidents {
             guard let resident = residents[item.id] else { continue }
             // Canonical state controls visibility immediately, even while paused.
             resident.findEntity(named: "activity")?.isEnabled = item.activity == .working && item.backgroundTasks == 0
-            // First appearance settles straight into the real lanes, so a spawn
-            // never starts in the open-water lane and then swims across.
+            // First appearance snaps into even spacing on the real orbit, so a
+            // spawn never glides in from a default pose.
             if !animate || broods[item.id]?.hasSettled == false {
-                broods[item.id]?.advance(dt: 0, position: [resident.position.x, resident.position.y],
+                broods[item.id, default: BackgroundBrood()].advance(dt: 0, position: SIMD2(resident.position.x, resident.position.y),
                                          room: broodRoom(item.id, resident), phase: backgroundPhase)
             }
             updateBackgroundWork(resident, id: item.id)
@@ -727,7 +863,7 @@ final class AquariumResidents {
         for item in descriptors {
             guard let entity = residents[item.id], var target = targets[item.id], var motion = motions[item.id] else { continue }
             if broods[item.id]?.isEmpty == false {
-                broods[item.id]?.advance(dt: Float(dt), position: [entity.position.x, entity.position.y],
+                broods[item.id, default: BackgroundBrood()].advance(dt: Float(dt), position: SIMD2(entity.position.x, entity.position.y),
                                          room: broodRoom(item.id, entity), phase: backgroundPhase)
             }
             updateBackgroundWork(entity, id: item.id)
@@ -929,9 +1065,9 @@ final class AquariumResidents {
         let swimming: [BuddyRig]
         let finishing: [BuddyRig]
         let bubbles: [ModelEntity]
-        let overflow: ModelEntity
-        var overflowShown = 0
-        var overflowWidth: Float = 0
+        /// Pearl moonlets on the orbit, and the pearls that are finishing.
+        let pearls: [Entity]
+        let pearlsFinishing: [Entity]
     }
     private var broodRigs: [String: BroodRig] = [:]
     /// A resident's half width in its own space, measured from its template:
@@ -984,6 +1120,35 @@ final class AquariumResidents {
         return BuddyRig(root: root, lid: lid, fins: fins, tail: tail)
     }
 
+    private static let yAxis = SIMD3<Float>(0, 1, 0)
+    private static let zAxis = SIMD3<Float>(0, 0, 1)
+    /// Writes an opacity only when it changes visibly: re-setting a component
+    /// on every pooled entity every frame was the 3D path's main cost.
+    private static func setOpacity(_ entity: Entity, _ value: Float) {
+        if let current = entity.components[OpacityComponent.self]?.opacity, abs(current - value) < 0.01 { return }
+        entity.components.set(OpacityComponent(opacity: value))
+    }
+
+    /// Pearl meshes are generated once and shared by every resident's pool.
+    private static let pearlMesh = MeshResource.generateSphere(radius: 1)
+    private static let pearlGlintMesh = MeshResource.generateSphere(radius: 0.3)
+
+    /// One pooled pearl moonlet: a warm clay bead with a nacre glint. The
+    /// deeper warm base keeps it peach, not white, under the scene's light.
+    private func makePearl(named name: String) -> Entity {
+        let root = Entity()
+        root.name = name
+        let bead = ModelEntity(mesh: Self.pearlMesh,
+                               materials: [SimpleMaterial(color: nativeColor(BackgroundWorkPresentation.pearlShade), roughness: 0.45, isMetallic: false)])
+        let glint = ModelEntity(mesh: Self.pearlGlintMesh,
+                                materials: [UnlitMaterial(color: nativeColor(DesignTokens.Tide.s50), applyPostProcessToneMap: false)])
+        glint.position = [-0.42, 0.42, 0.72]
+        root.addChild(bead)
+        root.addChild(glint)
+        root.components.set(OpacityComponent(opacity: 1))
+        return root
+    }
+
     private func makeBackgroundWork() -> (Entity, BroodRig) {
         let group = Entity()
         group.name = "background-work"
@@ -998,21 +1163,20 @@ final class AquariumResidents {
             bubble.components.set(OpacityComponent(opacity: 1))
             return bubble
         }
-        let overflow = ModelEntity()
-        overflow.name = "background-overflow"
-        overflow.model = ModelComponent(mesh: .generateBox(size: 0.001),
-            materials: [UnlitMaterial(color: nativeColor(DesignTokens.Session.working), applyPostProcessToneMap: false)])
-        for entity in swimming.map(\.root) + finishing.map(\.root) + bubbles + [overflow] { group.addChild(entity) }
-        return (group, BroodRig(group: group, swimming: swimming, finishing: finishing, bubbles: bubbles, overflow: overflow))
+        let pearls = (0..<BackgroundWorkPresentation.maxPearls).map { makePearl(named: "background-pearl-\($0)") }
+        let pearlsFinishing = (0..<BackgroundWorkPresentation.maxFinishes).map { makePearl(named: "background-pearl-finish-\($0)") }
+        for entity in swimming.map(\.root) + finishing.map(\.root) + bubbles + pearls + pearlsFinishing { group.addChild(entity) }
+        return (group, BroodRig(group: group, swimming: swimming, finishing: finishing, bubbles: bubbles,
+                                pearls: pearls, pearlsFinishing: pearlsFinishing))
     }
 
-    /// Free water around a resident, in its body radii: buddies keep to the
-    /// side away from close neighbours. Iterates in place, no allocation.
+    /// Free water around a resident, in its body radii: a close neighbour
+    /// shrinks its buddies' orbit. Iterates in place, no allocation.
     private func broodRoom(_ id: String, _ entity: Entity) -> BackgroundWorkPresentation.Room {
         var room = BackgroundWorkPresentation.Room()
         let unit = max(0.001, (bodyReach[id] ?? Self.defaultBodyReach) * entity.scale.x)
         for (other, neighbour) in residents where other != id {
-            room.note([(neighbour.position.x - entity.position.x) / unit, (neighbour.position.y - entity.position.y) / unit])
+            room.note(SIMD2((neighbour.position.x - entity.position.x) / unit, (neighbour.position.y - entity.position.y) / unit))
         }
         return room
     }
@@ -1021,7 +1185,7 @@ final class AquariumResidents {
     /// kind. Pure placement: the count, follow point and finishes are owned
     /// by `broods`, updated in `sync` and `step`.
     private func updateBackgroundWork(_ resident: Entity, id: String) {
-        guard var rig = broodRigs[id] else { return }
+        guard let rig = broodRigs[id] else { return }
         guard let brood = broods[id], !brood.isEmpty else { rig.group.isEnabled = false; return }
         rig.group.isEnabled = true
         typealias P = BackgroundWorkPresentation
@@ -1031,23 +1195,23 @@ final class AquariumResidents {
         let scale = max(0.001, resident.scale.x)
         let lag2 = brood.lag(from: current) / scale
         let lag = SIMD3<Float>(lag2.x, lag2.y, 0)
-        // Native residents stand on a support: the wander floor keeps buddies off its rim.
-        func place(_ p: SIMD3<Float>) -> SIMD3<Float> { [p.x * r, (p.y + 0.1) * r, p.z * r + 0.12] }
+        // Native residents stand on a support: lifting the orbit keeps buddies off its rim.
+        func place(_ p: SIMD3<Float>) -> SIMD3<Float> { SIMD3(p.x * r, (p.y + 0.32) * r, p.z * r + 0.12) }
         func pose(_ rig: BuddyRig, _ buddy: P.Buddy, at position: SIMD3<Float>, finish: P.FinishPose?, lidLift: Float) {
             let size = buddy.radius * r * (finish?.scale ?? 1)
             rig.root.position = position
             rig.root.scale = .init(repeating: max(0.0001, size))
             // Turn toward the direction of travel and lean into climbs and dives.
-            rig.root.orientation = simd_quatf(angle: buddy.facing * 0.55, axis: [0, 1, 0]) * simd_quatf(angle: buddy.tilt, axis: [0, 0, 1])
-            rig.root.components.set(OpacityComponent(opacity: finish?.opacity ?? 1))
-            rig.lid.position = [0, 1.34 + (finish?.lidLift ?? lidLift), 0]
-            rig.lid.orientation = simd_quatf(angle: finish?.lidSpin ?? 0, axis: [0, 0, 1])
+            rig.root.orientation = simd_quatf(angle: buddy.facing * 0.55, axis: Self.yAxis) * simd_quatf(angle: buddy.tilt, axis: Self.zAxis)
+            Self.setOpacity(rig.root, (finish?.opacity ?? 1) * buddy.opacity)
+            rig.lid.position = SIMD3(0, 1.34 + (finish?.lidLift ?? lidLift), 0)
+            rig.lid.orientation = simd_quatf(angle: finish?.lidSpin ?? 0, axis: Self.zAxis)
             rig.lid.isEnabled = (finish?.lidOpacity ?? 1) > 0.05
             let beat = 0.2 + buddy.fin * 0.5
-            rig.fins[0].orientation = simd_quatf(angle: -beat, axis: [0, 0, 1])
-            rig.fins[1].orientation = simd_quatf(angle: beat, axis: [0, 0, 1])
-            rig.tail.position = [-buddy.facing * 1.02, -0.22, 0]
-            rig.tail.orientation = simd_quatf(angle: buddy.tail, axis: [0, 1, 0])
+            rig.fins[0].orientation = simd_quatf(angle: -beat, axis: Self.zAxis)
+            rig.fins[1].orientation = simd_quatf(angle: beat, axis: Self.zAxis)
+            rig.tail.position = SIMD3(-buddy.facing * 1.02, -0.22, 0)
+            rig.tail.orientation = simd_quatf(angle: buddy.tail, axis: Self.yAxis)
         }
         let shown = P.visibleCount(brood.count)
         for index in rig.swimming.indices {
@@ -1065,7 +1229,7 @@ final class AquariumResidents {
             entity.isEnabled = true
             entity.position = place(bubble.center) + offset
             entity.scale = .init(repeating: bubble.radius * r)
-            entity.components.set(OpacityComponent(opacity: bubble.opacity))
+            Self.setOpacity(entity, bubble.opacity)
             slot += 1
         }
         for index in 0..<shown {
@@ -1074,36 +1238,46 @@ final class AquariumResidents {
         }
         // Finishes play where their buddy was, not with the creature, and
         // never pop into the creature's own name tag.
-        for index in rig.finishing.indices {
-            let buddyRig = rig.finishing[index]
-            guard index < brood.finishes.count, let finish = P.finish(age: brood.finishes[index].age) else {
-                buddyRig.root.isEnabled = false
+        var jarSlot = 0, pearlSlot = 0
+        for item in brood.finishes {
+            guard let finish = P.finish(age: item.age) else { continue }
+            let drift2 = (item.base - current) / scale
+            let at = P.clearOfTag(item.buddy.center + SIMD3(drift2.x / r, drift2.y / r, 0))
+            if item.isPearl {
+                guard pearlSlot < rig.pearlsFinishing.count else { continue }
+                let bead = rig.pearlsFinishing[pearlSlot]
+                pearlSlot += 1
+                bead.isEnabled = true
+                bead.position = place(at)
+                bead.scale = .init(repeating: max(0.0001, item.buddy.radius * r * (0.4 + finish.scale * 0.8)))
+                Self.setOpacity(bead, finish.opacity * item.buddy.opacity)
                 continue
             }
-            let item = brood.finishes[index]
-            let drift2 = (item.base - current) / scale
+            guard jarSlot < rig.finishing.count else { continue }
+            let buddyRig = rig.finishing[jarSlot]
+            jarSlot += 1
             var popped = item.buddy
-            popped.center = P.clearOfTag(item.buddy.center + [drift2.x / r, drift2.y / r, 0])
+            popped.center = at
             buddyRig.root.isEnabled = true
             pose(buddyRig, popped, at: place(popped.center), finish: finish, lidLift: 0)
             for k in 0..<P.bubblesPerFinish {
                 if let bubble = P.puff(mouth: P.mouth(popped), age: item.age, k: k) { emit(bubble, .zero) }
             }
         }
+        for index in jarSlot..<rig.finishing.count { rig.finishing[index].root.isEnabled = false }
+        for index in pearlSlot..<rig.pearlsFinishing.count { rig.pearlsFinishing[index].isEnabled = false }
         for index in slot..<rig.bubbles.count { rig.bubbles[index].isEnabled = false }
-        // "+n" rides with the last buddy; its mesh is rebuilt only when n changes.
-        let extra = P.overflow(brood.count)
-        rig.overflow.isEnabled = extra > 0 && shown > 0
-        if extra > 0, shown > 0 {
-            let last = brood.buddy(index: shown - 1, phase: phase)
-            if rig.overflowShown != extra {
-                rig.overflow.model?.mesh = MeshResource.generateText("+\(extra)", extrusionDepth: 0.002,
-                    font: .init(name: "IBMPlexSans-Bold", size: 0.14) ?? .systemFont(ofSize: 0.14))
-                rig.overflowShown = extra
-                rig.overflowWidth = rig.overflow.visualBounds(relativeTo: rig.overflow).extents.x
-                broodRigs[id] = rig
-            }
-            rig.overflow.position = place(last.center) + lag + [-rig.overflowWidth / 2, -last.radius * r * 2.2, 0.05]
+        // Pearl moonlets: one per task beyond the jars, strung through the gaps
+        // on the same orbit, sized and faded by depth.
+        let pearls = brood.pearls
+        for index in rig.pearls.indices {
+            let bead = rig.pearls[index]
+            bead.isEnabled = index < pearls
+            guard index < pearls else { continue }
+            let pearl = brood.pearl(index: index, phase: phase)
+            bead.position = place(pearl.center) + lag
+            bead.scale = .init(repeating: max(0.0001, pearl.radius * r))
+            Self.setOpacity(bead, pearl.opacity)
         }
     }
 

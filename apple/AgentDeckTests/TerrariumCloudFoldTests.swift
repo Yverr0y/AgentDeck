@@ -2,6 +2,7 @@
 import XCTest
 import RealityKit
 import SwiftUI
+import Darwin
 @testable import AgentDeck
 
 @MainActor
@@ -70,7 +71,10 @@ final class TerrariumCloudFoldTests: XCTestCase {
         let finishing = (0..<BackgroundWorkPresentation.maxBuddies).compactMap { group.findEntity(named: "background-finish-\($0)") }
         XCTAssertEqual(jars.count, BackgroundWorkPresentation.maxBuddies, "Large task counts cannot allocate an unbounded effect")
         XCTAssertEqual(jars.filter(\.isEnabled).count, 3)
-        XCTAssertEqual(group.findEntity(named: "background-overflow")?.isEnabled, true, "Twelve tasks tag the last jar with +9")
+        let pearls = (0..<BackgroundWorkPresentation.maxPearls + 1).compactMap { group.findEntity(named: "background-pearl-\($0)") }
+        XCTAssertEqual(pearls.count, BackgroundWorkPresentation.maxPearls, "A fixed pool of pearl moonlets")
+        XCTAssertEqual(pearls.filter(\.isEnabled).count, 9, "Twelve tasks: three jars and nine pearls, one to one")
+        XCTAssertNil(group.findEntity(named: "background-overflow"), "No +n text anywhere")
         // Keep a render of the actual production scene for visual review.
         let view = ARView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -138,11 +142,14 @@ final class TerrariumCloudFoldTests: XCTestCase {
         scene.sync(state, aspect: 1.6)
         XCTAssertEqual(jars.filter(\.isEnabled).count, 1)
         XCTAssertEqual(finishing.filter(\.isEnabled).count, 0, "Reduced Motion never starts a finish it could not play out")
-        let firstPod = try XCTUnwrap(jars.first)
-        let pinned = firstPod.position
         state.backgroundTaskCounts["claude"] = 2
         scene.sync(state, aspect: 1.6)
-        XCTAssertEqual(firstPod.position, pinned, "Reduced Motion keeps the phase fixed even when counts change")
+        let firstPod = try XCTUnwrap(jars.first)
+        let pinned = firstPod.position
+        XCTAssertTrue(jars.filter(\.isEnabled).allSatisfy { $0.position.z > 0 }, "Reduced Motion parks every buddy on the near side of its orbit")
+        scene.step(60)
+        scene.sync(state, aspect: 1.6)
+        XCTAssertEqual(firstPod.position, pinned, "and holds it still")
         state.creatures = [.init(id: "claude", projectName: "Render", modelName: nil, state: .asking, homeX: 0.5, homeY: 0.5, scale: 1)]
         scene.sync(state, aspect: 1.6)
         XCTAssertFalse(group.isEnabled, "Approval takes priority even with retained task metadata")
@@ -170,49 +177,78 @@ final class TerrariumCloudFoldTests: XCTestCase {
         XCTAssertEqual(canvas.backgroundOrbitPhase, phase)
     }
 
-    func testJarBuddiesWanderBesideTheBodyClearOfTagAndSand() {
+    func testJarBuddiesOrbitTheirCreatureLikeAMoon() {
         typealias P = BackgroundWorkPresentation
         XCTAssertEqual(P.visibleCount(0), 0)
         XCTAssertEqual(P.visibleCount(12), P.maxBuddies, "Buddies are capped; +n and the label carry the rest")
-        XCTAssertEqual(P.overflow(12), 9)
-        XCTAssertEqual(P.overflow(3), 0)
+        XCTAssertEqual(P.pearlCount(3), 0)
+        XCTAssertEqual(P.pearlCount(4), 1)
+        XCTAssertEqual(P.pearlCount(7), 4)
+        XCTAssertEqual(P.pearlCount(12), 9)
+        XCTAssertEqual(P.pearlCount(20), P.maxPearls, "Beyond twelve the label carries the exact count")
         XCTAssertEqual(P.label(1), "1 background task")
         XCTAssertEqual(P.label(5), "5 background tasks")
-        var visited: [Set<Int>] = Array(repeating: [], count: P.maxBuddies + 1)
-        var turned = Array(repeating: Set<Float>(), count: P.maxBuddies + 1)
-        for phase in stride(from: Float(0), to: 40, by: 0.05) {
-            for index in 0...P.maxBuddies {
-                let buddy = P.buddy(index: index, phase: phase)
-                let c = buddy.center
-                // Body: never closer than the creature's own half width plus the jar.
-                XCTAssertGreaterThan(abs(c.x) - buddy.radius * 1.3, 1.0, "Buddy \(index) never overlaps the body")
-                // Tag above, sand below: the whole jar, lid and fins included.
-                XCTAssertLessThan(c.y + buddy.radius * 1.9, 0.6, "Buddy \(index) stays under the name tag")
-                XCTAssertGreaterThan(c.y - buddy.radius * 1.1, -0.7, "Buddy \(index) never sinks below the feet")
-                XCTAssertLessThan(abs(c.x), 2.4, "Buddy \(index) stays near its creature")
-                XCTAssertLessThan(abs(buddy.tilt), 0.31)
-                XCTAssertLessThanOrEqual(buddy.lidLift, 0.18 + 1e-4, "The lid hops a little, it does not fly off")
-                visited[index].insert(Int((c.x * 10).rounded()))
-                turned[index].insert(buddy.facing)
+        // Constant angular speed: one lap per lapSeconds, whatever the phase.
+        let perSecond = P.orbitAngle(P.radiansPerSecond)
+        XCTAssertEqual(perSecond, 2 * .pi / P.lapSeconds, accuracy: 1e-5)
+        XCTAssertEqual(P.orbitAngle(7 * P.radiansPerSecond) - P.orbitAngle(6 * P.radiansPerSecond), perSecond, accuracy: 1e-4)
+        XCTAssertGreaterThanOrEqual(P.lapSeconds, 10)
+        XCTAssertLessThanOrEqual(P.lapSeconds, 14)
+        // Even spacing.
+        for n in 1...P.maxBuddies {
+            for index in 0..<n {
+                XCTAssertEqual(P.spacing(index: index, count: n), Float(index) * 2 * .pi / Float(n), accuracy: 1e-5)
             }
         }
-        for index in 0...P.maxBuddies {
-            XCTAssertGreaterThan(visited[index].count, 6, "Buddy \(index) wanders, it does not hover in place")
-            XCTAssertEqual(turned[index], [-1, 1], "Buddy \(index) turns to face where it swims")
+        XCTAssertEqual(P.spacing(index: 2, count: 12), 4 * .pi / 3, accuracy: 1e-5, "A capped group spaces the three it shows")
+        // A full lap: the orbit never covers the name tag, never sinks below the
+        // feet, stays clear of the body at its sides, and passes behind the
+        // creature on the far half and in front on the near half.
+        var sawFront = false, sawBehind = false
+        var previous: SIMD3<Float>?
+        for step in 0..<720 {
+            let theta = Float(step) * 2 * .pi / 720
+            let buddy = P.buddy(index: 0, theta: theta, phase: Float(step) * 0.01)
+            let c = buddy.center
+            XCTAssertLessThan(c.y + buddy.radius * 1.9 + 0.18 * buddy.radius, P.tagBottom, "θ \(theta): the jar and its hopping lid stay under the name tag")
+            XCTAssertGreaterThan(c.y - buddy.radius * 1.1, -0.75, "θ \(theta): never below the feet")
+            XCTAssertLessThan(abs(c.x), P.orbitRadius + 0.2)
+            if abs(cos(theta)) > 0.95 {
+                // Rounding a side: beside the body, not over it.
+                XCTAssertGreaterThanOrEqual(abs(c.x), P.bodyClearance, "θ \(theta): rounding a side clears the body")
+            }
+            if buddy.isBehind {
+                sawBehind = true
+                XCTAssertLessThan(c.z, 0, "The far half is behind the creature")
+                XCTAssertLessThan(buddy.radius, P.buddyRadius, "and a little smaller")
+                XCTAssertLessThan(buddy.opacity, 1, "and a little faded")
+            } else {
+                sawFront = true
+                XCTAssertGreaterThanOrEqual(c.z, -1e-4)
+                XCTAssertGreaterThanOrEqual(buddy.radius, P.buddyRadius * P.farScale)
+            }
+            XCTAssertLessThan(abs(buddy.tilt), 0.31)
+            XCTAssertLessThanOrEqual(buddy.lidLift, 0.18 + 1e-4, "The lid hops a little, it does not fly off")
+            // Smooth: consecutive points on the orbit are close (no jumps).
+            if let previous { XCTAssertLessThan(simd_distance(previous, c), 0.05) }
+            previous = c
         }
-        // Buddies spread over both sides and never move in step.
-        XCTAssertGreaterThan(P.buddy(index: 0, phase: 1).center.x, 0)
-        XCTAssertLessThan(P.buddy(index: 1, phase: 1).center.x, 0)
-        let a = P.buddy(index: 0, phase: 3), b = P.buddy(index: 2, phase: 3)
-        XCTAssertNotEqual(a.center, b.center)
+        XCTAssertTrue(sawFront && sawBehind, "A moon passes in front and behind")
+        // Moon-like direction: left to right across the front, back across the rear.
+        XCTAssertGreaterThan(P.buddy(index: 0, theta: -.pi / 2, phase: 0).facing, 0.9)
+        XCTAssertLessThan(P.buddy(index: 0, theta: .pi / 2, phase: 0).facing, -0.9)
+        XCTAssertGreaterThan(P.orbit(-.pi / 2 + 0.01).x, P.orbit(-.pi / 2).x, "The near half travels toward screen right")
+        // The ring tilts the other way from the subagent ring (-0.28) and is flatter.
+        XCTAssertGreaterThan(P.orbitTilt, 0)
+        XCTAssertLessThan(abs(P.orbitTilt), 0.28)
         // Lids hop at staggered moments: never all at once.
         var together = 0
         for phase in stride(from: Float(0), to: 20, by: 0.05) {
-            if (0..<3).allSatisfy({ P.buddy(index: $0, phase: phase).lidLift > 0.05 }) { together += 1 }
+            if (0..<3).allSatisfy({ P.buddy(index: $0, theta: 0, phase: phase).lidLift > 0.05 }) { together += 1 }
         }
         XCTAssertEqual(together, 0)
         // Simmer bubbles rise from the mouth and fade as they go.
-        let buddy = P.buddy(index: 0, phase: 0)
+        let buddy = P.buddy(index: 0, theta: -.pi / 2, phase: 0)
         for bubble in (0..<P.simmerPerBuddy).map({ P.simmer(buddy, slot: 0, k: $0, phase: 1.3) }) {
             XCTAssertGreaterThanOrEqual(bubble.center.y, P.mouth(buddy).y)
             XCTAssertLessThanOrEqual(bubble.opacity, 0.8)
@@ -235,66 +271,118 @@ final class TerrariumCloudFoldTests: XCTestCase {
         }
     }
 
-    /// Close neighbours: every buddy stays nearer its owner than any other
-    /// creature, over a long sweep, by keeping to open water or shrinking its loop.
-    func testJarBuddiesStayNearerTheirOwnerThanACloseNeighbour() {
+    /// The brood keeps its buddies evenly spaced on one orbit, glides to the
+    /// new spacing when the count changes, holds still on the near side under
+    /// Reduce Motion, and shrinks the orbit beside a close neighbour.
+    func testJarBuddyOrbitSpacingStillPoseAndCrowding() {
         typealias P = BackgroundWorkPresentation
-        // Neighbour centres in owner body radii: one close on the right, one on
-        // each side (a crowded row), and a diagonal neighbour.
-        let layouts: [[SIMD2<Float>]] = [[[3, 0]], [[-3, 0]], [[3, 0], [-3, 0]], [[2.6, 0.4], [-3.2, -0.3]], [[2.4, 1.2]]]
-        for neighbours in layouts {
+        var brood = BackgroundBrood()
+        brood.observe(explicit: 3, working: true, position: .zero, phase: 0, animate: true)
+        brood.advance(dt: 1.0 / 60, position: .zero, room: .init(), phase: 0)
+        func gaps(_ b: BackgroundBrood, _ n: Int, phase: Float) -> [Float] {
+            (0..<n).map { i in
+                var d = b.angle(index: (i + 1) % n, phase: phase) - b.angle(index: i, phase: phase)
+                d -= 2 * .pi * (d / (2 * .pi)).rounded(.down)
+                return d
+            }
+        }
+        for gap in gaps(brood, 3, phase: 5) { XCTAssertEqual(gap, 2 * .pi / 3, accuracy: 1e-4, "Three buddies sit a third of a lap apart") }
+        // All buddies move together at the orbit's constant speed.
+        let a0 = brood.angle(index: 1, phase: 2), a1 = brood.angle(index: 1, phase: 3)
+        XCTAssertEqual(a1 - a0, P.orbitAngle(1), accuracy: 1e-4)
+        // A task ends: the remaining two glide to opposite sides, no jump.
+        brood.observe(explicit: 2, working: true, position: .zero, phase: 0, animate: true)
+        let before = brood.angle(index: 1, phase: 0)
+        brood.advance(dt: 1.0 / 60, position: .zero, room: .init(), phase: 0)
+        let step = brood.angle(index: 1, phase: 0)
+        XCTAssertLessThan(abs(step - before), 0.1, "Re-spacing is a glide, not a jump")
+        XCTAssertGreaterThan(abs(step - before), 0, "and it starts at once")
+        for _ in 0..<300 { brood.advance(dt: 1.0 / 60, position: .zero, room: .init(), phase: 0) }
+        for gap in gaps(brood, 2, phase: 0) { XCTAssertEqual(gap, .pi, accuracy: 1e-3, "Two buddies end up opposite each other") }
+
+        // Reduce Motion: frozen, evenly spread across the front of the creature.
+        var still = BackgroundBrood()
+        still.observe(explicit: 3, working: true, position: .zero, phase: 4, animate: false)
+        still.advance(dt: 0, position: .zero, room: .init(), phase: 4)
+        let frozen = (0..<3).map { still.buddy(index: $0, phase: 4) }
+        XCTAssertTrue(frozen.allSatisfy { !$0.isBehind }, "Every buddy waits on the near side")
+        XCTAssertEqual(frozen.map(\.center), (0..<3).map { still.buddy(index: $0, phase: 9).center }, "and holds still whatever the phase")
+        XCTAssertLessThan(frozen[0].center.x, frozen[1].center.x)
+        XCTAssertLessThan(frozen[1].center.x, frozen[2].center.x)
+
+        // Crowding: the orbit is centred on its owner; a close neighbour
+        // shrinks it toward the body clearance instead of letting it drift.
+        XCTAssertEqual(P.reach(P.Room()), P.orbitRadius)
+        var close = P.Room(); close.note([2.8, 0])
+        XCTAssertLessThan(P.reach(close), P.orbitRadius)
+        XCTAssertGreaterThanOrEqual(P.reach(close), P.bodyClearance)
+        var touching = P.Room(); touching.note([0.4, 0]); touching.note([-0.4, 0])
+        XCTAssertEqual(P.reach(touching), P.bodyClearance, "Never smaller than just clear of the body")
+        var far = P.Room(); far.note([6, 0]); far.note([1, 3])
+        XCTAssertEqual(P.reach(far), P.orbitRadius, "A far neighbour or one well above changes nothing")
+        for neighbours in [[SIMD2<Float>(3.4, 0)], [SIMD2<Float>(-3.4, 0)], [SIMD2<Float>(3.4, 0), SIMD2<Float>(-3.4, 0)]] {
             var room = P.Room()
             for n in neighbours { room.note(n) }
-            for phase in stride(from: Float(0), to: 40 * P.radiansPerSecond, by: 0.05) {
-                for index in 0..<P.maxBuddies {
-                    let c = P.buddy(index: index, phase: phase, room: room).center
-                    let own = simd_length(SIMD2(c.x, c.y))
-                    for n in neighbours {
-                        XCTAssertLessThan(own, simd_distance(SIMD2(c.x, c.y), n),
-                                          "Buddy \(index) with neighbours \(neighbours) drifted toward a neighbour")
-                    }
+            for step in 0..<360 {
+                let c = P.orbit(Float(step) * .pi / 180, room: room)
+                let own = simd_length(SIMD2(c.x, c.y))
+                for n in neighbours {
+                    XCTAssertLessThan(own, simd_distance(SIMD2(c.x, c.y), n), "An orbit point drifted toward neighbour \(n)")
                 }
             }
+            let flattened = (0..<360).map { abs(P.orbit(Float($0) * .pi / 180, room: room).y - P.orbitCenterY) }.max() ?? 0
+            let open = (0..<360).map { abs(P.orbit(Float($0) * .pi / 180).y - P.orbitCenterY) }.max() ?? 0
+            XCTAssertLessThanOrEqual(flattened, open + 1e-5, "A shrunken orbit flattens with it")
         }
-        // Very close or overlapping neighbours: buddies never sit over the
-        // owner's body. Beside it when a lane fits, above the tag when none does.
-        for gap: Float in [0.3, 1.0, 2.0] {
-            for layout in [[SIMD2<Float>(gap, 0)], [SIMD2<Float>(gap, 0), SIMD2<Float>(-gap, 0)]] {
-                var room = P.Room()
-                for n in layout { room.note(n) }
-                for phase in stride(from: Float(0), to: 40 * P.radiansPerSecond, by: 0.1) {
-                    for index in 0..<P.maxBuddies {
-                        let c = P.buddy(index: index, phase: phase, room: room).center
-                        let besideBody = abs(c.x) >= P.bodyClearance - 1e-4
-                        let aboveTag = c.y - P.buddyRadius >= P.tagTop
-                        XCTAssertTrue(besideBody || aboveTag, "gap \(gap) \(layout.count)-sided: buddy \(index) at \(c) covers the body or tag")
-                        if aboveTag { XCTAssertEqual(P.clearOfTag(c), c, "A buddy hovering above the tag pops where it is") }
-                    }
-                }
+    }
+
+    /// Pearl moonlets ride the jars' orbit, strung evenly through the gaps
+    /// between them, with the same depth rule.
+    func testPearlMoonletsFillTheGapsBetweenJars() {
+        typealias P = BackgroundWorkPresentation
+        let gap = 2 * Float.pi / Float(P.maxBuddies)
+        for pearls in 1...P.maxPearls {
+            var perGap = [Int](repeating: 0, count: P.maxBuddies)
+            var angles: [Float] = []
+            for index in 0..<pearls {
+                let a = P.pearlSpacing(index: index, pearls: pearls)
+                let g = Int(a / gap)
+                perGap[g] += 1
+                let within = a - Float(g) * gap
+                XCTAssertGreaterThan(within, 0.05, "\(pearls) pearls: pearl \(index) sits clear of a jar")
+                XCTAssertLessThan(within, gap - 0.05)
+                angles.append(a)
             }
+            XCTAssertLessThanOrEqual((perGap.max() ?? 0) - (perGap.min() ?? 0), 1, "\(pearls) pearls share the gaps evenly")
+            XCTAssertEqual(Set(angles.map { Int(($0 * 1000).rounded()) }).count, pearls, "No two pearls overlap")
         }
-        // One close neighbour: the whole group keeps to the open side.
-        var right = P.Room(); right.note([3, 0])
-        for index in 0..<P.maxBuddies { XCTAssertEqual(P.side(index: index, room: right), -1) }
-        // A crowded row: both sides cramped, loops shrink instead of drifting.
-        var row = P.Room(); row.note([3, 0]); row.note([-3, 0])
-        XCTAssertLessThan(try XCTUnwrap(P.lane(side: 1, room: row)).scale, 0.2)
-        XCTAssertEqual(try XCTUnwrap(P.lane(side: 1, room: P.Room())).scale, 1, "Open water keeps the full loop")
-        var squeezed = P.Room(); squeezed.note([1, 0]); squeezed.note([-1, 0])
-        XCTAssertNil(P.lane(side: 1, room: squeezed), "No lane fits beside the body: the group hovers above the tag")
-        // A far neighbour or one well above or below changes nothing.
-        var far = P.Room(); far.note([6, 0]); far.note([1, 3])
-        XCTAssertEqual([P.side(index: 0, room: far), P.side(index: 1, room: far)], [-1, 1], "Open water on both sides still alternates, roomier first")
-        // Settling: a brood whose room changes swims to its new lane, it does not jump.
+        // Even within a gap: three pearls split one gap in quarters.
+        XCTAssertEqual(P.pearlSpacing(index: 0, pearls: 9), gap / 4, accuracy: 1e-5)
+        XCTAssertEqual(P.pearlSpacing(index: 3, pearls: 9), gap / 2, accuracy: 1e-5)
+        XCTAssertEqual(P.pearlSpacing(index: 6, pearls: 9), gap * 3 / 4, accuracy: 1e-5)
+        // Depth: behind and fainter on the far half, in front on the near half; a third of a jar.
+        let far = P.pearl(theta: .pi / 2), near = P.pearl(theta: -.pi / 2)
+        XCTAssertTrue(far.isBehind)
+        XCTAssertLessThan(far.center.z, 0)
+        XCTAssertFalse(near.isBehind)
+        XCTAssertLessThan(far.radius, near.radius)
+        XCTAssertLessThan(far.opacity, near.opacity)
+        XCTAssertEqual(near.radius / P.buddy(index: 0, theta: -.pi / 2, phase: 0).radius, 1.0 / 3, accuracy: 1e-4)
+        // The brood turns pearls with the jars and re-spaces them gently.
         var brood = BackgroundBrood()
-        brood.observe(explicit: 1, working: true, position: .zero, phase: 0, animate: true)
+        brood.observe(explicit: 12, working: true, position: .zero, phase: 0, animate: true)
         brood.advance(dt: 1.0 / 60, position: .zero, room: .init(), phase: 0)
-        let before = brood.buddy(index: 0, phase: 0).center
-        brood.advance(dt: 1.0 / 60, position: .zero, room: right, phase: 0)
-        let step = brood.buddy(index: 0, phase: 0).center
-        XCTAssertLessThan(simd_distance(before, step), 0.3, "A lane change is a swim, not a jump")
-        for _ in 0..<300 { brood.advance(dt: 1.0 / 60, position: .zero, room: right, phase: 0) }
-        XCTAssertLessThan(brood.buddy(index: 0, phase: 0).center.x, 0, "and it arrives on the open side")
+        XCTAssertEqual(brood.pearls, 9)
+        XCTAssertEqual(brood.pearlAngle(index: 4, phase: 3) - brood.pearlAngle(index: 4, phase: 2), P.orbitAngle(1), accuracy: 1e-4)
+        brood.observe(explicit: 8, working: true, position: .zero, phase: 0, animate: true)
+        let before = brood.pearlAngle(index: 1, phase: 0)
+        brood.advance(dt: 1.0 / 60, position: .zero, room: .init(), phase: 0)
+        XCTAssertLessThan(abs(brood.pearlAngle(index: 1, phase: 0) - before), 0.1, "Pearls glide to their new spacing")
+        // Reduce Motion: pearls wait on the near side with the jars.
+        var still = BackgroundBrood()
+        still.observe(explicit: 9, working: true, position: .zero, phase: 2, animate: false)
+        still.advance(dt: 0, position: .zero, room: .init(), phase: 2)
+        XCTAssertTrue((0..<still.pearls).allSatisfy { !still.pearl(index: $0, phase: 2).isBehind })
     }
 
     /// A finish never pops into the owner's name tag, wherever it started.
@@ -319,7 +407,7 @@ final class TerrariumCloudFoldTests: XCTestCase {
         var brood = BackgroundBrood()
         brood.observe(explicit: 3, working: true, position: here, phase: 0, animate: true)
         XCTAssertTrue(brood.finishes.isEmpty, "Arriving tasks never finish")
-        let last = P.buddy(index: 2, phase: 0)
+        let last = P.buddy(index: 2, theta: P.spacing(index: 2, count: 3), phase: 0)
         brood.observe(explicit: 2, working: true, position: here, phase: 0, animate: true)
         XCTAssertEqual(brood.finishes.map(\.buddy), [last], "A finished task leaves from the end of the group")
         XCTAssertEqual(brood.finishes.first?.base, here, "The finish remembers where it was, to play in the water")
@@ -344,13 +432,19 @@ final class TerrariumCloudFoldTests: XCTestCase {
         var crowded = BackgroundBrood()
         crowded.observe(explicit: 12, working: true, position: here, phase: 0, animate: true)
         crowded.observe(explicit: 11, working: true, position: here, phase: 0, animate: true)
-        XCTAssertTrue(crowded.finishes.isEmpty, "12 → 11 keeps all three buddies; nothing visibly leaves")
+        XCTAssertEqual(crowded.finishes.map(\.isPearl), [true], "12 → 11: the last pearl pops, every jar stays")
+        var many = BackgroundBrood()
+        many.observe(explicit: 20, working: true, position: here, phase: 0, animate: true)
+        many.observe(explicit: 19, working: true, position: here, phase: 0, animate: true)
+        XCTAssertTrue(many.finishes.isEmpty, "20 → 19 keeps every jar and pearl; only the label changes")
         var partly = BackgroundBrood()
         partly.observe(explicit: 4, working: true, position: here, phase: 0, animate: true)
         partly.observe(explicit: 2, working: true, position: here, phase: 0, animate: true)
-        XCTAssertEqual(partly.finishes.map(\.buddy), [P.buddy(index: 2, phase: 0)], "4 → 2 with three shown pops only the one that leaves")
+        XCTAssertEqual(partly.finishes.map(\.isPearl), [true, false], "4 → 2: the pearl pops first, then the one jar that leaves")
+        XCTAssertEqual(partly.finishes.last?.buddy, P.buddy(index: 2, theta: P.spacing(index: 2, count: 3), phase: 0))
         crowded.observe(explicit: 0, working: true, position: here, phase: 0, animate: true)
-        XCTAssertEqual(crowded.finishes.count, P.maxBuddies, "11 → 0 pops the three that were drawn")
+        XCTAssertEqual(crowded.finishes.count, P.maxFinishes, "11 → 0 is bounded")
+        XCTAssertEqual(crowded.finishes.filter { !$0.isPearl }.count, P.maxBuddies, "and every jar that was drawn still pops")
         crowded.observe(explicit: 0, working: true, position: here, phase: 0, animate: false)
         XCTAssertTrue(crowded.finishes.isEmpty, "Turning on Reduce Motion mid-finish leaves nothing frozen")
 
@@ -456,6 +550,34 @@ final class TerrariumCloudFoldTests: XCTestCase {
         for frame in 0..<6 {
             for _ in 0..<5 { renderer.update(dt: 1.0 / 30, state: state) }
             try write(String(format: "finish-%02d", frame))
+        }
+        // One lap of the orbit, close up: buddies pass behind and in front.
+        let lap = TerrariumRenderer()
+        lap.animateHermes = false
+        var solo = TerrariumState()
+        solo.creatures = [.init(id: "claude", projectName: "AgentDeck", modelName: nil, state: .working, homeX: 0.5, homeY: 0.45, scale: 1.6)]
+        solo.backgroundTaskCounts = ["claude": 12]
+        func writeLap(_ name: String) throws {
+            let image = ImageRenderer(content: Canvas { context, size in lap.draw(context: &context, size: size) }.frame(width: 1000, height: 560))
+            image.scale = 2
+            let data = try XCTUnwrap(image.nsImage?.tiffRepresentation)
+            try XCTUnwrap(NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]))
+                .write(to: folder.appendingPathComponent(name + ".png"))
+        }
+        for frame in 0..<8 {
+            for _ in 0..<45 { lap.update(dt: 1.0 / 30, state: solo) }
+            try writeLap(String(format: "orbit-%02d", frame))
+        }
+        // A pearl finishing: 12 → 11, the last pearl sparkles away.
+        solo.backgroundTaskCounts = ["claude": 11]
+        for frame in 0..<5 {
+            for _ in 0..<4 { lap.update(dt: 1.0 / 30, state: solo) }
+            try writeLap(String(format: "pearl-pop-%02d", frame))
+        }
+        for tasks in [4, 7, 20] {
+            solo.backgroundTaskCounts = ["claude": tasks]
+            for _ in 0..<90 { lap.update(dt: 1.0 / 30, state: solo) }
+            try writeLap(String(format: "tasks-%02d", tasks))
         }
         // A deliberately crowded row: each creature's buddies must stay its own.
         let crowded = TerrariumRenderer()
@@ -1519,3 +1641,281 @@ final class TerrariumCloudFoldTests: XCTestCase {
     }
 }
 #endif
+
+// Counts heap allocations made by one thread through libmalloc's logging hook
+// (the one stack logging uses). Declared at file scope: a C callback must not
+// inherit an actor's isolation.
+private typealias MallocLogger = @convention(c) (UInt32, UInt, UInt, UInt, UInt, UInt32) -> Void
+// Raw pointers, not Swift globals: the hook runs inside malloc on every
+// thread, and a Debug-build global access goes through exclusivity tracking,
+// which can itself allocate on a fresh thread and re-enter the hook (CI
+// trapped with SIGILL). Pointer reads and writes are never tracked.
+nonisolated(unsafe) private let countedAllocations: UnsafeMutablePointer<Int> = {
+    let slot = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+    slot.initialize(to: 0)
+    return slot
+}()
+nonisolated(unsafe) private let countedThread: UnsafeMutablePointer<pthread_t?> = {
+    let slot = UnsafeMutablePointer<pthread_t?>.allocate(capacity: 1)
+    slot.initialize(to: nil)
+    return slot
+}()
+private let countingLogger: MallocLogger = { type, _, _, _, _, _ in
+    // MALLOC_LOG_TYPE_ALLOCATE, on the measuring thread only.
+    guard type & 2 != 0, let thread = countedThread.pointee, pthread_equal(thread, pthread_self()) != 0 else { return }
+    countedAllocations.pointee &+= 1
+}
+
+/// Allocations made on the calling thread while `body` runs, or nil when the
+/// hook is unavailable (then only timing is asserted).
+private func allocations(_ body: () -> Void) -> Int? {
+    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "malloc_logger") else { body(); return nil }
+    let slot = symbol.assumingMemoryBound(to: MallocLogger?.self)
+    guard slot.pointee == nil else { body(); return nil }
+    // Touch both slots before the hook is live, so their lazy setup never runs inside malloc.
+    countedAllocations.pointee = 0
+    countedThread.pointee = pthread_self()
+    slot.pointee = countingLogger
+    body()
+    slot.pointee = nil
+    countedThread.pointee = nil
+    return countedAllocations.pointee
+}
+
+private func seconds(_ body: () -> Void) -> Double {
+    let start = DispatchTime.now().uptimeNanoseconds
+    body()
+    return Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
+}
+
+/// Jar buddies and pearl moonlets must not make the dashboard stutter or
+/// grow memory: a crowded tank (12 creatures, 20 tasks each, so 3 jars and
+/// 9 pearls apiece) is measured against the same tank with no tasks, for the
+/// 2D update and draw paths and the 3D update path. Budgets carry headroom
+/// over the measured numbers so CI runners do not flake, yet a per-frame
+/// allocation or an accidental O(n²) fails.
+@MainActor
+final class JarBuddyBudgetTests: XCTestCase {
+    private static func tank(tasks: Int) -> TerrariumState {
+        var state = TerrariumState()
+        for i in 0..<3 {
+            let x = Float(0.12) + Float(i) * 0.3
+            state.creatures.append(.init(id: "claude-\(i)", projectName: "Claude \(i)", modelName: nil, state: .working, homeX: x, homeY: 0.25, scale: 1))
+            state.cloudCreatures.append(.init(id: "codex-\(i)", projectName: "Codex \(i)", modelName: nil, state: .pulsing, homeX: x + 0.1, homeY: 0.45, scale: 1))
+            state.opencodeCreatures.append(.init(id: "opencode-\(i)", projectName: "OpenCode \(i)", modelName: nil, state: .pulsing, homeX: x, homeY: 0.62, scale: 1))
+            state.kiroCreatures.append(.init(id: "kiro-\(i)", projectName: "Kiro \(i)", modelName: nil, state: .working, homeX: x + 0.12, homeY: 0.78, scale: 1))
+        }
+        let ids = state.creatures.map(\.id) + state.cloudCreatures.map(\.id) + state.opencodeCreatures.map(\.id) + state.kiroCreatures.map(\.id)
+        state.backgroundTaskCounts = Dictionary(uniqueKeysWithValues: ids.map { ($0, tasks) })
+        return state
+    }
+
+    private struct Sample { var microsPerFrame: Double; var allocationsPerFrame: Double? }
+
+    private func measureUpdate(tasks: Int, frames: Int = 600) -> Sample {
+        let renderer = TerrariumRenderer()
+        renderer.animateHermes = false
+        let state = Self.tank(tasks: tasks)
+        for _ in 0..<120 { renderer.update(dt: 1.0 / 60, state: state) }
+        var time = 0.0
+        let count = allocations { time = seconds { for _ in 0..<frames { renderer.update(dt: 1.0 / 60, state: state) } } }
+        if tasks > 0 { XCTAssertGreaterThanOrEqual(renderer.broods.values.filter { $0.count == tasks }.count, 8, "Every working foreground creature carries its tasks") }
+        return Sample(microsPerFrame: time / Double(frames) * 1e6, allocationsPerFrame: count.map { Double($0) / Double(frames) })
+    }
+
+    private func measureDraw(tasks: Int, frames: Int = 40) throws -> Double {
+        let renderer = TerrariumRenderer()
+        renderer.animateHermes = false
+        let state = Self.tank(tasks: tasks)
+        for _ in 0..<120 { renderer.update(dt: 1.0 / 60, state: state) }
+        func frame() throws {
+            renderer.update(dt: 1.0 / 60, state: state)
+            let image = ImageRenderer(content: Canvas { context, size in renderer.draw(context: &context, size: size) }.frame(width: 1200, height: 750))
+            _ = try XCTUnwrap(image.cgImage)
+        }
+        for _ in 0..<5 { try frame() }
+        var total = 0.0
+        for _ in 0..<frames { var failure: Error?; total += seconds { do { try frame() } catch { failure = error } }; if let failure { throw failure } }
+        return total / Double(frames) * 1e3
+    }
+
+
+    func testCrowdedTankBuddyWorkStaysWithinFrameBudget() throws {
+        // Brood maths alone, the per-frame work every renderer repeats:
+        // steady state must not touch the heap.
+        var brood = BackgroundBrood()
+        brood.observe(explicit: 20, working: true, position: [0.4, 0.4], phase: 0, animate: true)
+        brood.advance(dt: 1.0 / 60, position: [0.4, 0.4], room: .init(), phase: 0)
+        var phase: Float = 0
+        var sink: Float = 0
+        let mathAllocations = allocations {
+            for _ in 0..<600 {
+                phase += 1.0 / 60
+                brood.observe(explicit: 20, working: true, position: [0.4, 0.4], phase: phase, animate: true)
+                brood.advance(dt: 1.0 / 60, position: [0.4, 0.4], room: .init(), phase: phase)
+                for index in 0..<BackgroundWorkPresentation.visibleCount(brood.count) {
+                    let buddy = brood.buddy(index: index, phase: phase)
+                    sink += buddy.center.x + BackgroundWorkPresentation.simmer(buddy, slot: index, k: 0, phase: phase).radius
+                }
+                for index in 0..<brood.pearls { sink += brood.pearl(index: index, phase: phase).center.y }
+            }
+        }
+        XCTAssertFalse(sink.isNaN)
+        // Optimized code (the shipped Release build) must not touch the heap at
+        // all; -Onone builds allocate while iterating ranges, so Debug is bounded.
+        let optimized = !_isDebugAssertConfiguration()
+        if let mathAllocations {
+            if optimized { XCTAssertEqual(mathAllocations, 0, "Steady-state buddy and pearl maths allocate nothing") }
+            else { XCTAssertLessThan(mathAllocations / 600, 60, "Debug build: bounded per-frame maths allocations") }
+        }
+
+        let baseline = measureUpdate(tasks: 0), crowded = measureUpdate(tasks: 20)
+        let baseDraw = try measureDraw(tasks: 0), crowdedDraw = try measureDraw(tasks: 20)
+        let report = String(format: "2D update: %.1f µs/frame baseline, %.1f µs crowded (+%.1f); allocations/frame %@ → %@. 2D draw 1200×750: %.2f ms baseline, %.2f ms crowded (+%.2f).",
+                            baseline.microsPerFrame, crowded.microsPerFrame, crowded.microsPerFrame - baseline.microsPerFrame,
+                            baseline.allocationsPerFrame.map { String(format: "%.2f", $0) } ?? "n/a",
+                            crowded.allocationsPerFrame.map { String(format: "%.2f", $0) } ?? "n/a",
+                            baseDraw, crowdedDraw, crowdedDraw - baseDraw)
+        print("[jar-buddy-budget] " + report)
+        add(XCTAttachment(string: report))
+        // Measured on an M-series Mac (2026-10-12): optimized +10 µs update,
+        // +0.8 ms draw, zero extra allocations; Debug +63 µs, +0.8 ms, ~310
+        // extra allocations from -Onone iteration. Budgets leave CI headroom.
+        XCTAssertLessThan(crowded.microsPerFrame - baseline.microsPerFrame, optimized ? 120 : 600, report)
+        if let a = baseline.allocationsPerFrame, let b = crowded.allocationsPerFrame {
+            if optimized { XCTAssertLessThanOrEqual(b - a, 0.05, "Buddies add no per-frame allocation to the update: " + report) }
+            else { XCTAssertLessThan(b - a, 600, "Debug build: bounded per-frame allocations: " + report) }
+        }
+        // Drawing 36 jars, 108 pearls and their bubbles stays a small share of a 60 fps frame.
+        XCTAssertLessThan(crowdedDraw - baseDraw, 6, report)
+    }
+
+    func testCrowdedNativeSceneBuddyWorkStaysWithinFrameBudget() async throws {
+        func run(tasks: Int) async throws -> Sample {
+            let scene = AquariumResidents()
+            scene.loadTemplates(try await Entity(contentsOf: XCTUnwrap(Bundle.main.url(forResource: "3d-residents", withExtension: "usdz"))))
+            scene.sync(Self.tank(tasks: tasks), aspect: 1.6)
+            for _ in 0..<60 { scene.step(1.0 / 60) }
+            let frames = 300
+            var time = 0.0
+            let count = allocations { time = seconds { for _ in 0..<frames { scene.step(1.0 / 60) } } }
+            if tasks > 0 {
+                let enabled = scene.residents.values.compactMap { $0.findEntity(named: "background-work") }.filter(\.isEnabled).count
+                XCTAssertGreaterThan(enabled, 0, "Native residents carry buddies")
+            }
+            return Sample(microsPerFrame: time / Double(frames) * 1e6, allocationsPerFrame: count.map { Double($0) / Double(frames) })
+        }
+        let baseline = try await run(tasks: 0), crowded = try await run(tasks: 20)
+        let report = String(format: "3D step: %.1f µs/frame baseline, %.1f µs crowded (+%.1f); allocations/frame %@ → %@.",
+                            baseline.microsPerFrame, crowded.microsPerFrame, crowded.microsPerFrame - baseline.microsPerFrame,
+                            baseline.allocationsPerFrame.map { String(format: "%.2f", $0) } ?? "n/a",
+                            crowded.allocationsPerFrame.map { String(format: "%.2f", $0) } ?? "n/a")
+        print("[jar-buddy-budget] " + report)
+        add(XCTAttachment(string: report))
+        // Measured (2026-10-12): optimized +117 µs and zero extra allocations;
+        // Debug +277 µs and ~420 extra allocations from -Onone code.
+        let optimized = !_isDebugAssertConfiguration()
+        XCTAssertLessThan(crowded.microsPerFrame - baseline.microsPerFrame, optimized ? 1200 : 3000, report)
+        if let a = baseline.allocationsPerFrame, let b = crowded.allocationsPerFrame {
+            if optimized { XCTAssertLessThanOrEqual(b - a, 0.05, "Buddies add no per-frame allocation to the 3D step: " + report) }
+            else { XCTAssertLessThan(b - a, 900, "Debug build: bounded per-frame allocations: " + report) }
+        }
+    }
+}
+
+/// Review evidence only: set AGENTDECK_BROOD_FORMS_OUTPUT to render every
+/// dashboard form (sizes, habitat overlay on light and dark, Reduce Motion,
+/// 3D) with 1, 4, 12 and 20 tasks across three creature kinds.
+@MainActor
+final class JarBuddyFormsTests: XCTestCase {
+    private func state(tasks: Int, scale: Float) -> TerrariumState {
+        var state = TerrariumState()
+        state.creatures = [.init(id: "claude", projectName: "AgentDeck", modelName: nil, state: .working, homeX: 0.2, homeY: 0.38, scale: scale)]
+        state.cloudCreatures = [.init(id: "codex", projectName: "Release", modelName: nil, state: .pulsing, homeX: 0.5, homeY: 0.5, scale: scale)]
+        state.opencodeCreatures = [.init(id: "opencode", projectName: "Docs", modelName: nil, state: .pulsing, homeX: 0.8, homeY: 0.36, scale: scale)]
+        state.backgroundTaskCounts = ["claude": tasks, "codex": tasks, "opencode": tasks]
+        return state
+    }
+
+    func testRenderJarBuddiesInEveryDashboardForm() async throws {
+        guard let output = ProcessInfo.processInfo.environment["AGENTDECK_BROOD_FORMS_OUTPUT"] else {
+            throw XCTSkip("Set AGENTDECK_BROOD_FORMS_OUTPUT to render every dashboard form")
+        }
+        let folder = URL(fileURLWithPath: output, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // Name, canvas size, habitat drawn, backdrop (overlay forms), Reduce Motion.
+        let forms: [(String, CGSize, Bool, Color?, Bool)] = [
+            ("mac-dashboard-large", CGSize(width: 1600, height: 1000), true, nil, false),
+            ("mac-window", CGSize(width: 1000, height: 560), true, nil, false),
+            ("mac-small-window", CGSize(width: 560, height: 340), true, nil, false),
+            ("mac-compact-panel", CGSize(width: 360, height: 220), true, nil, false),
+            ("ipad-portrait", CGSize(width: 820, height: 640), true, nil, false),
+            ("iphone-portrait", CGSize(width: 390, height: 420), true, nil, false),
+            ("overlay-on-3d-dark", CGSize(width: 1000, height: 560), false, DesignTokens.Ink.s900, false),
+            ("overlay-on-3d-light", CGSize(width: 1000, height: 560), false, DesignTokens.Tide.s50, false),
+            ("reduce-motion", CGSize(width: 1000, height: 560), true, nil, true),
+        ]
+        for (name, size, habitat, backdrop, still) in forms {
+            for tasks in [1, 4, 12, 20] {
+                let renderer = TerrariumRenderer()
+                renderer.animateHermes = false
+                renderer.animateCompanions = !still
+                let state = state(tasks: tasks, scale: 1)
+                for _ in 0..<(still ? 2 : 50) { renderer.update(dt: 1.0 / 30, state: state) }
+                let canvas = Canvas { context, size in renderer.draw(context: &context, size: size, includeHabitat: habitat) }
+                    .frame(width: size.width, height: size.height)
+                    .background(backdrop ?? .clear)
+                let image = ImageRenderer(content: canvas)
+                image.scale = 2
+                let data = try XCTUnwrap(image.nsImage?.tiffRepresentation)
+                try XCTUnwrap(NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]))
+                    .write(to: folder.appendingPathComponent(String(format: "%@-%02d.png", name, tasks)))
+            }
+        }
+        // 3D habitat: three resident kinds, the same counts.
+        for tasks in [1, 4, 12, 20] {
+            let scene = AquariumResidents()
+            scene.loadTemplates(try await Entity(contentsOf: XCTUnwrap(Bundle.main.url(forResource: "3d-residents", withExtension: "usdz"))))
+            scene.sync(state(tasks: tasks, scale: 1), aspect: 1.6)
+            for _ in 0..<40 { scene.step(1.0 / 30) }
+            let view = ARView(frame: NSRect(x: 0, y: 0, width: 960, height: 600))
+            let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = view
+            window.setFrameOrigin(NSScreen.main?.visibleFrame.origin ?? .zero)
+            window.orderFrontRegardless()
+            defer { window.orderOut(nil) }
+            view.environment.background = .color(NSColor(DesignTokens.Ink.s900))
+            let anchor = AnchorEntity(world: .zero)
+            anchor.addChild(scene.root)
+            let positions = scene.residents.values.map(\.position)
+            let middle = positions.reduce(SIMD3<Float>.zero, +) / Float(max(1, positions.count))
+            let spread = positions.map { simd_distance($0, middle) }.max() ?? 1
+            let camera = PerspectiveCamera()
+            camera.camera.fieldOfViewInDegrees = 40
+            camera.look(at: middle + [0, 0.15, 0], from: middle + [0, 0.8, 2.6 + spread * 2.2], relativeTo: nil)
+            anchor.addChild(camera)
+            let light = DirectionalLight()
+            light.light.intensity = 3000
+            light.look(at: middle, from: middle + [-2, 3, 4], relativeTo: nil)
+            anchor.addChild(light)
+            view.scene.addAnchor(anchor)
+            try await Task.sleep(for: .seconds(2))
+            let image: NSImage? = await withCheckedContinuation { continuation in
+                let completion = SnapshotCompletion(continuation)
+                let deadline = Task { @MainActor in
+                    do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                    completion.finish(nil)
+                }
+                view.snapshot(saveToHDR: false) { image in
+                    Task { @MainActor in
+                        deadline.cancel()
+                        completion.finish(image)
+                    }
+                }
+            }
+            if let data = image?.tiffRepresentation, let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) {
+                try png.write(to: folder.appendingPathComponent(String(format: "habitat-3d-%02d.png", tasks)))
+            }
+        }
+    }
+}
