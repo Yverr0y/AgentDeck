@@ -861,9 +861,16 @@ export class ApmeStore {
     // A positive historical value proves that a price existed. Historical
     // zeroes remain unknown because they could be either a free local model or
     // the old UNKNOWN_PRICE fallback — the ambiguity this column removes.
-    try { this.db.exec('UPDATE runs SET cost_known=1 WHERE cost_usd > 0'); } catch { /* ignore */ }
-    try { this.db.exec('UPDATE tasks SET cost_known=1 WHERE cost_usd > 0'); } catch { /* ignore */ }
-    try { this.db.exec('UPDATE sample_events SET cost_known=1 WHERE cost_usd > 0'); } catch { /* ignore */ }
+    // One-shot, only when upgrading a table without cost provenance. Repeating
+    // this scans payload-heavy tables on the event loop AND incorrectly marks
+    // a modern partially-priced aggregate as fully known after a restart.
+    for (const [table, previousCols] of [
+      ['runs', cols], ['tasks', taskCols], ['sample_events', sevCols],
+    ] as const) {
+      if (!previousCols.includes('cost_known')) {
+        this.db.exec(`UPDATE ${table} SET cost_known=1 WHERE cost_usd > 0`);
+      }
+    }
 
     // ── Covering indexes for the per-run/per-task rollups ──
     // better-sqlite3 is synchronous on a single connection, so ANY slow query

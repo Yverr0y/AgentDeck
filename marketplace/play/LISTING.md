@@ -6,7 +6,27 @@ Package `dev.agentdeck`. The account is an **organization** account, so the
 created after 2023-11-13 does not apply — production is reachable directly.
 
 The APK on GitHub Releases stays; Play is an additional channel, not a
-replacement. Nothing in the app changes between them.
+replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
+
+## 1.9.0 submitted — production receipt (2026-10-12)
+
+Production **26 (1.9.0)** was submitted for full rollout on October 12 at
+12:58 KST. The publishing overview confirms **Changes in review**. Managed
+publishing is disabled, so publication follows approval automatically. All
+three [release-note languages](1.9.0/release-notes.json) were verified in the
+review screen. Existing galleries remain attached, and supported-device coverage
+is unchanged (8,626 phones and 5,630 tablets). The native-debug-symbol warning
+is non-blocking. The last verified public Play version remains **25 (1.8.0)**.
+
+The [signed GitHub APK](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.9.0)
+is public. Its downloaded signature matches the registered upload certificate
+(`10603af8…`); APK SHA-256:
+`f3f2cab17f11f2f79f492d1d10493768ee27956e14ffb1c42e06282d0faa8632`.
+Submitted AAB SHA-256:
+`33decc8c1949477066882679da9ddf586bf19bd7122ab9d80a26c2689cb14e30`.
+Signed upgrade installs passed on Lenovo Tab, Crema S and Pantone 6 without
+clearing their settings. Guided setup was exercised on LCD and monochrome
+readers, including connection and return to the live dashboard.
 
 ## 1.8.0 public — final delivery readback (2026-10-06)
 

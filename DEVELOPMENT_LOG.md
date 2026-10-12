@@ -30,6 +30,24 @@ tracked in [RELEASING.md](RELEASING.md): npm, Android and ESP32 are being prepar
 at 1.9.0, with Android versionCode 26. The checked Play production version is
 still 1.8.0 (25). Apple 1.9.0 remains a separate submitted release.
 
+## Startup cost migration found during release soak
+
+The installed npm candidate stopped answering health during SQLite work. A native
+process sample pinned the event loop in `better_sqlite3` `Database::JS_exec`.
+On a consistent 3.5 GB copy of the maintainer database, instrumented startup
+identified repeated `cost_known` backfills: 57 ms for runs, 32 ms for tasks and
+2,776 ms for sample events (2.882 s initialization). This copy measurement does
+not by itself explain the entire live outage; the installed soak must pass after
+the fix before npm tagging.
+
+Node and Swift now infer historical positive costs only when the corresponding
+table did not have `cost_known`. Subsequent opens preserve modern partially
+priced aggregates instead of falsely marking their subtotal as fully known.
+Regression coverage exercises legacy positive/zero costs and reopening on both
+runtimes; Node also pins the absence of the unbounded UPDATE statement. The
+Swift mirror is a follow-up after the submitted Apple 1.9.0/build 7901 and must
+not be described as part of that immutable submission.
+
 ## 2026-10-11 — A Codex turn reaching a Claude hook endpoint became a Claude Code session (#490)
 
 During the App Store 1.8.0 (7801) audit on 2026-10-09, one completed answer appeared twice at 12:43, once under the Claude Code icon and once under Codex. The roster labelled the session Claude Code while reporting an OpenAI model. The work was a single Codex thread (`codex-cli`, `gpt-6-astra`, turn 12:40:50–12:47:09 in `apme.sqlite`). No `claude-code` APME run existed in that window, and the persisted timelines no longer held the duplicate, so it lived in live session and timeline state.

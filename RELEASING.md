@@ -236,8 +236,14 @@ codes now require an unambiguous or explicitly selected host.
 Targets: npm 1.9.0 (all four public packages), Android 1.9.0/code 26 and ESP32
 1.9.0 (all twelve firmware targets). Apple remains on its already-submitted 1.9.0
 candidate. Stream Deck and Ulanzi are not republished in this round. Source and
-local verification are preparation only; publication/submission receipts follow
-when verified at their destinations.
+local verification are preparation only. Android 26 (1.9.0) was submitted to
+Google Play at 12:58 KST on October 12; the overview reads Changes in review,
+with automatic publication after approval and three release-note languages.
+Android and ESP32 tags point to `79061799` (PR #514); their release workflows
+must be read back before calling the downloadable artifacts public. npm remains
+blocked on the installed-candidate soak and the APME startup cost fix. The first
+merge's local auto-deploy was cancelled while the follow-up fix and handover
+checks were in progress; the final fix merge must restore deployment.
 
 ### Apple 1.9.0 delivery readback, 2026-10-12
 
