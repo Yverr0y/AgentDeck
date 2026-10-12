@@ -325,6 +325,18 @@ passive-only — see [appstore-feature-matrix.md](appstore-feature-matrix.md).
 
 ### Divoom Timebox Mini
 
+**macOS Bluetooth recovery (also applies to iDotMatrix):** the app reports
+permission awaiting a response, denied access, restricted access, and adapter
+readiness separately. Unlock the Mac and respond to the app's Bluetooth request
+when consent is pending; denied access is managed in System Settings → Privacy &
+Security → Bluetooth. A Development-signed app's grant may not match the
+TestFlight/App Store signature even when the bundle ID is identical. Check the
+actual installed app, not a development build's permission. Both transports keep
+their bounded retry path so a later grant can recover without deleting the
+configured device. If an authorized host cannot discover a Timebox, check its
+power and advertising separately; an absent advertisement is not proof of a host
+driver regression.
+
 The Timebox Mini drives an 11×11 LED screen over **BLE**. A `timeboxDevices` entry carries the BLE `address`; `agentdeck timebox scan` discovers `TimeBox-mini-light` peripherals and `add <address>` registers one.
 
 - **BLE** — BLE GATT over the ISSC transparent-UART service `49535343-fe7d-…` (write char `49535343-8841-…`, write-without-response, 20-byte chunks). Advertises as `TimeBox-mini-light` (sharing its BD_ADDR with the Classic audio endpoint `TimeBox-mini-audio`). Driven by `sync_ble.py` (bleak) on the CLI daemon **and natively by the App Store Swift daemon over CoreBluetooth** (no subprocess). (The legacy Bluetooth Classic SPP variant was removed — poor macOS compatibility, no App Store path.)

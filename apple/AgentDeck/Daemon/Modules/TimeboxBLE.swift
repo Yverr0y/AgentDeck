@@ -109,10 +109,33 @@ final class TimeboxBLE: NSObject, @unchecked Sendable {
         }
     }
 
+    /// A pending macOS consent request can leave the manager in `.unknown` for
+    /// longer than our connection budget (including while the screen is locked).
+    /// Report the authorization decision separately from the adapter's power.
+    static func readinessFailure(state: CBManagerState, authorization: CBManagerAuthorization) -> String {
+        switch authorization {
+        case .notDetermined:
+            return "Bluetooth permission is awaiting your response. Unlock your Mac and respond to AgentDeck's Bluetooth request."
+        case .denied:
+            return "Bluetooth access is denied. Allow AgentDeck in System Settings > Privacy & Security > Bluetooth."
+        case .restricted:
+            return "Bluetooth access is restricted on this Mac."
+        case .allowedAlways:
+            return "Bluetooth did not become ready (state: \(describeState(state))). Retrying automatically."
+        @unknown default:
+            return "Bluetooth authorization is unknown. Retrying automatically."
+        }
+    }
+
     // MARK: - Public async API
 
     func waitUntilReady(timeout: TimeInterval = 5) async throws {
-        try await withTimeout(timeout, onTimeout: { .bluetoothUnavailable("powered-on wait timed out") }) {
+        try await withTimeout(timeout, onTimeout: {
+            self.queue.sync {
+                .bluetoothUnavailable(Self.readinessFailure(state: self.central.state,
+                                                            authorization: CBManager.authorization))
+            }
+        }) {
             let waiterId = UUID()
             defer { self.queue.async { _ = self.cancelledStateWaiters.remove(waiterId) } }
             try await withTaskCancellationHandler {
@@ -125,7 +148,9 @@ final class TimeboxBLE: NSObject, @unchecked Sendable {
                         switch self.central.state {
                         case .poweredOn: cont.resume()
                         case .poweredOff: cont.resume(throwing: TimeboxBLEError.bluetoothUnavailable("powered off"))
-                        case .unauthorized: cont.resume(throwing: TimeboxBLEError.bluetoothUnavailable("unauthorized"))
+                        case .unauthorized:
+                            cont.resume(throwing: TimeboxBLEError.bluetoothUnavailable(Self.readinessFailure(
+                                state: self.central.state, authorization: CBManager.authorization)))
                         case .unsupported: cont.resume(throwing: TimeboxBLEError.bluetoothUnavailable("unsupported"))
                         default: self.stateContinuations[waiterId] = cont
                         }
@@ -334,7 +359,9 @@ extension TimeboxBLE: CBCentralManagerDelegate {
         switch central.state {
         case .poweredOn: waiters.values.forEach { $0.resume() }
         case .poweredOff: waiters.values.forEach { $0.resume(throwing: TimeboxBLEError.bluetoothUnavailable("powered off")) }
-        case .unauthorized: waiters.values.forEach { $0.resume(throwing: TimeboxBLEError.bluetoothUnavailable("unauthorized")) }
+        case .unauthorized:
+            let reason = Self.readinessFailure(state: central.state, authorization: CBManager.authorization)
+            waiters.values.forEach { $0.resume(throwing: TimeboxBLEError.bluetoothUnavailable(reason)) }
         case .unsupported: waiters.values.forEach { $0.resume(throwing: TimeboxBLEError.bluetoothUnavailable("unsupported")) }
         default: stateContinuations = waiters
         }
