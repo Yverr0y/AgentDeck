@@ -313,28 +313,24 @@ advance independently; you do not need to update every device together.
 |---|---|---|
 | Mac · iPhone · iPad | [App Store](https://apps.apple.com/app/id6784822497?pt=128040795&ct=github-readme-202610&mt=8) | `apple-v*` |
 | Android tablets and e-ink | [Google Play](https://play.google.com/store/apps/details?id=dev.agentdeck) · [signed GitHub APK](https://github.com/puritysb/AgentDeck/releases?q=android-v&expanded=true) | `android-v1.9.0` |
-| CLI + daemon | [`npx @agentdeck/setup`](https://www.npmjs.com/package/@agentdeck/setup) | `npm-v1.8.0` |
+| CLI + daemon | [`npx @agentdeck/setup`](https://www.npmjs.com/package/@agentdeck/setup) | `npm-v1.9.0` |
 | Stream Deck / Mini / XL / Plus / + XL | [Elgato Marketplace](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464) | `streamdeck-v*` |
 | Ulanzi D200H / D200X LCD keys | [Ulanzi Marketplace](https://ugc.ulanzistudio.com/contentView/1141); D200X encoders are not supported | `ulanzi-v*` |
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
 
-**Release work, 2026-10-12:** Android 1.9.0 (26) is available on Google Play
-(100% rollout, published 13:10 KST) and as a signed GitHub APK. npm and ESP32 1.9.0 are being verified,
-including Android guided setup on LCD and e-ink. The delivery states below remain
-in effect until each channel's publication or submission is read back.
+**Delivery status, 2026-10-12:** Android 1.9.0 (26) is public on Google Play
+(100% rollout across 178 countries/regions) and as a signed GitHub APK. Its
+three-step setup covers appearance, computer connection and readiness on LCD
+and e-ink, while preserving existing settings and paired hosts on upgrade.
+All four npm packages and their `latest` tags are public at 1.9.0. ESP32 1.9.0
+firmware is public for twelve boards; all 60 binaries match the release manifest.
 
-**Delivery status, 2026-10-06:** Android 1.8.0's signed APK and Stream Deck/Ulanzi
-1.8.0 packages are public on GitHub. Google Play 1.8.0 (25) is also live. Apple
-iOS/macOS 1.8.0 is Ready for Distribution in App Store Connect (read October 12);
-Apple 1.9.0 (7901 on each platform) is Waiting for Review, submitted October 12
-with automatic release after approval; it is not yet the live Store version.
-Ulanzi 1.8.0 was submitted for review. Elgato 1.8
-is public: the Marketplace page shows Version 1.8, released 2026-10-08 (read
-2026-10-11). The last verified public Ulanzi version remains 1.6.0. All four npm packages and their `latest` tags are
-public at 1.8.0. ESP32 1.8.0 firmware for twelve boards is public after
-the TTGO dependency fix passed Linux CI; the browser flasher serves the verified
-1.8.0 images.
-See the [current delivery readback](RELEASING.md#delivery-readback-2026-10-06).
+Apple iOS/macOS 1.8.0 remains Ready for Distribution; 1.9.0 (7901 on each
+platform) is Waiting for Review with automatic release after approval. Elgato
+1.8 is public (Marketplace read October 11). Ulanzi 1.8.0 remains submitted,
+with 1.6.0 the last verified public version. Neither deck plugin was republished
+in this round. See the [additional-channel delivery readback](RELEASING.md#additional-190-delivery-readback-2026-10-12)
+for verification and remaining hardware limitations.
 
 Mobile apps and hardware are companion surfaces: keep a daemon running on your
 computer. Supported ESP32 boards offer Wi-Fi OTA after the first USB flash;

@@ -61,3 +61,30 @@ polls are suppressed. Regression tests cover event-loop availability while
 commands are pending, timeout/permission failure, recovery, and stale completions.
 Installed-candidate soak and a fresh full receipt remain required before npm
 publication.
+
+
+## Additional channels delivered
+
+Google Play **26 (1.9.0)** became available October 12 at **13:10 KST**, 100%
+in 178 countries/regions. The exact public GitHub APK is installed on Lenovo,
+Crema S and Pantone 6 with upgrade settings and guide completion preserved.
+All four npm packages/latest tags and the twelve-board ESP32 release are public.
+Registry integrity and **1297 code/type/asset file matches**, 60 firmware hashes
+and 15 CI/public firmware matches were read back from their destinations.
+
+Clean commit `8869a73e` passes 25 full automated gates in 15m16s; Windows Node
+22/24/26 passes separately. Runtime `ee3f46e3890b` answers 90/90 health probes
+(median 4 ms, max 1,810 ms) under concurrent full verification. CLI-only, Mac-client
+and automatic Swift reclaim are observed with real work; recovery takes 145.2 s
+including the documented bind cooldown. Every Android device displays the real
+post-recovery reply without repairing hooks or ADB. Main auto-deploy is restored
+at merge `4f00b28f` after preserving the prior staged app and restoring the CLI link.
+
+LilyGo EPD47 and T-Display-S3-Pro directly report 1.9.0 / 79061799 after verified
+writes. Full visual/touch lab acceptance is not inferred. NM serial identity is
+unavailable and its old firmware is preserved ([#518](https://github.com/puritysb/AgentDeck/issues/518));
+Swift-only BLE power-on timeouts are [#517](https://github.com/puritysb/AgentDeck/issues/517).
+Apple 1.9.0/7901 remains Waiting for Review on both platforms. Its binary does
+not contain the later APME repair. Destination and Pages details are in
+[the delivery record](RELEASING.md#additional-190-delivery-readback-2026-10-12)
+and [#515](https://github.com/puritysb/AgentDeck/issues/515).
