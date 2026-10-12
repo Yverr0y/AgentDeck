@@ -224,30 +224,65 @@ CI going green is the first of five, not the last. Keep them apart in your head 
 
 **Never report a state you did not measure.** Each has its own instrument: the workflow log for 1, `gh release list` for 2, the portal or `npm view <pkg> version` for 3, and the portal for 4 and 5. Deriving one from another is how "released" gets claimed for a build sitting in a portal — it happened on 2026-08-09, when CI upload was reported as a completed Stream Deck and Ulanzi release while neither had been submitted.
 
-### npm / Android / ESP32 1.9.0 preparation, 2026-10-12
+### Additional 1.9.0 delivery readback, 2026-10-12
 
-The owner authorized these additional channels and an Android onboarding audit.
-Android previously offered connection settings without a first-use guide. The
-candidate adds appearance, computer connection and readiness steps shared by LCD
-and e-ink, with a real empty-habitat preview, skipping, persistent completion and
-Settings re-entry. Existing settings and paired hosts survive upgrade. Pairing
-codes now require an unambiguous or explicitly selected host.
+The owner authorized the additional channels and Android onboarding audit.
+[PR #514](https://github.com/puritysb/AgentDeck/pull/514) adds appearance,
+computer connection and readiness steps shared by LCD and e-ink, with a real
+empty-habitat preview, skipping, persistent completion and Settings re-entry.
+Upgrades retain existing settings and paired hosts. Pairing codes require an
+unambiguous or explicitly selected host.
 
-Targets: npm 1.9.0 (all four public packages), Android 1.9.0/code 26 and ESP32
-1.9.0 (all twelve firmware targets). Apple remains on its already-submitted 1.9.0
-candidate. Stream Deck and Ulanzi are not republished in this round. Source and
-local verification are preparation only unless destination readback is recorded.
-Google Play lists Android 26 (1.9.0) as **Available on Google Play**, published
-October 12 at 13:10 KST, with 100% rollout across 178 countries/regions and
-three release-note languages.
-Android and ESP32 tags point to `79061799` (PR #514). The Android GitHub
-release is public; its downloaded APK matches the release checksum and signing
-certificate and is installed on Lenovo Tab, Crema S and Pantone 6. ESP32
-workflow `38202033639` is still building the twelve-board matrix. npm remains
-blocked on the final installed-candidate soak after fixes to APME startup cost
-backfills and synchronous macOS display-state probes. The first
-merge's local auto-deploy was cancelled while the follow-up fix and handover
-checks were in progress; the final fix merge must restore deployment.
+| Channel | Verified destination | Source |
+|---|---|---|
+| Android | Google Play **26 (1.9.0)** available, published October 12 at **13:10 KST**, 100% rollout across 178 countries/regions; signed GitHub APK public | `android-v1.9.0` → `79061799` |
+| ESP32 | Twelve-board release with 62 assets; all 60 binaries match manifest sizes and SHA-256 values | `esp32-v1.9.0` → `79061799` |
+| npm | All four public packages and `latest` tags read back as 1.9.0; registry integrity and nonempty setup README verified | `npm-v1.9.0` → `8869a73e` |
+
+The downloaded public Android APK's SHA-256 is
+`f3f2cab17f11f2f79f492d1d10493768ee27956e14ffb1c42e06282d0faa8632`;
+its signing certificate matches the established release identity. That exact
+APK is installed on Lenovo Tab, Crema S and Pantone 6, with settings and guide
+completion preserved. LCD and e-ink onboarding were exercised, including
+explicit-host pairing and Wi-Fi reconnect. Three release-note languages remain
+attached in Play, with unchanged supported-device coverage.
+
+Official ESP32 CI images installed on LilyGo EPD47 and T-Display-S3-Pro both
+passed write verification and directly reported **1.9.0 / 79061799** after boot.
+All 15 downloaded CI binaries match their final public counterparts. This is a
+boot/transport receipt, not a claim of full physical visual or touch coverage.
+NM-EPD-420 returned no fresh serial identity; it was not flashed. Its connection
+recovery and update are tracked in [#518](https://github.com/puritysb/AgentDeck/issues/518).
+The Pages flasher deployment is tracked in [#515](https://github.com/puritysb/AgentDeck/issues/515).
+Flash geometry is unchanged from 1.8.0, so the Pages refresh and npm publication
+overlap after the complete firmware release becomes public.
+
+[PR #516](https://github.com/puritysb/AgentDeck/pull/516) repairs repeated APME
+startup backfills and synchronous macOS display polling. The npm tag's tree is
+identical to merge `4f00b28f`; its [clean full receipt](verification/receipts/2026-10-12-8869a73.json)
+records **25 automated passes in 15m16s**, with Windows Node 22/24/26 covered
+by hosted CI. The three broad manual lab gates remain unattested. The published
+packages' **1297 code, type and asset files** byte-match the installed candidate.
+
+Installed build `ee3f46e3890b` answered **90/90** health probes under concurrent
+full build load (median **4 ms**, maximum **1,810 ms**, 5 s deadline). Real work
+reached tablets and the Mac in CLI-only and Node-owner/Mac-client modes. After
+CLI shutdown, TestFlight 7901 reclaimed 9120 in **145.2 s**, including the macOS
+bind cooldown on 9121; all three tablets displayed the subsequent real Swift
+reply without hook reinstallation or ADB repair. Swift-only Timebox/iDotMatrix
+powered-on timeouts remain [#517](https://github.com/puritysb/AgentDeck/issues/517).
+Those BLE sources are unchanged from Apple 1.8.0, so a new regression is not
+established. The Swift APME follow-up is not in immutable submitted build 7901.
+
+[Local main deployment](https://github.com/puritysb/AgentDeck/actions/runs/38205823630)
+was restored at `4f00b28f`: installed Mac app, supervised daemon with the measured
+build identity, and Stream Deck runtime verified. The older staged app was
+preserved in diagnostics/backups before retry, and the CLI was relinked to the
+persistent main checkout after installed-package acceptance. Stream Deck and
+Ulanzi have no new release in this round. The release workflows are
+[Android](https://github.com/puritysb/AgentDeck/actions/runs/38201953480),
+[ESP32](https://github.com/puritysb/AgentDeck/actions/runs/38202033639) and
+[npm](https://github.com/puritysb/AgentDeck/actions/runs/38206633050).
 
 ### Apple 1.9.0 delivery readback, 2026-10-12
 
