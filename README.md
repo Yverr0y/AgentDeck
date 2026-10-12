@@ -318,8 +318,8 @@ advance independently; you do not need to update every device together.
 | Ulanzi D200H / D200X LCD keys | [Ulanzi Marketplace](https://ugc.ulanzistudio.com/contentView/1141); D200X encoders are not supported | `ulanzi-v*` |
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
 
-**Release work, 2026-10-12:** Android 1.9.0 (26) is submitted to Google Play for
-review. npm and ESP32 1.9.0 are being verified,
+**Release work, 2026-10-12:** Android 1.9.0 (26) is available on Google Play
+(100% rollout, published 13:10 KST) and as a signed GitHub APK. npm and ESP32 1.9.0 are being verified,
 including Android guided setup on LCD and e-ink. The delivery states below remain
 in effect until each channel's publication or submission is read back.
 

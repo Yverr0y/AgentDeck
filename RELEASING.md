@@ -236,12 +236,16 @@ codes now require an unambiguous or explicitly selected host.
 Targets: npm 1.9.0 (all four public packages), Android 1.9.0/code 26 and ESP32
 1.9.0 (all twelve firmware targets). Apple remains on its already-submitted 1.9.0
 candidate. Stream Deck and Ulanzi are not republished in this round. Source and
-local verification are preparation only. Android 26 (1.9.0) was submitted to
-Google Play at 12:58 KST on October 12; the overview reads Changes in review,
-with automatic publication after approval and three release-note languages.
-Android and ESP32 tags point to `79061799` (PR #514); their release workflows
-must be read back before calling the downloadable artifacts public. npm remains
-blocked on the installed-candidate soak and the APME startup cost fix. The first
+local verification are preparation only unless destination readback is recorded.
+Google Play lists Android 26 (1.9.0) as **Available on Google Play**, published
+October 12 at 13:10 KST, with 100% rollout across 178 countries/regions and
+three release-note languages.
+Android and ESP32 tags point to `79061799` (PR #514). The Android GitHub
+release is public; its downloaded APK matches the release checksum and signing
+certificate and is installed on Lenovo Tab, Crema S and Pantone 6. ESP32
+workflow `38202033639` is still building the twelve-board matrix. npm remains
+blocked on the final installed-candidate soak after fixes to APME startup cost
+backfills and synchronous macOS display-state probes. The first
 merge's local auto-deploy was cancelled while the follow-up fix and handover
 checks were in progress; the final fix merge must restore deployment.
 

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn, execFileSync, type ChildProcess } from 'child_process';
+import { spawn, execFile, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import { debug } from './logger.js';
 
@@ -7,6 +7,7 @@ const POLL_INTERVAL_S = 2;
 const MAX_RESTARTS = Infinity; // keep trying forever
 const RESTART_DELAY_MS = 5_000;
 const FALLBACK_POLL_MS = 5_000;
+const FALLBACK_PROBE_TIMEOUT_MS = 2_000;
 
 const PYTHON_SCRIPT = `
 import ctypes, ctypes.util, time, sys
@@ -45,6 +46,9 @@ export class DisplayMonitor extends EventEmitter {
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private fallbackTimer: ReturnType<typeof setInterval> | null = null;
 
+  private fallbackPending = false;
+  private fallbackGeneration = 0;
+
   start(): void {
     if (this.running) return;
     // Both the CGDisplayIsAsleep + pmset paths are macOS-only. On other
@@ -65,6 +69,8 @@ export class DisplayMonitor extends EventEmitter {
 
   stop(): void {
     this.running = false;
+    this.fallbackGeneration++;
+    this.fallbackPending = false;
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
@@ -165,41 +171,49 @@ export class DisplayMonitor extends EventEmitter {
     }, RESTART_DELAY_MS);
   }
 
-  /** Fallback poll using public macOS CLIs (works even if python/CGDisplayIsAsleep fails). */
+  /** Slow host probes must never occupy the daemon's HTTP/WS event loop. */
   private startFallbackPoll(): void {
     if (this.fallbackTimer) return;
-    this.pollFallbackOnce();
-    this.fallbackTimer = setInterval(() => this.pollFallbackOnce(), FALLBACK_POLL_MS);
+    void this.pollFallbackOnce();
+    this.fallbackTimer = setInterval(() => { void this.pollFallbackOnce(); }, FALLBACK_POLL_MS);
   }
 
-  private pollFallbackOnce(): void {
+  private async pollFallbackOnce(): Promise<void> {
+    if (!this.running || this.fallbackPending) return;
+    this.fallbackPending = true;
+    const generation = this.fallbackGeneration;
     try {
-      const out = execFileSync('pmset', ['-g', 'powerstate', 'IODisplayWrangler'], { encoding: 'utf8' });
-      const match = out.match(/state:\s*(\d+)/);
-      if (match) {
-        const stateNum = parseInt(match[1], 10);
-        // 4 = awake, 1 = asleep (common mapping)
-        this.setComponent('displayAsleepByPower', stateNum < 4, `pmset:${stateNum}`);
+      const [power, registry, screensaver] = await Promise.all([
+        probeDisplayCommand('pmset', ['-g', 'powerstate', 'IODisplayWrangler']),
+        probeDisplayCommand('ioreg', ['-n', 'Root', '-d1']),
+        probeDisplayCommand('pgrep', ['-x', 'ScreenSaverEngine']),
+      ]);
+      // A stopped/restarted monitor must not consume the previous poll's data.
+      if (!this.running || generation !== this.fallbackGeneration) return;
+      if (power?.code === 0) {
+        const match = power.stdout.match(/state:\s*(\d+)/);
+        if (match) {
+          const stateNum = parseInt(match[1], 10);
+          this.setComponent('displayAsleepByPower', stateNum < 4, `pmset:${stateNum}`);
+        }
       }
-    } catch (err) {
-      debug('display', `pmset poll failed: ${err}`);
+      if (registry?.code === 0) {
+        const presence = parseIoregPresence(registry.stdout);
+        if (presence.screenLocked !== undefined) {
+          this.setComponent('screenLocked', presence.screenLocked, presence.screenLocked ? 'screenLock' : 'screenUnlock');
+        }
+        if (presence.sessionInactive !== undefined) {
+          this.setComponent('sessionInactive', presence.sessionInactive, presence.sessionInactive ? 'sessionResign' : 'sessionResume');
+        }
+      }
+      // pgrep exit 1 proves no match; a timeout or any other failure is unknown.
+      if (screensaver?.code === 0 || screensaver?.code === 1) {
+        const active = screensaver.code === 0;
+        this.setComponent('screensaverActive', active, active ? 'screensaverStart' : 'screensaverStop');
+      }
+    } finally {
+      if (generation === this.fallbackGeneration) this.fallbackPending = false;
     }
-
-    try {
-      const out = execFileSync('ioreg', ['-n', 'Root', '-d1'], { encoding: 'utf8' });
-      const presence = parseIoregPresence(out);
-      if (presence.screenLocked !== undefined) {
-        this.setComponent('screenLocked', presence.screenLocked, presence.screenLocked ? 'screenLock' : 'screenUnlock');
-      }
-      if (presence.sessionInactive !== undefined) {
-        this.setComponent('sessionInactive', presence.sessionInactive, presence.sessionInactive ? 'sessionResign' : 'sessionResume');
-      }
-    } catch (err) {
-      debug('display', `ioreg presence poll failed: ${err}`);
-    }
-
-    const screensaverActive = isScreensaverProcessActive();
-    this.setComponent('screensaverActive', screensaverActive, screensaverActive ? 'screensaverStart' : 'screensaverStop');
   }
 }
 
@@ -229,11 +243,30 @@ export function parseIoregPresence(output: string): { screenLocked?: boolean; se
   };
 }
 
-function isScreensaverProcessActive(): boolean {
-  try {
-    execFileSync('pgrep', ['-x', 'ScreenSaverEngine'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+/** Resolve independently of child close: even a stuck child has a bounded probe. */
+function probeDisplayCommand(file: string, args: string[]): Promise<{ stdout: string; code: number } | undefined> {
+  return new Promise((resolve) => {
+    let child: ChildProcess | undefined;
+    let settled = false;
+    const finish = (result: { stdout: string; code: number } | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      resolve(result);
+    };
+    const deadline = setTimeout(() => {
+      debug('display', `${file} probe timed out`);
+      finish(undefined);
+      try { child?.kill('SIGKILL'); } catch { /* already exited */ }
+    }, FALLBACK_PROBE_TIMEOUT_MS);
+    try {
+      child = execFile(file, args, { encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024 }, (error, stdout) => {
+        if (!error) finish({ stdout, code: 0 });
+        else if (typeof error.code === 'number' && !error.killed && !error.signal) finish({ stdout, code: error.code });
+        else finish(undefined);
+      });
+    } catch {
+      finish(undefined);
+    }
+  });
 }

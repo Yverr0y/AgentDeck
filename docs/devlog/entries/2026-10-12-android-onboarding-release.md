@@ -43,3 +43,21 @@ Regression coverage exercises legacy positive/zero costs and reopening on both
 runtimes; Node also pins the absence of the unbounded UPDATE statement. The
 Swift mirror is a follow-up after the submitted Apple 1.9.0/build 7901 and must
 not be described as part of that immutable submission.
+
+## Display fallback was the remaining live-response stall
+
+The committed cost fix passed the complete automated pre-release check at
+`fafb84ea`, but the installed fleet soak still timed out twice in 60 health
+requests (5 s deadline). A temporary inspector trace of slow synchronous calls
+identified 21 of 32 calls in DisplayMonitor: `pmset`, `ioreg` and `pgrep`, with
+one call taking 2,695 ms. The three ran serially on the HTTP/WS event loop.
+Only two SQLite writes crossed 200 ms (227/207 ms); the probe was removed and
+the loopback inspector closed after measurement.
+
+The fallback now runs three bounded asynchronous probes, preserves the last
+known component on unreadable/timeout results, and accepts pgrep exit 1 as the
+only no-match result. Stop/restart invalidates an in-flight poll; concurrent
+polls are suppressed. Regression tests cover event-loop availability while
+commands are pending, timeout/permission failure, recovery, and stale completions.
+Installed-candidate soak and a fresh full receipt remain required before npm
+publication.

@@ -8,11 +8,11 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
 
-## 1.9.0 submitted — production receipt (2026-10-12)
+## 1.9.0 public — production receipt (2026-10-12)
 
-Production **26 (1.9.0)** was submitted for full rollout on October 12 at
-12:58 KST. The publishing overview confirms **Changes in review**. Managed
-publishing is disabled, so publication follows approval automatically. All
+Production **26 (1.9.0)** is **Available on Google Play**, published October 12
+at **13:10 KST**, with **100% rollout across 178 countries/regions**. The
+publishing overview has no unpublished changes. All
 three [release-note languages](1.9.0/release-notes.json) were verified in the
 review screen. Existing galleries remain attached, and supported-device coverage
 is unchanged (8,626 phones and 5,630 tablets). The native-debug-symbol warning

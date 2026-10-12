@@ -67,7 +67,9 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
   conversation instead of the last speaker. Hermes setup diagnostics explain
   missing or unreachable receivers.
 - The npm daemon avoids full-table cost backfills on every start and preserves
-  partially known costs across restarts.
+  partially known costs across restarts. macOS display-state probes run
+  asynchronously with deadlines, keeping slow host commands off the daemon
+  event loop.
 - The CLI dashboard uses the Tide console. Pixoo gains Tide rendering and paced
   scene uploads; Timebox gains expressive faces, and compact displays match
   activity to the correct session.
