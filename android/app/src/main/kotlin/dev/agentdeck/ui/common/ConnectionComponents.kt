@@ -398,21 +398,38 @@ fun PairingCodeInput(
     bridges: List<DiscoveredBridge>,
     onPaired: (String) -> Unit,
     modifier: Modifier = Modifier,
+    selectedUrl: String? = null,
+) {
+    var choice by remember(selectedUrl) { mutableStateOf<String?>(null) }
+    val target = choice ?: selectedUrl?.takeUnless { PairingCredential.isLoopback(it) }
+    val daemon = dev.agentdeck.net.AutoConnectRules.pickDaemon(bridges, target)
+    if (daemon == null) {
+        val hosts = bridges.filter { it.agentType == "daemon" }.distinctBy { PairingCredential.endpointOf(it.wsUrl()) }
+        if (hosts.isNotEmpty()) Column(modifier) {
+            Text("Choose the computer that displayed your pairing code.")
+            hosts.forEach { host ->
+                OutlinedButton(onClick = { choice = host.wsUrl() }) { Text(host.name) }
+            }
+        }
+        return
+    }
+    // A host change cancels the old request and clears its code/result.
+    androidx.compose.runtime.key(daemon.host, daemon.port) {
+        PairingCodeForHost(daemon, onPaired, modifier)
+    }
+}
+
+@Composable
+private fun PairingCodeForHost(
+    daemon: DiscoveredBridge,
+    onPaired: (String) -> Unit,
+    modifier: Modifier,
 ) {
     val isEink = LocalIsEink.current
     val scope = rememberCoroutineScope()
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-
-    // The daemon hub is the only thing that serves external clients, and the
-    // canonical port is preferred but not required — it legitimately falls back
-    // to 9121+ when something else won the port.
-    val daemon = remember(bridges) {
-        val daemons = bridges.filter { it.agentType == "daemon" }
-        daemons.firstOrNull { it.port == BridgeConstants.WS_PORT } ?: daemons.firstOrNull()
-    }
-    if (daemon == null) return
 
     val ready = PairingCodeRules.normalize(code) != null && !busy
     val submit = submit@{
@@ -450,7 +467,7 @@ fun PairingCodeInput(
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            text = "Pair with a code from your Mac (Devices \u203a Pair Device)",
+            text = "Pair with ${daemon.name} · Enter its code from Devices \u203a Pair Device",
             style = MaterialTheme.typography.bodySmall,
             color = if (isEink) Color.DarkGray else MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -604,6 +621,7 @@ fun ConnectionPanel(
         ) {
             PairingCodeInput(
                 bridges = discoveredBridges,
+                selectedUrl = retryUrl,
                 onPaired = onPaired,
             )
         }

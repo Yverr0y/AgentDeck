@@ -586,7 +586,7 @@ private fun ConnectionOverlay(
  * 60fps animation loop with all creatures and environment.
  */
 @Composable
-private fun ColorTerrariumBackground(
+internal fun ColorTerrariumBackground(
     state: TerrariumState,
     mainCrayfish: CrayfishCreature,
     mainCrayfishCenterXFraction: Float,

@@ -139,6 +139,7 @@ fun SettingsScreen(
                 )
                 DisplaySettingsCard(keepAwake, displaySyncEnabled, idleTimeoutMinutes, coroutineScope, displayPrefs)
                 Spacer(modifier = Modifier.weight(1f))
+                dev.agentdeck.ui.onboarding.GuidedSetupButton(displayPrefs)
                 AboutFooter()
             }
         }
@@ -186,6 +187,7 @@ fun SettingsScreen(
             DisplaySettingsCard(keepAwake, displaySyncEnabled, idleTimeoutMinutes, coroutineScope, displayPrefs)
 
             Spacer(modifier = Modifier.weight(1f))
+            dev.agentdeck.ui.onboarding.GuidedSetupButton(displayPrefs)
             AboutFooter()
         }
     }

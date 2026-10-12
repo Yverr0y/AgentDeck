@@ -47,6 +47,30 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## Unreleased
 
+## 2026-10-12 — npm 1.9.0, Android 1.9.0, ESP32 1.9.0
+
+- Android adds skippable guided setup: choose a dashboard appearance, preview an
+  empty habitat offline, connect a computer, and understand when live sessions
+  are ready. LCD tablets and e-ink readers share the flow with panel-appropriate
+  rendering. Existing installations retain their settings and can reopen the
+  guide from Settings.
+- Android keeps host selection and per-computer pairing credentials through
+  reconnection. Pairing codes target the chosen computer; ambiguous discovery
+  requires a choice. Completing setup does not replace a selected host with USB.
+- The npm daemon tracks background work per session across agents, corrects hook
+  attribution and managed-session identity, folds OpenCode child sessions and
+  prevents duplicate timeline activity. OpenClaw steering targets the user's
+  conversation instead of the last speaker. Hermes setup diagnostics explain
+  missing or unreachable receivers.
+- The CLI dashboard uses the Tide console. Pixoo gains Tide rendering and paced
+  scene uploads; Timebox gains expressive faces, and compact displays match
+  activity to the correct session.
+- T-Display-S3-Pro supports portrait and landscape orientation. Stale Hermes
+  activity clears across firmware surfaces.
+- Non-Apple surfaces retain the opt-in local Dot companion development paths.
+  This release does not provide a managed public relay or claim a completed
+  cloud service; App Store macOS/iOS builds continue to exclude Dot entirely.
+
 - EPD47 and NM-EPD-420 e-ink panels refresh less and say when they last did.
   EPD47 updates drive only the pixels that changed, in the rows that changed,
   instead of erasing and redrawing every inked pixel; a clean panel no longer

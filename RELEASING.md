@@ -224,6 +224,21 @@ CI going green is the first of five, not the last. Keep them apart in your head 
 
 **Never report a state you did not measure.** Each has its own instrument: the workflow log for 1, `gh release list` for 2, the portal or `npm view <pkg> version` for 3, and the portal for 4 and 5. Deriving one from another is how "released" gets claimed for a build sitting in a portal — it happened on 2026-08-09, when CI upload was reported as a completed Stream Deck and Ulanzi release while neither had been submitted.
 
+### npm / Android / ESP32 1.9.0 preparation, 2026-10-12
+
+The owner authorized these additional channels and an Android onboarding audit.
+Android previously offered connection settings without a first-use guide. The
+candidate adds appearance, computer connection and readiness steps shared by LCD
+and e-ink, with a real empty-habitat preview, skipping, persistent completion and
+Settings re-entry. Existing settings and paired hosts survive upgrade. Pairing
+codes now require an unambiguous or explicitly selected host.
+
+Targets: npm 1.9.0 (all four public packages), Android 1.9.0/code 26 and ESP32
+1.9.0 (all twelve firmware targets). Apple remains on its already-submitted 1.9.0
+candidate. Stream Deck and Ulanzi are not republished in this round. Source and
+local verification are preparation only; publication/submission receipts follow
+when verified at their destinations.
+
 ### Apple 1.9.0 delivery readback, 2026-10-12
 
 [PR #512](https://github.com/puritysb/AgentDeck/pull/512) merged as
