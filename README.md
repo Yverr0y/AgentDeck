@@ -307,22 +307,33 @@ a one-time folder grant for its transcripts. Detailed setup and limitations:
 
 Use the channel for your device. Components with the same major version work
 together: a 1.0 device can connect to a 1.5 daemon. Minor and patch versions
-advance independently; you do not need to update every device together.
+use the same meaning across stores: minor versions identify a shared feature
+milestone, while target-specific patches fix or complete existing behavior.
+Targets can ship at different times; you do not need to update every device
+together. See the [version decision policy](RELEASING.md#choosing-a-version).
 
 | Product | Install / update | Release tag |
 |---|---|---|
 | Mac · iPhone · iPad | [App Store](https://apps.apple.com/app/id6784822497?pt=128040795&ct=github-readme-202610&mt=8) | `apple-v*` |
-| Android tablets and e-ink | [Google Play](https://play.google.com/store/apps/details?id=dev.agentdeck) · [signed GitHub APK](https://github.com/puritysb/AgentDeck/releases?q=android-v&expanded=true) | `android-v1.9.0` |
+| Android tablets and e-ink | [Google Play](https://play.google.com/store/apps/details?id=dev.agentdeck) · [signed GitHub APK](https://github.com/puritysb/AgentDeck/releases?q=android-v&expanded=true) | `android-v1.10.0` |
 | CLI + daemon | [`npx @agentdeck/setup`](https://www.npmjs.com/package/@agentdeck/setup) | `npm-v1.9.0` |
 | Stream Deck / Mini / XL / Plus / + XL | [Elgato Marketplace](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464) | `streamdeck-v*` |
 | Ulanzi D200H / D200X LCD keys | [Ulanzi Marketplace](https://ugc.ulanzistudio.com/contentView/1141); D200X encoders are not supported | `ulanzi-v*` |
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
 
-**In preparation, 2026-10-13:** background-work display improvements target Apple,
-Android, npm and ESP32 1.10.0, plus Stream Deck/Ulanzi 1.9.0. The delivery readback
-below describes the currently published versions; candidate builds are not live.
+**Android delivery, 2026-10-13:** the signed 1.10.0 APK is public on GitHub.
+Google Play 1.10.0 (27) is available to internal testers and submitted for
+production review; the last verified public Play version is 1.9.0 (26).
+Lenovo runs the actual Play-installed 1.10.0; Crema and Pantone run the signed
+GitHub build. Native 3D background companions now share geometry and use
+adaptive frame pacing, while e-ink emphasizes static counts and status. See
+the [Android delivery receipt](RELEASING.md#android-1100-delivery-readback-2026-10-13).
 
-**Delivery status, 2026-10-12:** Android 1.9.0 (26) is public on Google Play
+**Other candidates, 2026-10-13:** the background-work improvements for Apple,
+npm and ESP32 1.10.0, plus Stream Deck/Ulanzi 1.9.0, are in source. Those
+channels were not published by this Android release.
+
+**Previous delivery, 2026-10-12:** Android 1.9.0 (26) is public on Google Play
 (100% rollout across 178 countries/regions) and as a signed GitHub APK. Its
 three-step setup covers appearance, computer connection and readiness on LCD
 and e-ink, while preserving existing settings and paired hosts on upgrade.

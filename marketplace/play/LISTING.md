@@ -8,7 +8,7 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
 
-## 1.10.0 internal testing — 2026-10-13
+## 1.10.0 submitted — 2026-10-13
 
 Internal testing **27 (1.10.0)** is active and **available to internal testers**,
 published October 13 at **07:44 KST**. English, Korean and Japanese
@@ -27,10 +27,38 @@ AAB SHA-256: `c68430149b677ac45e61def12fe71383f3b506fe77f4da94884c2a3acd15e91f`.
 The Play-generated signed universal APK was downloaded and its Google certificate
 verified (`cefed158…`), SHA-256
 `953d5eec970819c3a7a393c3583924ad60b0e380319669711fea547df47f463d`.
-Its signature differs from the installed sideload build. Installing that APK
-on Lenovo needs uninstalling the existing app and restoring its settings;
-that destructive transition is awaiting the owner's answer. The device evidence
-above is from the signed sideload candidate, not a Play-installed runtime.
+The owner approved switching Lenovo only to Play. Its sideload installation
+was removed, the registered tester accepted the invitation, and Play installed
+1.9.0 before offering the internal update. Refreshing the Play Store cache
+made the internal-beta update visible. The installed **1.10.0 / code 27**
+reports `installerPackageName=com.android.vending`; its pulled base APK matches
+the Google app-signing certificate. The appearance/connection/readiness flow,
+USB connection and selected 3D view persisted through the 1.9 → 1.10 update.
+
+Actual Play native SurfaceView results at OS thermal status 3:
+**29.620 FPS / 733 frames / zero drops** with eight sessions and twelve jobs
+each. The first live-dashboard sample including startup was **29.806 FPS /
+707 frames / two drops**; it is not reported as a zero-drop run.
+After restoration to the real host and warm-up, the Play build presented
+30.269 FPS / 749 frames / zero drops.
+
+The Play-installed build also passed 5 → 2 → approval → resume → 0 and three
+identity/reconnect cycles. Its instance pool stayed at 144 across 1,397 trace
+samples, and reduced-motion aquarium pixels matched between captures. The
+system animator setting was restored and Lenovo returned to its real USB host.
+
+Production **27 (1.10.0)** was submitted for full rollout on **October 13 (KST)**.
+Publishing overview confirms **Changes in review**, initially running quick
+checks. Managed publishing remains disabled. All three release-note languages
+were verified; store gallery/device coverage is unchanged. The last verified
+public Play release remains 1.9.0, not this internal test.
+
+The [GitHub APK](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.10.0)
+is public, downloaded and signature-verified against the upload certificate
+(`10603af8…`), SHA-256
+`bbe28b3095dfc8b1c520ef869bd9310a16b29eeb75ae616b765004614f4c2d68`.
+Crema and Pantone upgraded to that public artifact with settings retained;
+both show the live background count. Lenovo stays on Play.
 
 ## 1.9.0 public — production receipt (2026-10-12)
 
@@ -40,7 +68,7 @@ publishing overview has no unpublished changes. All
 three [release-note languages](1.9.0/release-notes.json) were verified in the
 review screen. Existing galleries remain attached, and supported-device coverage
 is unchanged (8,626 phones and 5,630 tablets). The native-debug-symbol warning
-is non-blocking. The last verified public Play version remains **25 (1.8.0)**.
+is non-blocking. At this readback the public version is **26 (1.9.0)**.
 
 The [signed GitHub APK](https://github.com/puritysb/AgentDeck/releases/tag/android-v1.9.0)
 is public. Its downloaded signature matches the registered upload certificate

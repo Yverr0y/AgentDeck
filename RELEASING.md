@@ -1,14 +1,14 @@
 ---
 id: policy.releasing
 title: Releasing and Versioning
-description: Shared compatibility major, per-target feature/fix versions, release tags, and monotonic constraints.
+description: Shared compatibility major and feature milestones, target-specific patches, release decisions, and delivery evidence.
 category: Engineering
 locale: en
 canonical: true
 status: required
 owner: Release maintainers
-reviewed: 2026-08-26
-revision: 2026-09-13
+reviewed: 2026-10-13
+revision: 2026-10-13
 source_of_truth: RELEASING.md
 validators: [node scripts/build-design-system-viewer.mjs --check, pnpm verify-version]
 ---
@@ -21,23 +21,91 @@ component matches. Minor and patch values are ignored in both directions for
 compatibility: for example, `1.0.9` and `1.3.0` are compatible regardless of which
 side is newer.
 
-The three components communicate release scope:
+## Choosing a version
 
-- **Major (`X`)** — a protocol compatibility break or an exceptionally large,
-  coordinated product migration. Every maintained target moves together.
-- **Minor (`Y`)** — a substantial backward-compatible feature or feature bundle.
-  A target may advance independently while older same-major targets keep working.
-- **Patch (`Z`)** — a small backward-compatible bug fix or refinement. Bump only
-  the target being delivered.
+**Version scope follows the user-visible contract, not implementation effort,
+the number of commits, or the number of release attempts.** Classify the delta
+from the last delivered version of each channel before editing manifests.
 
-Root [`VERSION`](VERSION) is the repository baseline and compatibility-major
-anchor, not a minor/patch ceiling and not a runtime negotiation value. It
-currently reads **1.0.2**, so every maintained target must remain on major **1**.
-A target may advance its minor or patch without forcing unrelated targets or
-root to ship. Read declared values from `pnpm verify-version`, which reads each
-target's own manifest, and distinguish them from delivered state. The release
-table in [`README.md`](README.md#releases) records delivered state only after it
-has been measured with that channel's own instrument.
+| Component | Meaning across every distribution channel | Examples |
+| --- | --- | --- |
+| Major (`X`) | A protocol compatibility break or backward-incompatible coordinated product migration; maintained targets move together | A wire contract that older same-major peers cannot use |
+| Minor (`Y`) | A named product feature milestone with a substantial new, usable capability | A new end-to-end control workflow or supported device family |
+| Patch (`Z`) | Restores, completes or improves an existing promised capability without a compatibility break; patch numbers may differ by target | Broken/incomplete rollout, crash, frame pacing, performance, onboarding repair, rendering parity, signing or packaging fix |
+| Build / artifact identity | Identifies a rebuild or submission attempt of the same unreleased product version | Android `versionCode`, Apple `CFBundleVersion`, source SHA and artifact hash |
+
+A large rewrite that fixes an existing feature is still a patch. Completing
+an incomplete 1.9 experience is a 1.9.x correction, even if it finally becomes
+usable. A first-time substantial capability is a minor only when the release
+plan can state what users can newly accomplish. When the distinction is unclear,
+default to patch; do not manufacture a feature milestone to justify a number.
+
+### Keep channel meanings aligned
+
+- Allocate new **minor milestones product-wide**, with a name and concrete
+  acceptance scope. Channels shipping that milestone use the same `X.Y`;
+  minor is not a separate per-store release counter. Allocate the next milestone
+  above already published/reserved minors so historical numbers are not reused.
+- Each channel can deliver patches and reach a milestone on its own schedule.
+  Publish only changed, verified targets; do not ship an empty update merely to
+  make numbers match. Delayed targets can skip unused minor numbers when they
+  deliver a later milestone. Do not rename an already promised feature's late
+  repair as a new minor feature.
+- Record applicability and missing capabilities per target in the release plan.
+  Shared `X.Y` means the same product milestone, not identical hardware features
+  or simultaneous Store approval. A device's capability is established by its
+  feature matrix/protocol, not inferred from its minor version.
+- GitHub APK and Google Play are delivery routes for **one Android product
+  version**, not separately numbered products. The same applies to Store/direct
+  routes of any target. Distinguish source, artifact hash, signing identity,
+  build number and delivered state when packaging differs.
+- Keep historical published versions. Never delete/reassign a public tag,
+  relabel a released binary, downgrade a channel, or reuse a consumed store build
+  number to make a table look aligned. Reconcile historical differences at the
+  next real shared milestone, not with cosmetic releases.
+
+Root [`VERSION`](VERSION) is the compatibility-major anchor, not the latest
+product release and not a runtime negotiation value. It currently reads
+**1.0.2**, so maintained targets stay on major **1**. Same-major minor/patch
+versions remain compatible in both directions. A target-specific patch does
+not force root or other targets to change.
+
+### Record the decision before release work
+
+Before changing version manifests, creating a tag or uploading a binary, put a
+release decision in the release PR (or the existing release record):
+
+| Target / routes | Last verified public version | Uploaded/reserved version + build | Proposed version + build | Class and user-visible reason | Product milestone / applicability |
+| --- | --- | --- | --- | --- | --- |
+| Example Android / Play + GitHub | 1.9.0 | 1.9.0 / 26 | 1.9.1 / 27 | Patch: complete the promised background display and remove frame stalls | Existing 1.9 scope; no new milestone |
+
+State the previous→new behavior and tests, plus targets that are unchanged or
+still pending. Treat unshipped manifest values as candidates, not permission to
+publish those numbers. Recheck the portal's consumed version/build floor before
+upload. A metadata-only correction or rebuild of an unreleased version keeps
+its product version when the destination permits it; increment the required
+build identifier instead. Once a product version is public, changed executable
+content needs a new patch or a justified feature milestone. A portal constraint
+can force a higher patch/build; it never makes a bug fix a minor feature.
+
+`pnpm verify-version` enforces manifest consistency and the compatibility major;
+release CI also checks the exact channel tag and CHANGELOG entry. These checks
+**do not judge whether a change deserves minor or patch**. The release decision
+above and PR review own that judgment. After delivery, update the
+[README release table](README.md#releases) and the per-channel receipt from
+observed portal/artifact state; do not present a candidate as public.
+
+### October 2026 correction
+
+Android 1.10.0 has already been published to GitHub and internal Play and
+submitted for production. Its main purpose was completing and polishing the
+1.9 experience, so **1.9.1 would have been the appropriate classification**.
+Keep the delivered 1.10.0 identity; the next fix-only Android release is 1.10.1,
+not 1.11.0. The current unshipped Apple/npm/ESP32 1.10.0 and deck-plugin 1.9.0
+manifest values must be classified against each channel's actual delivered
+scope before their next upload/tag. Do not mechanically copy Android's number
+or publish those candidates just to align the fleet. New substantial features
+will receive a shared named minor milestone under the rules above.
 
 Three portal facts worth keeping from the recent Android delivery:
 
@@ -223,6 +291,34 @@ CI going green is the first of five, not the last. Keep them apart in your head 
 5. **Live** — the store distributes it.
 
 **Never report a state you did not measure.** Each has its own instrument: the workflow log for 1, `gh release list` for 2, the portal or `npm view <pkg> version` for 3, and the portal for 4 and 5. Deriving one from another is how "released" gets claimed for a build sitting in a portal — it happened on 2026-08-09, when CI upload was reported as a completed Stream Deck and Ulanzi release while neither had been submitted.
+
+### Android 1.10.0 delivery readback, 2026-10-13
+
+[PR #524](https://github.com/puritysb/AgentDeck/pull/524) merged after all CI
+checks passed. The clean implementation at `31b7c06b` passed
+[`verify:full --record`](verification/receipts/2026-10-12-31b7c06.json) in
+14m43s, including 501 Android tests and the Store/Dot artifact boundaries.
+`android-v1.10.0` points to `a7fc56d2` (the implementation plus documentation
+and the verification receipt). No other channel tag was pushed in this delivery.
+
+| Channel / device | Verified state |
+| --- | --- |
+| GitHub Android | Signed 1.10.0 APK public; downloaded version/signature/SHA-256 verified |
+| Play internal | 27 (1.10.0) available; enrolled Lenovo installed the actual Play update |
+| Play production | 27 (1.10.0) submitted for full rollout; overview says Changes in review; approval publishes automatically |
+| Lenovo | Play installer and Google signing certificate verified; 3D view and USB connection retained after 1.9 → 1.10 update |
+| Crema / Pantone | Public GitHub APK upgraded in place; live static background counts verified |
+
+On Lenovo at thermal status 3, the Play build's native SurfaceView presented
+29.620 FPS with eight sessions / twelve jobs each (733 frames, zero drops).
+The startup-inclusive live sample was 29.806 FPS (707 frames, two drops).
+After restoration to the real host and warm-up, the Play build presented
+30.269 FPS / 749 frames / zero drops.
+Earlier signed-candidate samples were 30.176 FPS live and 29.855 FPS crowded,
+both with zero drops; the pre-fix baseline was 13.238 FPS. These measurements
+prove the thermally constrained 30 Hz path, not unthrottled 60 FPS parity.
+Artifact hashes and store state are recorded in the
+[Play receipt](marketplace/play/LISTING.md#1100-submitted-2026-10-13).
 
 ### Additional 1.9.0 delivery readback, 2026-10-12
 
