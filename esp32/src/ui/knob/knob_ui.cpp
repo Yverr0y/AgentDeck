@@ -68,6 +68,7 @@ struct SessionSnap {
     char lastEventText[100];
     char permissionMode[20];
     uint8_t ciPhase;
+    int16_t backgroundTaskCount;
     uint32_t elapsedSec;
     uint16_t port;
 };
@@ -273,6 +274,7 @@ static bool snapshotSession(int idx, SessionSnap& out) {
         strncpy(out.promptType, s.promptType, sizeof(out.promptType));
         strncpy(out.requestId, s.requestId, sizeof(out.requestId));
         out.ciPhase = s.ciPhase;
+        out.backgroundTaskCount = s.backgroundTaskCount;
         strncpy(out.activity, s.activity, sizeof(out.activity));
         strncpy(out.lastEventText, s.lastEventText, sizeof(out.lastEventText));
         strncpy(out.permissionMode, s.permissionMode, sizeof(out.permissionMode));

@@ -1,0 +1,9 @@
+{
+  "appleMeshSha256": "159abc54c48d208b46e9b442d36431f8b91d9bcfcb7b4001b671ec15922350f9",
+  "assets": {
+    "background-buddy.glb": "0bcac87069dd408f9efe3174bc25bdbdb9aa34d2dafe6af712a435820a32f6ea",
+    "background-pearl.glb": "9daf0f7f5bb73d77f57de191a87efdbdfb53238349c814b35a62a91e33d6863c",
+    "background-bubble.glb": "d180a64adee727ffc39c0b36f7819efa33406baa4c4a1619ce32c31d9c2af164"
+  },
+  "appleMotionSha256": "5f7c0c3a59fa0b836fcdc0ea25bc6ec8b88219e8542373409a22d2cd459ab55c"
+}

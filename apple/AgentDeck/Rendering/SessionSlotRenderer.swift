@@ -36,7 +36,7 @@
 // Pin moved 2026-10-06 with NO port (#463): `formatModelEffort` now shows every
 // reported effort level (only the literal `default` is omitted) and
 // `renderDetailInfo` bounds the mode word — neither is in this mirror's scope.
-// SYNC-HASH shared/src/svg-renderers/session-slot-renderer.ts ae2ab05433968af3f17dd624c59255fb3c8938c0
+// SYNC-HASH shared/src/svg-renderers/session-slot-renderer.ts 8d1390d271d8f6e078e37fcbb4cc605fe78e8b87
 //
 // Scope for this first pass:
 //   - renderSessionSlot (primary session button)
@@ -151,7 +151,9 @@ struct SessionSlotView: View {
         return SessionSlotText.truncate(m, max: 12)
     }
     private var stateLabelText: String {
+        if mode != .asking, session.state == "error" { return "ERROR" }
         if mode != .asking, let wait = session.waitingOn { return "CI " + (wait.phase == "unknown" ? "WAIT" : wait.phase.uppercased()) }
+        if mode != .asking, let text = BackgroundDevicePolicy.compact(session.backgroundTaskCount) { return text }
         switch mode {
         case .working: return "RUNNING"
         case .asking:  return "PERMIT?"
@@ -179,6 +181,7 @@ struct SessionSlotView: View {
         if mode != .asking, let wait = session.waitingOn {
             return "CI " + (wait.phase == "unknown" ? "wait" : wait.phase) + (wait.pr.map { " #\($0)" } ?? "") + (wait.checks.map { " · \($0.passed)/\($0.total)" } ?? "")
         }
+        if mode != .asking, let text = BackgroundDevicePolicy.compact(session.backgroundTaskCount) { return text }
         return mode == .working ? "Running task" : modelText
     }
 

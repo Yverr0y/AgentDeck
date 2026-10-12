@@ -56,6 +56,21 @@ describe('CI waiting evidence projection', () => {
   });
 });
 
+describe('background task compact transport', () => {
+  it('preserves explicit zero and bounded counts without manufacturing a count', () => {
+    for (const count of [undefined, null, 0, 7, 4096, -1, 4097, 1.5, true]) {
+      const frame = prepareForSerial({type:'sessions_list',sessions:[{
+        id:'background-owner',alive:true,state:'processing',agentType:'codex-cli',
+        projectName:'fixture',port:0,backgroundTaskCount:count,
+      }]} as never);
+      const row=JSON.parse(JSON.stringify(frame)).sessions[0];
+      if (typeof count === 'number' && Number.isInteger(count) && count >= 0 && count <= 4096)
+        expect(row.backgroundTaskCount).toBe(count);
+      else expect(row).not.toHaveProperty('backgroundTaskCount');
+    }
+  });
+});
+
 // ─── Event filtering ────────────────────────────────────────────────
 
 describe('SERIAL_FORWARDED_EVENTS', () => {

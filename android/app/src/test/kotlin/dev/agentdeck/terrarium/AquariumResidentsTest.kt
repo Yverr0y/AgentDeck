@@ -14,6 +14,19 @@ import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 class AquariumResidentsTest {
+    @Test fun `instanced buddy materials have unique immutable names`() {
+        for (kind in listOf("buddy", "pearl", "bubble")) {
+            val bytes = RuntimeEnvironment.getApplication().assets.open("residents/background-$kind.glb").use { it.readBytes() }
+            val length = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getInt(12)
+            val gltf = JSONObject(String(bytes, 20, length, Charsets.UTF_8))
+            val materials = gltf.getJSONArray("materials")
+            val names = (0 until materials.length()).map { materials.getJSONObject(it).getString("name") }
+            assertTrue("$kind must retain named materials for shared rendering", names.all { it.isNotBlank() })
+            assertEquals("Different buddy materials must not alias during instancing", names.size, names.toSet().size)
+            assertEquals("Materials are immutable; motion is applied to nodes", 0, gltf.optJSONArray("animations")?.length() ?: 0)
+        }
+    }
+
     @Test fun `shared habitat keeps a closed rock foraging clip and moving feelers`() {
         val bytes = RuntimeEnvironment.getApplication().assets.open("living-aquarium.glb").use { it.readBytes() }
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)

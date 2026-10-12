@@ -1,3 +1,4 @@
+#include "../../util/background_work.generated.h"
 #include "renderer.h"
 #include "draw.h"
 #include "creature_glyphs_generated.h"
@@ -53,7 +54,7 @@ static bool baseCacheDirty = true;
 static float totalTime = 0;
 
 enum class CiOwner : uint8_t { none, octopus, cloud, opencode, antigravity, kiro, hermes, openclaw };
-struct CiCueSnapshot { uint32_t key; CiOwner owner; uint8_t index; uint8_t phase; };
+struct CiCueSnapshot { uint32_t key; CiOwner owner; uint8_t index; uint8_t phase; int16_t background; };
 constexpr size_t CI_CUE_SLOTS = sizeof(g_state.sessions) / sizeof(g_state.sessions[0]);
 // Renderer-lifetime cache: <=240 B in static storage, zero heap/render allocations.
 // The roster already bounds ownership to ten entries; no prompt/session text is retained.
@@ -142,6 +143,17 @@ static constexpr int IPS10_TERRARIUM_W = 408;  // 800 − ~372px treemap sidebar
 
 // Inline pixel setter for direct buffer manipulation
 static void drawCiCompanion(float x, float y, const CiCueSnapshot& cue, float now, bool paint = true) {
+    if (paint && cue.background > 0) {
+        const int side = min(int(canvasW), int(canvasH));
+        const float r = max(8.0f, side * .065f);
+        const int dots = min(int(cue.background), BackgroundWork::MaxDots);
+        for (int i=0; i<dots; ++i) {
+            const float a = now * 1000.0f / BackgroundWork::OrbitMs * 2.0f * M_PI + i * 2.0f * M_PI / dots;
+            Draw::circle(int(x*canvasW + fastCos(a)*r), int(y*canvasH + fastSin(a)*r*.4f),
+                max(1, side/100), ProductPalette::UiCyan, 255);
+        }
+    }
+    if (!cue.phase) return;
     CiCompanion::Memo* memo = nullptr;
     for (auto& candidate : ciMemos) if (candidate.occupied && candidate.key == cue.key) { memo = &candidate; break; }
     if (!memo) for (auto& candidate : ciMemos) if (!candidate.occupied) { memo = &candidate; break; }
@@ -494,8 +506,8 @@ void render(float dt) {
         else if (!strcmp(session.agentType, "openclaw")) owner = CiOwner::openclaw;
         if (owner == CiOwner::none) continue;
         const uint8_t index = ciOwnerIndices[uint8_t(owner)]++;
-        if (!session.ciPhase || !session.id[0] || ciCueCount >= CI_CUE_SLOTS) continue;
-        ciCues[ciCueCount++] = { CiCompanion::sessionHash(session.id), owner, index, session.ciPhase };
+        if ((!session.ciPhase && session.backgroundTaskCount < 0) || !session.id[0] || ciCueCount >= CI_CUE_SLOTS) continue;
+        ciCues[ciCueCount++] = { CiCompanion::sessionHash(session.id), owner, index, session.ciPhase, int16_t(!strcmp(session.state, "error") ? -1 : session.backgroundTaskCount) };
     }
 
     // Per-creature state arrays

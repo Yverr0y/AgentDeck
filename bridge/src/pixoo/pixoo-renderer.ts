@@ -1,3 +1,4 @@
+import { backgroundCount, BACKGROUND_PRESENTATION, UI } from '@agentdeck/shared';
 import { paintDotPixels, type DotDeckSnapshot } from '@agentdeck/shared';
 import { paintOfficialFeatures } from './official-features.js';
 import { usageRgb } from '@agentdeck/shared';
@@ -1339,12 +1340,26 @@ let ciCueSnapshot: Array<{ sessionId: string; left: number; top: number; moving:
 
 /** Only actual displayed sessions own a helper. No provider/resident identity is created. */
 export function drawCiCue(buf: Uint8Array, size: number, sessions: SessionInfo[] | null, now: number,
-  anchors: CiCueAnchor[], tiny = false, bottom = size): void {
+  anchors: CiCueAnchor[], tiny = false, bottom = size, backgroundPhase?: number): void {
   ciCueSnapshot = [];
   for (const id of ciCueResults.keys()) {
     if (!sessions?.some(s => s.alive && s.id === id && s.waitingOn)) ciCueResults.delete(id);
   }
   if (sessions?.some(s => s.alive && s.state?.startsWith('awaiting'))) return;
+  // Background work is distinct from children and CI; keep the existing HUD clear.
+  for (const anchor of anchors) {
+    const count = backgroundCount(sessions?.find(s => s.alive && s.state !== "error" && s.id === anchor.sessionId)?.backgroundTaskCount);
+    if (count === null || count === 0) continue;
+    const radius = Math.max(BACKGROUND_PRESENTATION.pixelMinRadius, anchor.bodySize * BACKGROUND_PRESENTATION.pixelRadiusFraction);
+    for(let i=0;i<Math.min(count,BACKGROUND_PRESENTATION.maxDots);i++) {
+      const angle=(backgroundPhase ?? now/BACKGROUND_PRESENTATION.orbitMs*Math.PI*2)+i*Math.PI*2/Math.min(count,BACKGROUND_PRESENTATION.maxDots);
+      const x=Math.round(anchor.x+Math.cos(angle)*radius), y=Math.round(anchor.y+Math.sin(angle)*radius*BACKGROUND_PRESENTATION.pixelOrbitAspect);
+      if(x>=0 && x<size && y>=0 && y<bottom) {
+        const color=UI.cyan;
+        for(let c=0;c<3;c++)buf[(y*size+x)*3+c]=parseInt(color.slice(1+c*2,3+c*2),16);
+      }
+    }
+  }
   const r = TERRARIUM_RULES.ciCompanion;
   const glyphSize = CI_WAIT_CUE.glyphSize;
   const rgb = (hex: string): RGB => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];

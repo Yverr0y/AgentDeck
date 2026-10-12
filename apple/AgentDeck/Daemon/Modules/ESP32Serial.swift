@@ -1499,6 +1499,9 @@ actor ESP32Serial {
                         if let pm = s["permissionMode"] as? String, !pm.isEmpty {
                             o["permissionMode"] = lim(pm, 19)
                         }
+                        if let count = BackgroundDevicePolicy.decode(s["backgroundTaskCount"]) {
+                            o["backgroundTaskCount"] = count
+                        }
                         if let p = s["port"] { o["port"] = p }
                         if let es = s["elapsedSec"] { o["elapsedSec"] = es }
                         if let op = s["options"] { o["options"] = op }

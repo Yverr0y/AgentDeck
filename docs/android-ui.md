@@ -30,6 +30,53 @@ not spend a code against whichever host appeared first. Disconnected, connected
 without sessions and receiving activity have distinct readiness copy. Android is
 a companion: agent authorization remains on the computer running the agents.
 
+## Background work
+
+Background tasks remain attached to their session and are separate from child
+agents. LCD 2D and 3D use Apple's jar-buddy language: up to three clay jars
+with moving lids and simmer bubbles, plus up to nine pearl moonlets for extra
+tasks. A 12-second orbit passes behind and in front of its owner; a lower explicit
+count finishes only the departing buddies. The exact count remains readable.
+Android 3D uses actual Filament meshes with scene lighting and depth occlusion;
+2D uses generated Apple Canvas paths in two passes. Dimensions and artwork are
+exported by `generate-background-presentation.mjs`; the 3D mesh source and assets
+are digest checked. Re-export meshes with Blender and
+`assets/terrarium/export-android-background-buddies.py` after reviewing Apple changes.
+Android's animation-duration setting freezes buddies on the front arc without
+completion effects. Unknown telemetry retains the last known count by session
+identity, never creating a completion; disconnect drops that host's roster.
+Attention and CI keep priority over decorative background cues.
+
+E-ink uses a stable count/status line in both the session column and Paper Board.
+There is no background-work animation timer or scheduled completion refresh on
+paper. Explicit zero reads “Background complete”; missing information adds no
+line. Agent permission/CI information keeps its priority.
+
+## Native 3D frame budget
+
+Filament owns frame pacing; do not add another elapsed-time frame gate in the
+Choreographer callback. The renderer's target and dynamic-resolution interval
+must agree: up to 60 Hz normally, 30 Hz during power saving or moderate-or-higher
+thermal pressure, bounded by the display refresh rate. A device that sustains
+less than 80% of its 60 Hz submission budget over three seconds, after a five-second
+warmup, uses the same constrained budget until resume. Thermal recovery starts a
+fresh observation window. Budget changes are sampled
+outside the frame hot path. Only successfully submitted frames invalidate labels.
+UI text remains at display resolution; the opaque 3D surface uses mobile HDR,
+MSAA and spatial upscaling with a bounded dynamic resolution. Constrained devices
+omit sampled shadows while retaining direct/ambient lighting, geometry and motion.
+
+Signed builds allow shell profiling. `Aquarium.animate`, `Aquarium.residents`
+and `Aquarium.render` trace sections separate CPU work; `Aquarium.targetHz`,
+`Aquarium.scalePermille` and `Aquarium.rendered` expose the active budget.
+`Aquarium.buddyRigs` records the instance-pool high-water mark. Background jars,
+pearls and bubbles share immutable geometry/materials, recycling hidden instances
+across session identities; the owning assets are destroyed with the surface.
+Use SurfaceFlinger **SurfaceView** presentation statistics for the aquarium's
+actual displayed cadence. `dumpsys gfxinfo` measures the Android UI layer and
+must not be reported as the native aquarium's FPS. Keep thermal status with each
+measurement and record video separately, since capture adds GPU/encoder load.
+
 ## 표시 정보 (공통)
 
 - **Agent Identity**: 에이전트 타입, 세션명, 현재 모델, 상태 (IDLE/PROCESSING/AWAITING 등)
@@ -117,7 +164,7 @@ TIMELINE
 
 ## Tablet (Lenovo) Monitor 레이아웃 — 수족관 + HUD 오버레이
 
-- 전체 화면: 컬러 수족관 배경 (60fps 애니메이션), 빈 물 영역 탭으로 HUD 숨김/복원
+- 전체 화면: 컬러 수족관 배경 (최대 60fps 목표, 발열·절전 시 30fps 목표), 빈 물 영역 탭으로 HUD 숨김/복원
 - 반투명 HUD 패널로 iOS Dashboard 와 동일한 정보 오버레이
 - 좌측: AgentDeck 로고 + primary/sibling session list. Row tap 은 `focus_session` 을 보낸다.
 - 우측: topology rail — upstream providers → AgentDeck hub → downstream devices (`moduleHealth`: Stream Deck, D200H, Pixoo, ESP32, Android/e-ink)

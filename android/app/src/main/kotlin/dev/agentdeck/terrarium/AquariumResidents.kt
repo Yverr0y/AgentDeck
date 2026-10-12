@@ -14,7 +14,7 @@ import kotlin.math.*
 
 /** Uses the canonical state projection, including its observed child census. */
 internal data class AquariumResident(val id: String, val kind: String, val title: String,
-    val state: OctopusVisualState, val helpers: Int = 0, val ciWaitLabel: String? = null, val ciWait: dev.agentdeck.net.CiWaitStatus? = null)
+    val state: OctopusVisualState, val helpers: Int = 0, val backgroundTaskCount: Int? = null, val backgroundAttention: Boolean = false, val ciWaitLabel: String? = null, val ciWait: dev.agentdeck.net.CiWaitStatus? = null)
 
 internal fun aquariumResidents(state: TerrariumState): List<AquariumResident> {
     fun project(item: AgentCreatureState, kind: String) = AquariumResident(
@@ -44,7 +44,7 @@ internal fun aquariumResidents(state: TerrariumState): List<AquariumResident> {
             CrayfishVisualState.WAITING -> OctopusVisualState.ASKING
             else -> OctopusVisualState.FLOATING
         }, state.workerCrayfishCount))
-    return (result + claw).distinctBy { it.id }.map { it.copy(ciWaitLabel = state.ciWaitLabels[it.id], ciWait = state.ciWaits[it.id]) }
+    return (result + claw).distinctBy { it.id }.map { it.copy(backgroundTaskCount = state.backgroundTaskCounts[it.id], backgroundAttention = it.id in state.backgroundAttentionIds, ciWaitLabel = state.ciWaitLabels[it.id], ciWait = state.ciWaits[it.id]) }
 }
 
 /** Keep readable models bounded; every session remains accessible in the roster. */
@@ -59,6 +59,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
     private val materials = UbershaderProvider(viewer.engine)
     private val loader = AssetLoader(viewer.engine, materials, EntityManager.get())
     private val resources = ResourceLoader(viewer.engine)
+    private val buddies = BackgroundAquariumBuddies(context,viewer,loader,resources)
     private val transforms = viewer.engine.transformManager
     // Animation transactions sort TransformManager storage. Only entity IDs are
     // stable across frames, asset additions and removals; resolve instances at use.
@@ -173,7 +174,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
         }
     }
 
-    fun step(delta: Float, aspect: Float) {
+    fun step(delta: Float, aspect: Float, animate: Boolean = true) {
         val dt = delta.coerceIn(0f, .05f)
         val blend = 1f - exp(-dt * 3f)
         val columns = if (aspect < 1f) 2 else 4
@@ -251,6 +252,13 @@ internal class AquariumResidents(private val context: Context, private val viewe
                 transforms.setTransform(transforms.getInstance(joint.entity), pose)
             }
         }
+        buddies.retain(bodies.keys)
+        for(body in bodies.values) {
+            val r=max(.001f,body.halfX*body.size)
+            var nearest=Float.POSITIVE_INFINITY
+            for(other in bodies.values)if(other!==body && abs(other.y-body.y)/r<2.5f && abs(other.x-body.x)/r>.01f) nearest=min(nearest,abs(other.x-body.x)/r)
+            buddies.update(body.item,body.x,body.y,body.z,r,dt,animate,nearest)
+        }
         disturbSchool(dt)
     }
 
@@ -317,6 +325,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
     }
 
     fun dispose() {
+        buddies.dispose()
         for (body in bodies.values) {
             viewer.scene.removeEntities(body.asset.entities)
             loader.destroyAsset(body.asset)

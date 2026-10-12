@@ -190,10 +190,14 @@ void update(float dt) {
 void render() {
     fill_solid(leds, MATRIX_LEDS, CRGB::Black);
 
+    static Page readingPage = currentPage;
+    static float readingStarted = animTime;
+    if(readingPage != currentPage) { readingPage=currentPage; readingStarted=animTime; }
+    const float readingTime = animTime-readingStarted;
     switch (currentPage) {
-        case Page::USAGE:  MatrixPages::renderUsage(leds, animTime);  break;
-        case Page::CODEX:  MatrixPages::renderCodex(leds, animTime);  break;
-        case Page::ZAI:    MatrixPages::renderZai(leds, animTime);    break;
+        case Page::USAGE:  MatrixPages::renderUsage(leds, readingTime);  break;
+        case Page::CODEX:  MatrixPages::renderCodex(leds, readingTime);  break;
+        case Page::ZAI:    MatrixPages::renderZai(leds, readingTime);    break;
         case Page::AGENTS: MatrixPages::renderAgents(leds, animTime); break;
         case Page::DOT: MatrixPages::renderDot(leds, animTime); break;
         default: break;

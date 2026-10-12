@@ -25,6 +25,7 @@ void addSession(const char* agentType, const char* state, const char* project) {
   if (g_state.sessionCount >= 10) return;
   SessionInfo& s = g_state.sessions[g_state.sessionCount];
   std::memset(&s, 0, sizeof(s));
+  s.backgroundTaskCount = -1;
   // Unique per-session id (real sessions are UUIDs); same-project sessions must
   // still be distinct so per-card timeline attribution can be exercised.
   std::snprintf(s.id, sizeof(s.id), "s%u-%s", (unsigned)g_state.sessionCount, project);
@@ -352,6 +353,13 @@ bool SimScenes::apply(const char* name) {
     setStr(g_state.sessions[2].question,sizeof(g_state.sessions[2].question),"Install the tested firmware on the connected boards?");
     return true;
   }
+  if (std::strcmp(name, "background-work") == 0 || std::strcmp(name, "background-done") == 0) {
+    base(CreatureState::WORKING);
+    addSession("claude-code","processing","Background tests");
+    g_state.sessions[0].backgroundTaskCount = std::strcmp(name,"background-done")==0 ? 0 : 5;
+    setStr(g_state.sessions[0].activity,sizeof(g_state.sessions[0].activity),g_state.sessions[0].backgroundTaskCount == 0 ? "BG DONE" : "BG 5 / Running tests");
+    return true;
+  }
   if (std::strcmp(name, "ci-wait") == 0) {
     base(CreatureState::FLOATING);
     addSession("codex-cli", "idle", "release checks");
@@ -538,6 +546,6 @@ bool SimScenes::apply(const char* name) {
 }
 
 const char* SimScenes::catalog() {
-  return "quota-colors, usage-all, zai-only, usage-none, usage-zero, usage-stale, codex-only, codex-luna, codex-credits, live-mix, empty, idle, display-off, worktree-glance, ci-wait, working, multi, crowd, crowded, dense, permission, attention, "
+  return "background-work, background-done, quota-colors, usage-all, zai-only, usage-none, usage-zero, usage-stale, codex-only, codex-luna, codex-credits, live-mix, empty, idle, display-off, worktree-glance, ci-wait, working, multi, crowd, crowded, dense, permission, attention, "
          "demo:<agent>:<state>";
 }

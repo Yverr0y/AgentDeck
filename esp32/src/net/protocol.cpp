@@ -1,3 +1,4 @@
+#include "../util/background_work.generated.h"
 #include "../state/ci_wait_generated.h"
 #include "../audio/wake_word.h"
 #include "../audio/mic_capture.h"
@@ -480,6 +481,23 @@ static void handleSessionsList(JsonObject& obj) {
 
     g_state.sessionClearPending = false;
     g_state.sessionClearPendingMs = 0;
+    // Resolve identities before mutating the roster. Only the ten small counts
+    // need scratch space: copying IDs cost 340 bytes of scarce TTGO static RAM.
+    int16_t retainedBackground[sizeof(g_state.sessions) / sizeof(g_state.sessions[0])];
+    for (uint8_t i = 0; i < incomingCount; ++i) {
+        JsonObject incoming = sessions[i];
+        int count = incoming["backgroundTaskCount"].is<int>()
+            ? BackgroundWork::count(incoming["backgroundTaskCount"].as<int>()) : -1;
+        const char* id = incoming["id"] | "";
+        if (count < 0 && id[0]) for (uint8_t old = 0; old < g_state.sessionCount; ++old) {
+            // Wire IDs are stored in the fixed-width firmware identity field.
+            if (!strncmp(id, g_state.sessions[old].id, sizeof(g_state.sessions[old].id) - 1)) {
+                count = g_state.sessions[old].backgroundTaskCount;
+                break;
+            }
+        }
+        retainedBackground[i] = count;
+    }
     g_state.sessionCount = incomingCount;
 #if defined(BOARD_IPS10)
     g_state.sessionsRotating = obj["rosterRotating"] | false;
@@ -574,8 +592,16 @@ static void handleSessionsList(JsonObject& obj) {
         if (s["waitingOn"].is<JsonObject>()) ciPhase = CiWaitVisual::fromJsonWait(s["waitingOn"]);
         else if (s["waitingOn"].isNull() && s.containsKey("waitingOn")) ciPhase = CiWaitVisual::NONE;
         g_state.sessions[i].ciPhase = ciPhase;
+        const int background = retainedBackground[i];
+        g_state.sessions[i].backgroundTaskCount = background;
         copyTextU8(g_state.sessions[i].activity, sizeof(g_state.sessions[i].activity),
                    s["activity"] | "");
+        if (background >= 0 && ciPhase == CiWaitVisual::NONE && strcmp(g_state.sessions[i].state, "error") && !strstr(g_state.sessions[i].state, "awaiting")) {
+            char bg[20]; BackgroundWork::label(background,bg,sizeof(bg));
+            char activity[80];
+            snprintf(activity,sizeof(activity),"%s%s%.55s",bg,g_state.sessions[i].activity[0] ? " / " : "",g_state.sessions[i].activity);
+            copyTextU8(g_state.sessions[i].activity,sizeof(g_state.sessions[i].activity),activity);
+        }
         // Daemon-computed latest milestone (TIMELINE parity for cards).
         copyTextU8(g_state.sessions[i].lastEventText, sizeof(g_state.sessions[i].lastEventText),
                    s["lastEventText"] | "");

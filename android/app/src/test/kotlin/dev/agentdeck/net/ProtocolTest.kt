@@ -41,6 +41,27 @@ class ProtocolTest {
         assertTrue(holder.state.value.subscriptions.isEmpty())
     }
 
+    @Test
+    fun `background telemetry cannot discard a roster and retains by identity`() {
+        val holder = dev.agentdeck.state.AgentStateHolder.instance
+        fun deliver(value: String) {
+            val event = requireNotNull(parseBridgeMessage("""{"type":"sessions_list","sessions":[{"id":"background-test","port":9121,"backgroundTaskCount":$value}]}"""))
+            BridgeConnection.instance.onEvent?.invoke(event)
+        }
+        BridgeConnection.instance.onEvent?.invoke(BridgeEvent.Disconnected)
+        deliver("5")
+        assertEquals(5, holder.state.value.siblingSessions.single().backgroundTaskCount)
+        for (raw in listOf("null", "true", "1.5", "-1", "4097", "\"3\"", "{}", "[]")) {
+            deliver(raw)
+            assertEquals(5, holder.state.value.siblingSessions.single().backgroundTaskCount)
+        }
+        deliver("0")
+        assertEquals(0, holder.state.value.siblingSessions.single().backgroundTaskCount)
+        BridgeConnection.instance.onEvent?.invoke(BridgeEvent.Disconnected)
+        deliver("null")
+        assertNull(holder.state.value.siblingSessions.single().backgroundTaskCount)
+    }
+
     // --- parseBridgeMessage: state_update ---
 
     @Test

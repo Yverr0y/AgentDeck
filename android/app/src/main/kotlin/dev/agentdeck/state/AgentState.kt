@@ -325,7 +325,13 @@ class AgentStateHolder private constructor() {
                         Log.d(TAG, "  Session: id=${s.id}, agentType=${s.agentType}, state=${s.state}, projectName=${s.projectName}")
                     }
                 }
-                _state.update { it.copy(siblingSessions = event.sessions, dot = event.dot) }
+                _state.update { old ->
+                    val previous = old.siblingSessions.associateBy { it.id }
+                    old.copy(siblingSessions = event.sessions.map { row ->
+                        row.copy(backgroundTaskCount = dev.agentdeck.terrarium.BackgroundWorkPolicy.count(row.backgroundTaskCount)
+                            ?: previous[row.id]?.backgroundTaskCount)
+                    }, dot = event.dot)
+                }
             }
 
             is BridgeEvent.EncoderState -> { /* Deck tab removed — ignore */ }

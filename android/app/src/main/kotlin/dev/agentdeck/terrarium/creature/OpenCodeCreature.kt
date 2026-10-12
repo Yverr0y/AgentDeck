@@ -101,6 +101,8 @@ class OpenCodeCreature(
     }
 
     /** Current live position for tetra attractor tracking. */
+    fun companionRadius(width: Float, height: Float): Float = minOf(width, height * 2f) * BODY_SIZE_FRACTION * scaleFactor / 2f
+
     fun simulationPosition(): Pair<Float, Float> = currentX to currentY
     fun currentPosition(): Pair<Float, Float> = simulationPosition()
 
@@ -195,7 +197,7 @@ class OpenCodeCreature(
         val h = scope.size.height
         val baseWidth = minOf(w, h * 2f)
 
-        val bodySize = baseWidth * BODY_SIZE_FRACTION * scaleFactor
+        val bodySize = companionRadius(w, h) * 2f
 
         val centerX = w * currentX
 

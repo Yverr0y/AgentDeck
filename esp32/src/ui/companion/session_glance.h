@@ -13,6 +13,7 @@ template <typename Session> inline const char* glanceText(const Session& s) {
         return "Working - waiting for details";
     }
     if (!strcmp(s.state, "error")) return s.activity[0] ? s.activity : "Check this session";
+    if (s.backgroundTaskCount >= 0 && s.activity[0]) return s.activity;
     return s.lastEventText[0] ? s.lastEventText : "Ready for the next task";
 }
 }

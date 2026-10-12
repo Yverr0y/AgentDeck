@@ -8,6 +8,30 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
 
+## 1.10.0 internal testing — 2026-10-13
+
+Internal testing **27 (1.10.0)** is active and **available to internal testers**,
+published October 13 at **07:44 KST**. English, Korean and Japanese
+[release notes](1.10.0/release-notes.json) are saved. Production still serves
+1.9.0 at this readback; internal availability is not production publication.
+
+The clean source at `31b7c06b` passed the
+[full pre-release check](../../verification/receipts/2026-10-12-31b7c06.json)
+in 14m43s. Signed APK upgrades passed on Lenovo, Crema and Pantone. Lenovo's
+native SurfaceView measured 30.176 FPS in the live dashboard and 29.855 FPS
+with eight sessions / twelve background tasks each, with zero dropped frames
+in both samples and OS thermal status 3. Reconnect pooling and reduced-motion
+pixel stability passed. This does not claim unthrottled 60 FPS.
+
+AAB SHA-256: `c68430149b677ac45e61def12fe71383f3b506fe77f4da94884c2a3acd15e91f`.
+The Play-generated signed universal APK was downloaded and its Google certificate
+verified (`cefed158…`), SHA-256
+`953d5eec970819c3a7a393c3583924ad60b0e380319669711fea547df47f463d`.
+Its signature differs from the installed sideload build. Installing that APK
+on Lenovo needs uninstalling the existing app and restoring its settings;
+that destructive transition is awaiting the owner's answer. The device evidence
+above is from the signed sideload candidate, not a Play-installed runtime.
+
 ## 1.9.0 public — production receipt (2026-10-12)
 
 Production **26 (1.9.0)** is **Available on Google Play**, published October 12

@@ -421,12 +421,24 @@ final class PixooRenderer {
     }
 
     func drawCiCue(_ buf: inout [UInt8], size: Int, state: DashboardState, now: Double,
-                           anchors: [CiCueAnchor], tiny: Bool = false, bottom: Int? = nil) {
+                           anchors: [CiCueAnchor], tiny: Bool = false, bottom: Int? = nil, backgroundPhase: Double? = nil) {
         ciCueResults = ciCueResults.filter { id, _ in state.siblingSessions.contains { $0.alive && $0.id == id && $0.waitingOn != nil } }
         guard !state.siblingSessions.contains(where: { $0.alive && ($0.state ?? "").hasPrefix("awaiting") }) else { return }
         let glyphSize = CiWaitVisual.github.count
         let lowerEdge = bottom ?? size
         for anchor in anchors {
+            if let count = BackgroundDevicePolicy.count(state.siblingSessions.first(where: { $0.alive && $0.state != "error" && $0.id == anchor.sessionId })?.backgroundTaskCount), count > 0 {
+                let dots=min(count,BackgroundDevicePolicy.maxDots), radius=max(BackgroundDevicePolicy.pixelMinRadius,anchor.bodySize*BackgroundDevicePolicy.pixelRadiusFraction)
+                // Pixel bytes use the same semantic working cyan as the device palette.
+                let rgb=CiWaitVisual.rgb("running")
+                for i in 0..<dots {
+                    let angle=(backgroundPhase ?? now/Double(BackgroundDevicePolicy.orbitMs)*Double.pi*2)+Double(i)*Double.pi*2/Double(dots)
+                    let x=Int(floor(anchor.x+cos(angle)*radius+0.5)), y=Int(floor(anchor.y+sin(angle)*radius*BackgroundDevicePolicy.pixelOrbitAspect+0.5))
+                    if x>=0 && x<size && y>=0 && y<lowerEdge {
+                        buf[(y*size+x)*3]=rgb.0; buf[(y*size+x)*3+1]=rgb.1; buf[(y*size+x)*3+2]=rgb.2
+                    }
+                }
+            }
             guard anchor.x + anchor.bodySize / 2 >= 0, anchor.x - anchor.bodySize / 2 < Double(size),
                   anchor.y + anchor.bodySize / 2 >= 0, anchor.y - anchor.bodySize / 2 < Double(lowerEdge),
                   let wait = state.siblingSessions.first(where: { $0.alive && $0.id == anchor.sessionId })?.waitingOn else { continue }

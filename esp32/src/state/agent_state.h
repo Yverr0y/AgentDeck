@@ -94,6 +94,14 @@ inline bool isGeneralAssistantSession(const char* agentType, const char* project
 
 // ===== Session info (multi-agent) =====
 struct SessionInfo {
+    // Group scalars before byte arrays: the roster is internal state, never
+    // a binary wire representation. This saves 40 bytes on no-PSRAM TTGO.
+    uint32_t elapsedSec;    // seconds since this session started (0 when unknown)
+    uint16_t port;
+    int16_t backgroundTaskCount = -1;
+    uint8_t optionCount : 7; // bounded by SESSION_OPTIONS_CAP (at most six)
+    uint8_t alive : 1;
+    uint8_t ciPhase;         // generated phase ID, 0 explicitly clears
     char id[32];
     char projectName[40]; // original project/worktree label
 #if defined(BOARD_TTGO)
@@ -104,12 +112,9 @@ struct SessionInfo {
     char modelName[32];
     char agentType[16];  // "claude-code" / "openclaw" / "codex-cli" / "codex-app"
     char state[20];
-    uint16_t port;
-    bool alive;
     // Per-session detail for the IPS10 D1 mosaic (cells show tool/elapsed; awaiting
     // cells render inline Approve/Deny). Populated from the enriched sessions_list.
     char currentTool[40];   // current tool/command for this session ("" when none)
-    uint32_t elapsedSec;    // seconds since this session started (0 when unknown)
     char question[160];     // awaiting prompt text for this session ("" when not awaiting)
     char promptType[20];    // "yes_no" / "multi_select" / "diff_review" / ...
     char requestId[40];     // gated PreToolUse request id → reply permission_decision
@@ -117,8 +122,6 @@ struct SessionInfo {
     // Parsed per-session options from the enriched sessions_list (select_option
     // is session-scoped, so an interactive surface answers without global focus).
     SessionOption options[SESSION_OPTIONS_CAP];
-    uint8_t optionCount;
-    uint8_t ciPhase;         // generated phase ID, 0 explicitly clears; 10 bytes per roster
     char activity[80];      // shared one-liner summary of recent work ("" when none)
 #if defined(BOARD_IPS10)
     // Optional existing wire census. Six bytes per session, IPS10 only; no heap.
@@ -139,6 +142,11 @@ struct SessionInfo {
     char lastEventTask[40];  // resolved enclosing-task label ("" when none)
     char lastEventHm[6];     // host-local "HH:MM" of that row ("" when unknown)
 };
+
+#if defined(BOARD_TTGO)
+static_assert(sizeof(SessionInfo) <= 808, "TTGO roster must not consume additional static DRAM");
+#endif
+static_assert(SESSION_OPTIONS_CAP < 128, "Session option count must fit its bounded field");
 
 inline const char* sessionDisplayName(const SessionInfo& session) {
     return session.displayName[0] ? session.displayName : session.projectName;

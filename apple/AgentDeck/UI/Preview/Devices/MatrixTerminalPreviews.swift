@@ -164,7 +164,7 @@ private struct PixooPixelGrid: View {
 // colours, and subagent satellites. Usage layout and drawStateDot changes do
 // not alter the mirrored AGENTS pixels.
 //
-// SYNC-HASH esp32/src/ui/matrix/matrix_pages.cpp bcf4126c9687dcd2709960b61dcf68b842b1b4ec
+// SYNC-HASH esp32/src/ui/matrix/matrix_pages.cpp 3f469fbfd53f65f9bf4e9b2108e24b2633abe9b7
 // scripts/check-preview-mirror-sync.mjs fails CI when the origin above drifts
 // from this pin — re-verify AGENTS-page parity and bump the hash together.
 
@@ -196,7 +196,7 @@ struct UlanziMatrixPreview: View {
             Text("Ulanzi TC001 • 8×32 WS2812B")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
-            Text("AGENTS page — one creature sprite per alive session; OpenClaw crayfish pins to the right edge. Firmware also rotates USAGE (5h/7d percent gauges) and CODEX (violet token-window gauges) pages.")
+            Text("AGENTS page — one creature sprite per alive session; OpenClaw crayfish pins to the right edge. Firmware also rotates USAGE (5h/7d percent gauges then R-prefixed reset countdowns) and CODEX token-window pages. Background work adds cyan moving dots.")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -270,6 +270,11 @@ struct UlanziMatrixPreview: View {
                 plot(ctx: &ctx, x: cursorX + 7, y: 7,
                      color: Color(red: Double(ciRGB.0) / 255, green: Double(ciRGB.1) / 255, blue: Double(ciRGB.2) / 255),
                      cellW: cellW, cellH: cellH)
+            }
+            if state != .awaitingPrompt, let count = session.backgroundTaskCount, count > 0 {
+                for j in 0..<min(count,BackgroundDevicePolicy.maxDots) {
+                    plot(ctx: &ctx,x:cursorX+j*2,y:7,color:DesignTokens.Session.working,cellW:cellW,cellH:cellH)
+                }
             }
             cursorX += 8
         }

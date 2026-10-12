@@ -102,6 +102,10 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
     private var lastFrame = 0L
     private var lastBudgetCheck = 0L
     private var constrained = false
+    private val frameGovernor = dev.agentdeck.terrarium.AquariumFrameGovernor()
+    private var pacingRate = 0f
+    private var pacingRefreshRate = 0f
+    private val resolutionScale = FloatArray(2)
     private var renderSurface: SurfaceView? = null
     private var bufferSize = 0 to 0
     private var reduceMotion = false
@@ -129,12 +133,26 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
             val model = ModelViewer(surface, manipulator = null)
             viewer = model
             model.autoPlayAnimations = false
+            model.engine.setAutomaticInstancingEnabled(true)
             // Keep the habitat affordable on older tablet GPUs. UI and labels
             // remain at display resolution; only the native surface is scaled.
-            model.view.multiSampleAntiAliasingOptions = com.google.android.filament.View.MultiSampleAntiAliasingOptions().apply { enabled = false }
+            model.view.multiSampleAntiAliasingOptions = com.google.android.filament.View.MultiSampleAntiAliasingOptions().apply { enabled = true; sampleCount = 2 }
             model.view.ambientOcclusionOptions = com.google.android.filament.View.AmbientOcclusionOptions().apply { enabled = false }
             model.view.bloomOptions = com.google.android.filament.View.BloomOptions().apply { enabled = false }
-            model.view.antiAliasing = com.google.android.filament.View.AntiAliasing.FXAA
+            model.view.antiAliasing = com.google.android.filament.View.AntiAliasing.NONE
+            // Opaque mobile HDR needs no alpha channel. R11G11B10F avoids
+            // moving a 64-bit RGBA16F target through every post-process pass.
+            model.view.renderQuality = com.google.android.filament.View.RenderQuality().apply {
+                hdrColorBuffer = com.google.android.filament.View.QualityLevel.MEDIUM
+            }
+            model.view.dithering = com.google.android.filament.View.Dithering.NONE
+            model.view.dynamicResolutionOptions = com.google.android.filament.View.DynamicResolutionOptions().apply {
+                enabled = true
+                homogeneousScaling = true
+                minScale = .625f
+                maxScale = 1f
+                quality = com.google.android.filament.View.QualityLevel.MEDIUM
+            }
             val lightManager = model.engine.lightManager
             val lightInstance = lightManager.getInstance(model.light)
             val intensity = lightManager.getIntensity(lightInstance)
@@ -190,6 +208,7 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
     fun resume() {
         if (active) return
         active = true
+        frameGovernor.reset()
         lastFrame = 0L
         lastBudgetCheck = 0L
         reduceMotion = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
@@ -207,8 +226,31 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
         // Power queries cross Binder; sample them outside the per-frame hot path.
         if (lastBudgetCheck == 0L || frameTimeNanos - lastBudgetCheck >= 2_000_000_000L) {
             lastBudgetCheck = frameTimeNanos
-            constrained = power.isPowerSaveMode || power.currentThermalStatus >= PowerManager.THERMAL_STATUS_MODERATE
-            val maxEdge = if (constrained) 960 else 1440
+            reduceMotion = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            constrained = frameGovernor.constrained || power.isPowerSaveMode || power.currentThermalStatus >= PowerManager.THERMAL_STATUS_MODERATE
+            // Filament alone owns cadence; a second Choreographer time gate
+            // competes with its starvation recovery and resets the queue.
+            val refreshRate = display?.refreshRate?.takeIf { it.isFinite() && it > 0f } ?: 60f
+            val targetRate = minOf(refreshRate, if (constrained) 30f else 60f)
+            if (android.os.Trace.isEnabled()) {
+                viewer?.view?.getLastDynamicResolutionScale(resolutionScale)
+                android.os.Trace.setCounter("Aquarium.scalePermille", (resolutionScale[0] * 1000).toLong())
+                android.os.Trace.setCounter("Aquarium.targetHz", targetRate.toLong())
+            }
+            if (pacingRate != targetRate || pacingRefreshRate != refreshRate) {
+                viewer?.framePacer?.configure(targetRate, (2_000_000_000L / targetRate).toLong())
+                viewer?.renderer?.setFrameRateOptions(com.google.android.filament.Renderer.FrameRateOptions().apply {
+                    interval = refreshRate / targetRate
+                    headRoomRatio = .2f
+                })
+                pacingRate = targetRate
+                pacingRefreshRate = refreshRate
+            }
+            // PCF shadow sampling dominates the throttled tablet GPU. Retain
+            // direct/ambient lighting and geometry, but spend the reduced power
+            // budget on motion and readable silhouettes instead.
+            viewer?.view?.setShadowingEnabled(!constrained)
+            val maxEdge = if (constrained) 1280 else 1440
             val scale = minOf(1f, maxEdge.toFloat() / maxOf(width, height, 1))
             val next = (width * scale).toInt().coerceAtLeast(1) to (height * scale).toInt().coerceAtLeast(1)
             if (next != bufferSize) {
@@ -216,7 +258,6 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
                 renderSurface?.holder?.setFixedSize(next.first, next.second)
             }
         }
-        if (lastFrame != 0L && frameTimeNanos - lastFrame < if (constrained) 32_000_000L else 15_000_000L) return
         val dt = if (lastFrame == 0L) 0f else ((frameTimeNanos - lastFrame) / 1e9f).coerceAtMost(0.1f)
         lastFrame = frameTimeNanos
         if (!reduceMotion) elapsedSeconds += dt
@@ -230,18 +271,25 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
             val fov = if (aspect > dev.agentdeck.terrarium.TerrariumRules.NATIVE_CAMERA_WIDE_ASPECT)
                 dev.agentdeck.terrarium.TerrariumRules.NATIVE_CAMERA_WIDE_FOV else dev.agentdeck.terrarium.TerrariumRules.NATIVE_CAMERA_FOV
             model.camera.setProjection(fov.toDouble(), aspect, .05, 1000.0, com.google.android.filament.Camera.Fov.VERTICAL)
+            android.os.Trace.beginSection("Aquarium.animate")
             model.animator?.let { animator ->
                 if (animator.animationCount > 0) {
                     animator.applyAnimation(0, elapsedSeconds % animator.getAnimationDuration(0).coerceAtLeast(1f))
                     animator.updateBoneMatrices()
                 }
             }
-            residents?.step(if (reduceMotion) 0f else dt, width.toFloat() / height.coerceAtLeast(1))
-            model.render(frameTimeNanos)
+            android.os.Trace.endSection()
+            android.os.Trace.beginSection("Aquarium.residents")
+            residents?.step(if (reduceMotion) 0f else dt, width.toFloat() / height.coerceAtLeast(1), animate = !reduceMotion)
+            android.os.Trace.endSection()
+            android.os.Trace.beginSection("Aquarium.render")
+            val rendered = try { model.render(frameTimeNanos) } finally { android.os.Trace.endSection() }
+            frameGovernor.record(frameTimeNanos, rendered, pacingRate)
+            android.os.Trace.setCounter("Aquarium.rendered", if (rendered) 1L else 0L)
             // The authored enclosure is finite; a wide tablet must not expose
             // its black exterior. The native skybox supplies continuous water.
             model.scene.removeEntities(waterEntities)
-            labels.invalidate()
+            if (rendered) labels.invalidate()
         }
     }
 

@@ -1,3 +1,4 @@
+#include "../../util/background_work.generated.h"
 #include "../companion/dot_companion.h"
 #include "../product_palette.generated.h"
 #include "util/usage_severity.generated.h"
@@ -286,24 +287,16 @@ static void drawStateDot(CRGB* leds, float animTime) {
     setPixel(leds, 31, 7, c);
 }
 
-// Format reset time compact: "3h 22m" → "3H22", "2d 4h" → "2D4", "20m" → "20M"
-// First unit letter kept, subsequent unit letters dropped to save width.
+// Compact reset duration, with both units: "3h 22m" → "3H22M", "2d 4h" → "2D4H".
+// The usual R-prefixed hour/minute reading fits the 23-pixel viewport exactly.
 static int formatResetCompact(const char* reset, char* out, int maxLen) {
     int ri = 0;
-    bool hasUnit = false;
     for (int i = 0; reset[i] && ri < maxLen - 1; i++) {
-        char c = reset[i];
-        if (c >= '0' && c <= '9') {
-            out[ri++] = c;
-        } else if (c == 'h' || c == 'H' || c == 'd' || c == 'D' ||
-                   (c == 'm' && (reset[i+1] == 0 || reset[i+1] == ' '))) {
-            if (!hasUnit) {
-                out[ri++] = (c == 'm') ? 'M' : (c == 'h' || c == 'H') ? 'H' : 'D';
-                hasUnit = true;
-            }
-            // subsequent unit letters are dropped
-        }
-        // skip spaces
+        const char c = reset[i];
+        if (c >= '0' && c <= '9') out[ri++] = c;
+        else if (c == 'h' || c == 'H') out[ri++] = 'H';
+        else if (c == 'd' || c == 'D') out[ri++] = 'D';
+        else if (c == 'm' || c == 'M') out[ri++] = 'M';
     }
     out[ri] = '\0';
     return ri;
@@ -329,7 +322,7 @@ static void windowLabel(int minutes, const char* fallback, char (&out)[5]) {
 static void renderGaugePair(CRGB* leds, float animTime,
                             float first, const char* firstLabel,
                             float second, const char* secondLabel,
-                            const uint8_t* glyph, CRGB brand, bool remaining = false) {
+                            const uint8_t* glyph, CRGB brand, bool remaining = false, const char* firstReset = "", const char* secondReset = "") {
     const bool useSecond = second >= 0 && (first < 0 || fmodf(animTime, 8.0f) >= 4.0f);
     float percent = useSecond ? second : first;
     if (!std::isfinite(percent) || percent < 0) return;
@@ -347,6 +340,21 @@ static void renderGaugePair(CRGB* leds, float animTime,
     const int numberX = 9 + MatrixFont::textWidth(label) + 1;
     MatrixFont::drawScrollText(leds, label, 9, 1, CRGB(160, 170, 180), MATRIX_W, MATRIX_H);
     MatrixFont::drawScrollText(leds, reading + strlen(label), numberX, 1, severity, MATRIX_W, MATRIX_H);
+    // Each window owns four seconds: usage first, then its reset countdown.
+    // R means time remaining until reset; 5H/7D above are window lengths.
+    if (fmodf(animTime, 4.0f) >= 2.0f) {
+        for (int y=0;y<7;++y) for(int x=9;x<MATRIX_W;++x) setPixel(leds,x,y,CRGB::Black);
+        char compact[10], resetText[12];
+        formatResetCompact(useSecond ? secondReset : firstReset, compact, sizeof(compact));
+        snprintf(resetText,sizeof(resetText),"R%s",compact[0] ? compact : "--");
+        const int width=MatrixFont::textWidth(resetText);
+        const int offset=width > MATRIX_W-9 ? int((fmodf(animTime,4.0f)-2.0f)*(width-(MATRIX_W-9))/2.0f) : 0;
+        MatrixFont::drawScrollText(leds,resetText,9-offset,1,CRGB(160,170,180),MATRIX_W,MATRIX_H);
+        // Clip scrolling text to its 23-column viewport before restoring the mark.
+        for (int y = 0; y < 7; ++y)
+            for (int x = 0; x < 9; ++x) setPixel(leds, x, y, CRGB::Black);
+        drawOfficialMatrixGlyph(leds,0,glyph,brand);
+    }
     const int fill = (int)(percent * 21.0f / 100.0f + 0.5f);
     for (int x = 0; x < 21; ++x)
         setPixel(leds, 9 + x, 7, x < fill ? severity : CRGB(4, 4, 6));
@@ -360,6 +368,9 @@ void MatrixPages::renderUsage(CRGB* leds, float animTime) {
     bool connected = g_state.wsConnected || Net::serialConnected();
     float pct5h = g_state.usageStale ? -1.0f : g_state.fiveHourPercent;
     float pct7d = g_state.usageStale ? -1.0f : g_state.sevenDayPercent;
+    char firstReset[20], secondReset[20];
+    snprintf(firstReset,sizeof(firstReset),"%s",g_state.fiveHourReset);
+    snprintf(secondReset,sizeof(secondReset),"%s",g_state.sevenDayReset);
     unlockState();
 
     if (!connected) {
@@ -373,7 +384,7 @@ void MatrixPages::renderUsage(CRGB* leds, float animTime) {
         return;
     }
 
-    renderGaugePair(leds, animTime, pct5h, "5H", pct7d, "7D", OfficialDotGlyphs::CLAUDE_CODE, CRGB(192, 112, 88));
+    renderGaugePair(leds, animTime, pct5h, "5H", pct7d, "7D", OfficialDotGlyphs::CLAUDE_CODE, CRGB(192, 112, 88), false, firstReset, secondReset);
 
     // State dot overlay — shows agent activity on gauge page
     drawStateDot(leds, animTime);
@@ -387,6 +398,9 @@ void MatrixPages::renderCodex(CRGB* leds, float animTime) {
     bool connected = g_state.wsConnected || Net::serialConnected();
     float primary = g_state.codexPrimaryPercent;
     float secondary = g_state.codexSecondaryPercent;
+    char firstReset[20],secondReset[20];
+    snprintf(firstReset,sizeof(firstReset),"%s",g_state.codexPrimaryReset);
+    snprintf(secondReset,sizeof(secondReset),"%s",g_state.codexSecondaryReset);
     char primaryLabel[5], secondaryLabel[5];
     windowLabel(g_state.codexPrimaryMinutes, "P", primaryLabel);
     windowLabel(g_state.codexSecondaryMinutes, "S", secondaryLabel);
@@ -398,6 +412,7 @@ void MatrixPages::renderCodex(CRGB* leds, float animTime) {
     char credits[8];
     UsageRows::codexCreditsKey(g_state, credits, sizeof(credits));
     if (remaining) {
+        snprintf(firstReset,sizeof(firstReset),"%s",g_state.codexLunaReset);
         primary = 100.0f - g_state.codexLunaPercent;
         secondary = -1.0f;
         snprintf(primaryLabel, sizeof(primaryLabel), "LUNA");
@@ -420,7 +435,7 @@ void MatrixPages::renderCodex(CRGB* leds, float animTime) {
         }
         MatrixFont::drawScrollText(leds, credits, x, 1, CRGB(200, 205, 215), MATRIX_W, MATRIX_H);
     } else {
-        renderGaugePair(leds, animTime, primary, primaryLabel, secondary, secondaryLabel, OfficialDotGlyphs::CODEX, CRGB(97, 102, 224), remaining);
+        renderGaugePair(leds, animTime, primary, primaryLabel, secondary, secondaryLabel, OfficialDotGlyphs::CODEX, CRGB(97, 102, 224), remaining, firstReset, secondReset);
     }
     drawStateDot(leds, animTime);
 }
@@ -437,6 +452,9 @@ void MatrixPages::renderZai(CRGB* leds, float animTime) {
     float primary = g_state.zaiPrimaryPercent;
     float secondary = g_state.zaiSecondaryPercent;
     bool secondaryIsMcp = g_state.zaiSecondaryIsMcp;
+    char firstReset[20],secondReset[20];
+    snprintf(firstReset,sizeof(firstReset),"%s",g_state.zaiPrimaryReset);
+    snprintf(secondReset,sizeof(secondReset),"%s",g_state.zaiSecondaryReset);
     char primaryLabel[5], secondaryLabel[5];
     windowLabel(g_state.zaiPrimaryMinutes, "P", primaryLabel);
     windowLabel(g_state.zaiSecondaryMinutes, "S", secondaryLabel);
@@ -446,7 +464,7 @@ void MatrixPages::renderZai(CRGB* leds, float animTime) {
         renderDisconnectStatus(leds, animTime);
         return;
     }
-    renderGaugePair(leds, animTime, primary, primaryLabel, secondary, secondaryIsMcp ? "MCP" : secondaryLabel, OfficialDotGlyphs::ZAI, CRGB(31, 99, 236));
+    renderGaugePair(leds, animTime, primary, primaryLabel, secondary, secondaryIsMcp ? "MCP" : secondaryLabel, OfficialDotGlyphs::ZAI, CRGB(31, 99, 236), false, firstReset, secondReset);
     drawStateDot(leds, animTime);
 }
 
@@ -459,12 +477,25 @@ void MatrixPages::renderAgents(CRGB* leds, float animTime) {
     // screen instead of last-known data.
     lockState();
     bool connectedFast = g_state.wsConnected || Net::serialConnected();
+    int backgroundTotal=0; bool backgroundKnown=false, attention=false;
+    for(uint8_t i=0;i<g_state.sessionCount;++i) if(g_state.sessions[i].alive) {
+        attention |= strstr(g_state.sessions[i].state,"awaiting") != nullptr || !strcmp(g_state.sessions[i].state,"error");
+        const int count=g_state.sessions[i].backgroundTaskCount;
+        if(count>=0) { backgroundKnown=true; backgroundTotal+=count; }
+    }
     unlockState();
     if (!connectedFast) {
         renderDisconnectStatus(leds, animTime);
         return;
     }
 
+    if (backgroundKnown && !attention && fmodf(animTime,8.0f)>=6.0f) {
+        char label[16];
+        if(backgroundTotal==0) snprintf(label,sizeof(label),"BG DONE");
+        else snprintf(label,sizeof(label),"BG %d",backgroundTotal);
+        MatrixFont::drawScrollText(leds,label,1,1,CRGB(backgroundTotal ? ProductPalette::UiCyan : ProductPalette::UiIdle),MATRIX_W,MATRIX_H);
+        return;
+    }
     lockState();
     bool connected = g_state.wsConnected || Net::serialConnected();
     uint8_t sessionCount = g_state.sessionCount;
@@ -483,6 +514,7 @@ void MatrixPages::renderAgents(CRGB* leds, float animTime) {
         int instanceIdx;
         uint8_t subagentCount;
         uint8_t ciPhase;
+        int16_t background;
     };
     AgentInfo agents[6];
     int agentCount = 0;
@@ -512,6 +544,7 @@ void MatrixPages::renderAgents(CRGB* leds, float animTime) {
         if (strcmp(g_state.sessions[i].agentType, "daemon") == 0) continue;
         strncpy(agents[agentCount].state, g_state.sessions[i].state, 19);
         agents[agentCount].ciPhase = g_state.sessions[i].ciPhase;
+        agents[agentCount].background = g_state.sessions[i].backgroundTaskCount;
         agents[agentCount].state[19] = '\0';
         agents[agentCount].subagentCount =
             g_state.activeSubagentsForSession(g_state.sessions[i].id);
@@ -730,6 +763,10 @@ void MatrixPages::renderAgents(CRGB* leds, float animTime) {
                                         agents[i].kind == AGENT_ANTIGRAVITY);
             }
             drawSubagentSatellites(x, agents[i].subagentCount);
+            if (agents[i].background > 0 && strcmp(agents[i].state, "error") && !strstr(agents[i].state,"awaiting")) {
+                const int dots=std::min(int(agents[i].background),BackgroundWork::MaxDots);
+                for(int j=0;j<dots;++j) setPixel(leds,x+(int(animTime*1000/BackgroundWork::OrbitMs*8)+j*2)%8,7,CRGB(ProductPalette::UiCyan));
+            }
         }
     } else {
         // Ping-pong scroll: pause → slide right → pause → slide back left
@@ -773,6 +810,10 @@ void MatrixPages::renderAgents(CRGB* leds, float animTime) {
                                         agents[i].kind == AGENT_ANTIGRAVITY);
             }
             drawSubagentSatellites(x, agents[i].subagentCount);
+            if (agents[i].background > 0 && strcmp(agents[i].state, "error") && !strstr(agents[i].state,"awaiting")) {
+                const int dots=std::min(int(agents[i].background),BackgroundWork::MaxDots);
+                for(int j=0;j<dots;++j) setPixel(leds,x+(int(animTime*1000/BackgroundWork::OrbitMs*8)+j*2)%8,7,CRGB(ProductPalette::UiCyan));
+            }
         }
     }
 }

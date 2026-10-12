@@ -1,3 +1,4 @@
+import { backgroundCount } from './background-work-presentation.js';
 import type { DotDeckSnapshot } from './protocol.js';
 /** BLE expression policy SSOT. Swift constants/frames are generated; sequence tests
  * execute both engines. Animation is expressive motion, not a quota alarm. */
@@ -17,7 +18,7 @@ export const MATRIX_POLICY = {
   resultTypes: ['chat_response', 'task_end'], rejectedStatuses: ['abandoned', 'denied', 'pending'],
   replyTypes: ['chat_response'], askTypes: ['chat_start'], closeTypes: ['chat_end', 'chat_response', 'task_end'],
   priority: ['waiting', 'error', 'done', 'working', 'idle'], urgent: ['waiting', 'error'],
-  summaryKinds: ['waiting', 'working', 'done', 'idle'],
+  summaryKinds: ['waiting', 'working', 'working', 'idle'],
   // Timebox face only (the 32×32 world keeps the kinds above). One needs-you
   // face per awaiting state, in a fixed order so two kinds of question never
   // alternate on a timer; a CI wait is its own axis (`shared/src/ci-wait.ts`):
@@ -47,6 +48,7 @@ export interface MatrixSession {
   id: string; alive: boolean; state?: string; agentType?: string;
   waitingOn?: { phase?: string; agentWaiting?: boolean } | null;
   subagents?: { active?: number };
+  backgroundTaskCount?: number;
 }
 export interface MatrixResult { ts: number; type: string; status?: string; sessionId?: string; agentType?: string; automated?: boolean }
 
@@ -77,7 +79,7 @@ export interface MatrixScene {
    *  The count remains metadata; the face does not draw a numeric ornament.
    *  Optional for callers that
    *  build a 32×32 scene by hand; the 11×11 renderer falls back to `kind`. */
-  face?: MatrixFace; pips?: number;
+  face?: MatrixFace; pips?: number; backgroundCount?: number;
 }
 export function matrixState(state?: string): MatrixKind {
   return state?.startsWith(MATRIX_POLICY.awaitingPrefix) ? 'waiting'
@@ -162,7 +164,8 @@ export class MatrixExpression {
     }
     for (const session of sessions) this.seen.add(session.id);
     while (this.seen.size > MATRIX_RULES.seenLimit) this.seen.delete(this.seen.values().next().value!);
-    this.sessions = sessions.map(s => ({ ...s }));
+    const previous = new Map(this.sessions?.map(s => [s.id, s.backgroundTaskCount]));
+    this.sessions = sessions.map(s => ({ ...s, backgroundTaskCount: backgroundCount(s.backgroundTaskCount) ?? previous.get(s.id) }));
   }
   updateTimeline(entries: MatrixResult[]): void {
     // Tool-event bursts must not evict a response before its retention window.
@@ -221,6 +224,8 @@ export class MatrixExpression {
     const frameTime = kind === 'arrival' ? now - this.arrival!.ts : responseAt == null ? now : now - responseAt;
     return { ...(this.dot?.configured ? { dot: this.dot, dotNow: now } : {}), kind, count: kind === 'arrival' || kind === 'asked' || kind === 'reply' ? live.length : signal.count,
       glyph, face, pips,
+      backgroundCount: live.some(s => backgroundCount(s.backgroundTaskCount) !== null)
+        ? live.reduce((sum,s) => sum + (backgroundCount(s.backgroundTaskCount) ?? 0), 0) : -1,
       frame: Math.floor(Math.max(0, frameTime) / MATRIX_RULES.frameMs) % MATRIX_RULES.frames,
       roster: live.map(s => matrixState(s.state)),
       // Fixed semantic rows: waiting, working, explicit results, live (or errors).
