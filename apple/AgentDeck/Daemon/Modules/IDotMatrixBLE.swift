@@ -100,7 +100,12 @@ final class IDotMatrixBLE: NSObject, @unchecked Sendable {
 
     /// Resolve once the central is powered on, or throw if BT is unavailable.
     func waitUntilReady(timeout: TimeInterval = 5) async throws {
-        try await withTimeout(timeout, onTimeout: { .bluetoothUnavailable("powered-on wait timed out") }) {
+        try await withTimeout(timeout, onTimeout: {
+            self.queue.sync {
+                .bluetoothUnavailable(TimeboxBLE.readinessFailure(state: self.central.state,
+                                                                 authorization: CBManager.authorization))
+            }
+        }) {
             let waiterId = UUID()
             defer { self.queue.async { _ = self.cancelledStateWaiters.remove(waiterId) } }
             try await withTaskCancellationHandler {
@@ -116,7 +121,8 @@ final class IDotMatrixBLE: NSObject, @unchecked Sendable {
                         case .poweredOff:
                             cont.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable("powered off"))
                         case .unauthorized:
-                            cont.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable("unauthorized"))
+                            cont.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable(TimeboxBLE.readinessFailure(
+                                state: self.central.state, authorization: CBManager.authorization)))
                         case .unsupported:
                             cont.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable("unsupported"))
                         default:
@@ -404,7 +410,8 @@ extension IDotMatrixBLE: CBCentralManagerDelegate {
         case .poweredOff:
             waiters.values.forEach { $0.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable("powered off")) }
         case .unauthorized:
-            waiters.values.forEach { $0.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable("unauthorized")) }
+            let reason = TimeboxBLE.readinessFailure(state: central.state, authorization: CBManager.authorization)
+            waiters.values.forEach { $0.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable(reason)) }
         case .unsupported:
             waiters.values.forEach { $0.resume(throwing: IDotMatrixBLEError.bluetoothUnavailable("unsupported")) }
         default:

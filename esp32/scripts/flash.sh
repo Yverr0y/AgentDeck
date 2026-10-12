@@ -33,51 +33,7 @@ local probe_python="${PLATFORMIO_CORE_DIR:-$HOME/.platformio}/penv/bin/python"
 if [ ! -x "$probe_python" ]; then
     probe_python="$(command -v python3)"
 fi
-"$probe_python" - <<'PY'
-import glob
-import json
-import platform
-import re
-import serial
-import sys
-import time
-
-patterns = [
-    '/dev/cu.usbserial-*',
-    '/dev/cu.wchusbserial*',
-    '/dev/cu.usbmodem*',
-] if platform.system() == 'Darwin' else ['/dev/ttyUSB*', '/dev/ttyACM*']
-exclude = re.compile(r'Bluetooth|WLAN|debug', re.IGNORECASE)
-found = []
-for pattern in patterns:
-    for port in sorted(glob.glob(pattern)):
-        if exclude.search(port):
-            continue
-        try:
-            ser = serial.Serial(port, baudrate=115200, timeout=0.4)
-            ser.reset_input_buffer()
-            ser.write(b'{"type":"device_info_request"}\n')
-            ser.flush()
-            deadline = time.time() + 1.5
-            while time.time() < deadline:
-                raw = ser.readline()
-                if not raw:
-                    continue
-                line = raw.decode('utf-8', errors='replace').strip()
-                if not line.startswith('{'):
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if obj.get('type') == 'device_info' and obj.get('board'):
-                    print(f"{obj['board']} {port}")
-                    found.append(port)
-                    break
-            ser.close()
-        except Exception:
-            continue
-PY
+"$probe_python" "$SCRIPT_DIR/probe_serial_identity.py" "$@"
 }
 
 # Canonical friendly name = panel/form + inches (no decimal point).
@@ -158,10 +114,12 @@ pick_auto_board() {
 
 ENV="${1:-auto}"
 PORT="${2:-}"
+MATCH=""
 
 if [ "$ENV" = "auto" ]; then
     AUTO_MATCH="$(pick_auto_board)"
     read -r ENV PORT <<< "$AUTO_MATCH"
+    MATCH="$ENV"
     echo "Detected running board via device_info_request: env=$ENV port=$PORT"
 else
     validate_env "$ENV"
@@ -171,7 +129,9 @@ PIO_ENV="$(map_env_to_pio "$ENV")"
 
 if [ -n "$PORT" ]; then
     # Safety check: if the target answers device_info_request, it must match the env.
-    MATCH="$(probe_running_boards | awk -v p="$PORT" '$2 == p { print $1 }')"
+    if [ -z "${MATCH:-}" ]; then
+        MATCH="$(probe_running_boards "$PORT" | awk -v p="$PORT" '$2 == p { print $1 }')"
+    fi
     if [ -n "$MATCH" ] && [ "$(map_env_to_pio "$MATCH")" != "$PIO_ENV" ]; then
         echo "Refusing flash: port $PORT reports board=$MATCH but env=$ENV" >&2
         exit 1
@@ -184,7 +144,6 @@ if [ -z "$PORT" ]; then
 fi
 
 if [ -n "$PORT" ] && [[ "$PORT" == *usbmodem* ]]; then
-    MATCH="$(probe_running_boards | awk -v p="$PORT" '$2 == p { print $1 }')"
     if [ -z "$MATCH" ]; then
         warn_recovery_mode "$PORT"
     fi
