@@ -224,6 +224,52 @@ CI going green is the first of five, not the last. Keep them apart in your head 
 
 **Never report a state you did not measure.** Each has its own instrument: the workflow log for 1, `gh release list` for 2, the portal or `npm view <pkg> version` for 3, and the portal for 4 and 5. Deriving one from another is how "released" gets claimed for a build sitting in a portal — it happened on 2026-08-09, when CI upload was reported as a completed Stream Deck and Ulanzi release while neither had been submitted.
 
+### Apple 1.9.0 candidate audit, 2026-10-12
+
+App Store Connect lists both iOS and macOS **1.8.0 as Ready for Distribution**
+(read on October 12). Apple 1.9.0 is the next candidate; no upload or submission
+is claimed until its platform-specific delivery readback is recorded.
+
+The candidate includes first-use setup and pairing recovery (#492, #494, #503),
+session attribution and duplicate-event fixes (#490, #500, #504, #505), background
+work tracking and orbiting companions (#507, #510, #511), and native pixel-display
+improvements. Dot is excluded from both Store artifacts; preview development is
+retained. Other delivery channels keep their existing versions.
+
+No open PR remained at the initial audit. Master `15b6dc5e` had successful Apple,
+main CI, design, Pages and local-deploy workflows. Open issues #423/#425/#426/#428
+retain Hermes messaging-platform, physical-device and replacement-model acceptance;
+#463 retains further deck-control capabilities and physical acceptance. These are
+not newly completed capabilities of 1.9.0. #272/#273 remain research/migration work,
+and #449 is the preceding multi-channel delivery tracker. This candidate does not
+claim replacement-model approval, new Hermes messaging support or new deck switches.
+
+The full local run at `76b06c4b` passed Store/preview native builds and tests,
+coverage, daemon E2E, Android and ESP32 checks. Its retained receipt records a
+packaged-daemon assertion failure: the captured Hermes fixture has three explicit
+cancelled Stops **plus** an open turn closed by SessionEnd, while the script
+incorrectly required exactly three Interrupted rows across all sessions. A second
+isolated replay reproduced all four correct closures. The assertion now checks
+each explicitly cancelled session independently. The scoped
+`pnpm verify:full --only npm-packaged --record` rerun at `d12e9fd9` passed all ten
+package checks, including 60-second health/JSON soak and isolated restart. Keep
+the [original full receipt](verification/receipts/2026-10-12-76b06c4.json) and
+[package rerun receipt](verification/receipts/2026-10-12-d12e9fd.json) together:
+the latter is partial verification, not a replacement claim for the full run.
+Final quick and changed-area checks passed; the Apple source is unchanged since
+the recorded native run.
+
+Five native first-use page captures were inspected. An iPad Air Release candidate
+was built, passed the Dot-exclusion artifact check and installed; launch was
+refused while the device was locked. This is not physical runtime acceptance.
+The Windows Node 22/24/26 checks passed in hosted PR CI; they were not run on this
+Mac. Hardware, live Swift/Codex and replacement-model acceptance remain separate.
+
+Both 1.9.0 App Store Connect drafts have saved English, Korean and Japanese
+What's New/promotional text and platform-specific review notes. English pairing
+copy now states network reachability, rather than implying QR bypasses subnet
+reachability. Metadata preparation is not an upload or review submission.
+
 ### Delivery readback, 2026-10-06
 
 All six channels target **1.8.0**, from #460's merge commit
@@ -414,7 +460,7 @@ Tag prefixes remain because channels ship independently and may point to differe
 
 1. Choose the next SemVer for the target, preserving the shared compatibility major. Use minor for substantial backward-compatible features and patch for small fixes.
 2. Update that target's internal mirrors. Do not bump unrelated targets merely to align minor or patch values.
-3. Increment Apple `CURRENT_PROJECT_VERSION` or Android `versionCode` only when releasing that target.
+3. Increment Android `versionCode` when releasing Android. Apple CI owns `CURRENT_PROJECT_VERSION` (run number × 100 + attempt); its source value is a local default.
 4. **Write the `CHANGELOG.md` entry, and the delivery table in `README.md`.** The
    changelog is not a courtesy copy — `scripts/release-notes.mjs` renders the
    GitHub Release body from it, so an unwritten entry is a release page with an
@@ -568,7 +614,55 @@ looking correct while the server still holds the previous text.
 2. Run the Release build and App Store archive verifier described in `AGENTS.md`.
 3. For a coordinated iOS + macOS delivery, tag and push `apple-v<APPLE_VERSION>`; CI archives and uploads both to TestFlight. For a macOS-only delivery, dispatch `apple-release.yml` on the reviewed commit with `release_version=<APPLE_VERSION>`, `platform=macos`, and `upload=false` to prepare the signed candidate. Use `upload=true` only for the authorized App Store Connect delivery. A manual run does not publish a GitHub Release; do not push an Apple tag for a single-platform delivery because tags still build and upload both platforms.
 
-CI owns `CURRENT_PROJECT_VERSION` — `apple-release.yml` injects `github.run_number` into both archive steps, so the build number rises on every run and ASC never sees a duplicate `(version, build)` pair. Do not bump it by hand; the value in `apple/project.yml` is only a local-build default.
+CI owns `CURRENT_PROJECT_VERSION` — `apple-release.yml` injects `github.run_number * 100 + github.run_attempt` into both archive steps, so the build number rises on every run and ASC never sees a duplicate `(version, build)` pair. Do not bump it by hand; the value in `apple/project.yml` is only a local-build default.
+
+#### Dot development and Store builds
+
+Both Apple targets use one source tree. Standard `Debug` and `Release` configurations
+exclude Dot entirely; the default `AgentDeck_macOS` / `AgentDeck_iOS` schemes archive
+`Release`. `AGENTDECK_APP_STORE` remains the macOS safety invariant in every configuration,
+including previews; it is not a feature switch and never licenses a helper/subprocess.
+
+| Configuration | Dot | Purpose |
+|---|---|---|
+| `Debug` / `Release` | Excluded | Normal development / App Store candidate |
+| `DotPreviewDebug` / `DotPreviewRelease` | Compiled in | Explicit local Dot development, including optimized verification |
+
+Select `AgentDeck_DotPreview_macOS` or `AgentDeck_DotPreview_iOS` in Xcode for Dot work.
+They use the same targets, sandbox rules and bundle identity; these are development
+configurations, not a second distributed app. Installing a preview can replace the
+ordinary local app, so use isolated verification output rather than installing it
+alongside the Store app. No Cloudflare backend is created by these configurations.
+
+`apple/project.yml` owns `AGENTDECK_DOT_CONDITION`, `AGENTDECK_DOT_SUPPORT` and source/resource
+exclusions. Only preview configurations define `AGENTDECK_DOT_PREVIEW`; default builds
+exclude `Dot*.swift` and `dot-mcp-contract.json`. Dot integration boundaries in shared
+Swift files compile conditionally. Incoming Dot fields from an external daemon are
+ignored by Store clients; the Store daemon emits `dot: null` to clear old companion
+state. Old Dot configuration/Keychain data is neither read nor resumed by that build.
+
+Keep new native Dot code (including a future Cloudflare client) in `Dot*.swift` files,
+with call sites behind `AGENTDECK_DOT_PREVIEW`. Add any new Dot-only resources to the
+same exclusion and artifact check. Do not enable Dot through remote configuration,
+UserDefaults, environment variables or a hidden menu in a Store artifact.
+
+```bash
+# Run from the repository root. Unsigned builds stay in apple/build/verification/.
+bash apple/scripts/verify-build.sh macOS Debug
+bash apple/scripts/verify-build.sh macOS Release
+bash apple/scripts/verify-build.sh macOS DotPreviewRelease
+bash apple/scripts/verify-build.sh iOS Release
+bash apple/scripts/verify-build.sh iOS DotPreviewRelease
+```
+
+`pnpm verify:changed` selects these native checks for Apple changes. Apple CI tests
+Store and preview macOS builds, builds macOS Release, and builds both optimized iOS variants. Each app is
+checked by `apple/scripts/verify-dot-build.py`: build identity, compiled Dot markers
+(including Xcode's Debug dylib), and the MCP resource must match the selected variant.
+The release archive verifier always requires **excluded**, so a preview archive cannot
+pass the upload gate even if it has valid distribution signing. Release commands also
+pin `-configuration Release`. Enabling Dot for public distribution requires an explicit
+source/configuration change, complete acceptance and a newly reviewed app release.
 
 **Local builds**
 

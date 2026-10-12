@@ -33,13 +33,13 @@ AgentDeck
 **macOS App**
 
 ```
-모든 AI 코딩 에이전트를 잔잔한 한 화면에 — Claude Code, Codex, OpenClaw. Stream Deck부터 e-ink까지 상태를 실시간 프리뷰로. 하드웨어 없이 Mac 한 대로.
+AI 코딩 세션의 요청, 응답, 백그라운드 작업과 CI 대기를 한눈에 확인하세요.
 ```
 
 **iOS App**
 
 ```
-Mac에서 돌아가는 에이전트 세션을 iPad·iPhone에서 그대로. 상태·도구 호출·사용량을 실시간으로 — 침대 머리맡에서도 필요한 순간을 놓치지 않습니다. 같은 Wi-Fi의 Mac에서 AgentDeck 실행이 필요합니다.
+페어링된 Mac의 AI 코딩 세션, 요청, 응답과 CI 대기를 한눈에 확인하세요.
 ```
 
 ### Description (4000자)
@@ -153,6 +153,25 @@ AgentDeck은 독립적인 프로젝트이며 Anthropic, OpenAI, Google, SST, Cor
 
 ```
 claude code,ai,agent,dashboard,stream deck,monitoring,apme,openclaw,codex,ipad,companion,developer
+```
+
+### What's New (v1.9.0)
+
+**macOS App**
+
+```
+• 처음 시작할 때 수족관 모양과 사용할 에이전트를 선택하고, 필요한 연결만 설정할 수 있습니다. 설정은 언제든 건너뛰거나 다시 열 수 있습니다.
+• 에이전트 캐릭터 주위를 도는 작은 친구들이 백그라운드 작업과 완료 상태를 보여줍니다.
+• 세션 구분, 타임라인 중복, 재연결과 페어링 복구를 개선했습니다.
+• 선택형 픽셀 디스플레이의 장면과 표정을 개선했습니다.
+```
+
+**iOS App**
+
+```
+• 새 시작 화면에서 수족관 모양을 선택하고 Mac 검색, 승인 또는 QR 페어링으로 연결할 수 있습니다. 오프라인 미리보기도 제공됩니다.
+• 페어링된 Mac이 전달한 백그라운드 작업을 에이전트 주위를 도는 작은 친구들로 표시합니다.
+• 재연결, 세션 구분과 타임라인 중복 표시를 개선했습니다.
 ```
 
 ### What's New (v1.7.0)
@@ -404,13 +423,13 @@ AgentDeck
 **macOS App**
 
 ```
-すべてのAIコーディングエージェントを穏やかな一画面に — Claude Code、Codex、OpenClaw。Stream Deckからe-inkまで状態をライブプレビュー。Macだけで始められます。
+AIコーディングセッションのリクエスト、応答、バックグラウンドタスクとCI待機をひと目で確認。
 ```
 
 **iOS App**
 
 ```
-Macで動作中のエージェントセッションをiPad・iPhoneへそのまま。状態・ツール呼び出し・使用量をリアルタイムに — ベッドサイドでも必要な瞬間を逃しません。同一Wi-FiのMacでAgentDeckの起動が必要です。
+ペアリングしたMacのAIコーディングセッション、リクエスト、応答とCI待機をひと目で確認。
 ```
 
 ### Description (4000字)
@@ -524,6 +543,25 @@ AgentDeckは独立したプロジェクトであり、Anthropic、OpenAI、Googl
 
 ```
 claude code,ai,エージェント,ダッシュボード,stream deck,monitoring,apme,openclaw,codex,ipad,developer
+```
+
+### What's New (v1.9.0)
+
+**macOS App**
+
+```
+• 初回設定で水槽の見た目と使うエージェントを選び、必要な連携だけを設定できます。設定はスキップでき、後から開き直せます。
+• エージェントの周りを回る小さな仲間が、バックグラウンドタスクと完了状態を表示します。
+• セッションの識別、タイムラインの重複、再接続とペアリングの復旧を改善しました。
+• オプションのピクセルディスプレイのシーンと表情を改善しました。
+```
+
+**iOS App**
+
+```
+• 新しい初回設定で水槽の見た目を選び、Macの検索、承認またはQRペアリングで接続できます。オフラインプレビューも利用できます。
+• ペアリングしたMacから受け取ったバックグラウンドタスクを、エージェントの周りを回る小さな仲間で表示します。
+• 再接続、セッションの識別とタイムラインの重複表示を改善しました。
 ```
 
 ### What's New (v1.7.0)
@@ -773,13 +811,13 @@ Every agent, one calm surface
 **macOS App**
 
 ```
-All your AI coding agents on one calm screen — Claude Code, Codex, OpenClaw. Preview live state from Stream Deck to e-ink. No hardware needed — just your Mac.
+Follow your AI coding sessions, requests, responses and CI waits at a glance.
 ```
 
 **iOS App**
 
 ```
-Your Mac's agent sessions, live on iPad or iPhone — state, tool calls, and usage in real time. Know the moment you're needed. Requires AgentDeck running on your Mac.
+Follow your AI coding sessions, requests, responses and CI waits from your paired Mac at a glance.
 ```
 
 ### Description (4000 chars)
@@ -799,7 +837,7 @@ You steer in your own terminal — AgentDeck keeps watch. Run sessions in parall
 Claude Code hooks, opt-in Codex lifecycle hooks, OpenCode local-server events, and OpenClaw Gateway events render as terrarium creatures. Each session swims, processes, or awaits input so status is clear at a glance.
 
 • Free iPad/iPhone companion
-Auto-discovers your Mac over Wi-Fi via Bonjour. QR pairing fallback for different-subnet setups. Keep your agents in view from a second screen without alt-tabbing.
+Auto-discovers your Mac over Wi-Fi via Bonjour. QR pairing is available on reachable networks. Keep your agents in view from a second screen without alt-tabbing.
 
 • APME agent performance evaluation
 Finished turns are scored against category-specific rubrics. The default Apple Intelligence Foundation Models backend is on-device, free, and uses no network. Opt-in remote backends you point at yourself — Anthropic API, any OpenAI-compatible server, or a local MLX server — are alternatives; only then does the evaluated turn content leave your Mac, to the endpoint you chose.
@@ -862,7 +900,7 @@ While Claude Code or another AI agent runs on your Mac, see session progress, to
 Your Mac's Claude Code hooks, opt-in Codex lifecycle hooks, OpenCode local-server events, and OpenClaw Gateway events render as terrarium creatures. Each session swims, processes, or awaits input so status is clear at a glance.
 
 • Mac pairing (free)
-Auto-discovers your Mac over Wi-Fi via Bonjour. QR pairing fallback for different-subnet setups. Keep your agents visible from a second screen without alt-tabbing.
+Auto-discovers your Mac over Wi-Fi via Bonjour. QR pairing is available on reachable networks. Keep your agents visible from a second screen without alt-tabbing.
 
 • APME score viewing
 See agent-turn evaluation scores, scored against category-specific rubrics on your Mac. Scoring itself runs on the Mac; the iOS app only displays the results.
@@ -893,6 +931,25 @@ AgentDeck is independent and is not affiliated with or endorsed by Anthropic, Op
 
 ```
 claude code,ai,agent,dashboard,monitoring,apme,openclaw,codex,ipad,stream deck,developer
+```
+
+### What's New (v1.9.0)
+
+**macOS App**
+
+```
+• A new first-use flow lets you choose your aquarium appearance and set up only the agent integrations you want. Skip any step or reopen setup later.
+• Small companions orbit your agent creatures to show background tasks and their completion.
+• Improved session identity, timeline deduplication, reconnection and pairing recovery.
+• Refined scenes and expressions for optional pixel displays.
+```
+
+**iOS App**
+
+```
+• Choose your aquarium appearance in a new first-use flow, then connect through Mac discovery, approval or QR pairing. Offline previews remain available.
+• Background tasks received from your paired Mac appear as small companions orbiting their agent.
+• Improved reconnection, session identity and duplicate timeline handling.
 ```
 
 ### What's New (v1.7.0)
