@@ -22,15 +22,10 @@ internal class AquariumResidentOverlay(context: Context) {
         canvas.drawText(ciCompanionBadge(wait),x,y+size/2+8f*density,paint)
     }
 
-    private val backgroundEffect = BackgroundWorkEffect(context)
-
-    fun retainBackground(ids: Set<String>) { backgroundEffect.retain(ids) }
 
     /** Selection rails and the working bars — body cues, drawn whether or not tags are. */
     fun drawCues(canvas: Canvas, item: AquariumResident, bodyX: Float, bodyY: Float, unit: Float,
         phase: Float, selected: Boolean) {
-        backgroundEffect.draw(canvas, item.id, item.backgroundTaskCount, item.backgroundAttention || item.state == OctopusVisualState.ASKING,
-            bodyX, bodyY, unit*.75f, System.currentTimeMillis())
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         if (selected) {
@@ -47,7 +42,7 @@ internal class AquariumResidentOverlay(context: Context) {
             val mark = when (item.ciWait.phase) { "passed" -> "✓"; "failed" -> "!"; "unknown" -> "?"; else -> "CI" }
             canvas.drawText(mark, bodyX+unit*.8f, bodyY, paint)
         }
-        if (item.state == OctopusVisualState.WORKING && item.ciWait?.agentWaiting != true) {
+        if (item.state == OctopusVisualState.WORKING && item.ciWait?.agentWaiting != true && (item.backgroundTaskCount ?: 0) == 0) {
             // Neutral bars move; the semantic WORKING badge stays steady.
             paint.color = DesignTokens.Tide.s50.toArgb()
             for (index in 0 until TerrariumRules.NATIVE_ACTIVITY_BAR_COUNT.toInt()) {
@@ -65,7 +60,7 @@ internal class AquariumResidentOverlay(context: Context) {
     private fun title(item: AquariumResident) = item.title.take(22)
 
     private fun status(item: AquariumResident) = item.ciWaitLabel ?: (when (item.state) {
-        OctopusVisualState.WORKING -> "WORKING"
+        OctopusVisualState.WORKING -> if (!item.backgroundAttention && (item.backgroundTaskCount ?: 0) > 0) "${item.backgroundTaskCount} background task${if(item.backgroundTaskCount == 1) "" else "s"}" else "WORKING"
         OctopusVisualState.ASKING -> "WAITING"
         else -> "IDLE"
     } + if (item.helpers > 0) " · ${item.helpers} agents" else "")

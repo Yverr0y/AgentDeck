@@ -33,11 +33,19 @@ a companion: agent authorization remains on the computer running the agents.
 ## Background work
 
 Background tasks remain attached to their session and are separate from child
-agents. LCD 2D and 3D show up to three moving cyan beads with an exact `BG N`
-label; a lower explicit count briefly expands a completion ring. Android's
-animation-duration setting freezes motion. Unknown telemetry retains the last
-known count by session identity, never creating a completion; disconnect drops
-that host's roster. Attention hides decorative cues while preserving the count.
+agents. LCD 2D and 3D use Apple's jar-buddy language: up to three clay jars
+with moving lids and simmer bubbles, plus up to nine pearl moonlets for extra
+tasks. A 12-second orbit passes behind and in front of its owner; a lower explicit
+count finishes only the departing buddies. The exact count remains readable.
+Android 3D uses actual Filament meshes with scene lighting and depth occlusion;
+2D uses generated Apple Canvas paths in two passes. Dimensions and artwork are
+exported by `generate-background-presentation.mjs`; the 3D mesh source and assets
+are digest checked. Re-export meshes with Blender and
+`assets/terrarium/export-android-background-buddies.py` after reviewing Apple changes.
+Android's animation-duration setting freezes buddies on the front arc without
+completion effects. Unknown telemetry retains the last known count by session
+identity, never creating a completion; disconnect drops that host's roster.
+Attention and CI keep priority over decorative background cues.
 
 E-ink uses a stable count/status line in both the session column and Paper Board.
 There is no background-work animation timer or scheduled completion refresh on

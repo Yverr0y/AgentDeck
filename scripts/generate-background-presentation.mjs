@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -60,6 +61,52 @@ enum BackgroundDevicePolicy {
 }
 `
 };
+// Apple owns the established jar language. Export its measured dimensions and
+// cached artwork rather than inventing another Android appearance.
+const apple = fs.readFileSync(path.join(root, 'apple/AgentDeck/Terrarium/AquariumResidents.swift'), 'utf8');
+const constants = [...apple.slice(apple.indexOf('enum BackgroundWorkPresentation'), apple.indexOf('enum Axis')).matchAll(/static let (\w+)(?:: Float)? = ([^\n]+)/g)]
+ .filter(([,name]) => name !== 'pearlBody' && name !== 'pearlShade')
+ .map(([,name,value]) => `    const val ${name} = ${value.replace(/\b(\d+\.\d+)\b/g, '$1f')}${/^(?:\d+)$/.test(value) && ['radiansPerSecond','lapSeconds','finishSeconds','followRate','settleRate'].includes(name) ? 'f' : ''}`);
+outputs['android/app/src/main/kotlin/dev/agentdeck/terrarium/BackgroundBuddyStyle.generated.kt'] =
+ `// GENERATED from Apple BackgroundWorkPresentation by generate-background-presentation.mjs.\npackage dev.agentdeck.terrarium\n\ninternal object BackgroundBuddyStyle {\n${constants.join('\n')}\n}\n`;
+
+const renderer = fs.readFileSync(path.join(root, 'apple/AgentDeck/Terrarium/TerrariumRenderer.swift'), 'utf8');
+const artwork = renderer.slice(renderer.indexOf('private enum BuddyPaths'), renderer.indexOf('/// Jar buddies (see'));
+const f = n => `${Number(Number(n).toFixed(6))}f`;
+const rect = r => {
+ const v = [...r.matchAll(/(?:x|y|width|height): (-?[\d.]+)/g)].map(x => Number(x[1]));
+ if(v.length !== 4) throw Error(`Cannot translate buddy rectangle: ${r}`);
+ return [v[0],v[1],v[0]+v[2],v[1]+v[3]].map(f).join(', ');
+};
+const point = p => p.includes('.zero') ? '0f, 0f' : [...p.matchAll(/[xy]: (-?[\d.]+)/g)].map(x => f(x[1])).join(', ');
+const paths = [];
+for(const m of artwork.matchAll(/static let (\w+)(?:: Path)? = (Path\([^\n]+\)|\{[\s\S]*?\}\(\))/g)) {
+ const [,name,body] = m;
+ if(name === 'sparkle') { paths.push('    val sparkle = Path().apply { for (k in 0 until 6) { val a = k * kotlin.math.PI.toFloat() / 3; moveTo(kotlin.math.cos(a)*.55f,kotlin.math.sin(a)*.55f); lineTo(kotlin.math.cos(a),kotlin.math.sin(a)) } }'); continue; }
+ const cmds = [];
+ for(const line of body.split('\n')) {
+  if(/ellipseIn:|addEllipse/.test(line)) cmds.push(`addOval(${rect(line)}, Path.Direction.CW)`);
+  else if(/roundedRect:/.test(line)) cmds.push(`addRoundRect(${rect(line)}, ${f(line.match(/cornerRadius: ([\d.]+)/)[1])}, ${f(line.match(/cornerRadius: ([\d.]+)/)[1])}, Path.Direction.CW)`);
+  else if(/addRect/.test(line)) cmds.push(`addRect(${rect(line)}, Path.Direction.CW)`);
+  else if(/p.move/.test(line)) cmds.push(`moveTo(${point(line)})`);
+  else if(/addLine/.test(line)) cmds.push(`lineTo(${point(line)})`);
+  else if(/addQuadCurve/.test(line)) { const [end,control] = line.split(', control:'); cmds.push(`quadTo(${point(control)}, ${point(end)})`); }
+  else if(/closeSubpath/.test(line)) cmds.push('close()');
+ }
+ if(!cmds.length) throw Error(`Untranslated jar path ${name}`);
+ paths.push(`    val ${name} = Path().apply { ${cmds.join('; ')} }`);
+}
+outputs['android/app/src/main/kotlin/dev/agentdeck/terrarium/BackgroundBuddyPaths.generated.kt'] =
+ `// GENERATED from Apple BuddyPaths by generate-background-presentation.mjs.\npackage dev.agentdeck.terrarium\nimport android.graphics.Path\ninternal object BackgroundBuddyPaths {\n${paths.join('\n')}\n    const val lidSeat = ${f(artwork.match(/lidSeat: CGFloat = (-?[\d.]+)/)[1])}\n}\n`;
+const meshReceipt = JSON.parse(fs.readFileSync(path.join(root,'assets/terrarium/background-buddies.json'),'utf8'));
+const meshSource = apple.slice(apple.indexOf('    private func makeBuddy('),apple.indexOf('    private func makeBackgroundWork('));
+const sha = value => createHash('sha256').update(value).digest('hex');
+const motionSource = apple.slice(apple.indexOf('enum BackgroundWorkPresentation'),apple.indexOf('/// A presentation projection'));
+if(sha(motionSource) !== meshReceipt.appleMotionSha256) throw Error('Apple jar motion changed: review BackgroundBrood.kt and refresh the export receipt');
+if(sha(meshSource) !== meshReceipt.appleMeshSha256) throw Error('Apple jar meshes changed: update/re-export Android background buddies');
+for(const [name,hash] of Object.entries(meshReceipt.assets)) {
+ if(sha(fs.readFileSync(path.join(root,'android/app/src/main/assets/residents',name))) !== hash) throw Error(`jar asset drift: ${name}`);
+}
 for(const [target,body] of Object.entries(outputs)) {
  const file = path.join(root,target);
  if(process.argv.includes('--check')) { if(!fs.existsSync(file) || fs.readFileSync(file,'utf8')!==body) throw Error(`drift: ${target}`); }

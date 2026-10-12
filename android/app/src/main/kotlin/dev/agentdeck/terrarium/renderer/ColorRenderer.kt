@@ -116,10 +116,11 @@ fun ColorTerrariumCanvas(
 
         val visibleIDs = visibleAquariumResidents(aquariumResidents(state),state.focusedSessionId).map { it.id }.toSet()
         val originals = mutableMapOf<String, Pair<Float, Float>>()
-        octopuses.forEachIndexed { i,c -> state.agents.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition() } }
-        cloudCreatures.forEachIndexed { i,c -> state.cloudCreatures.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition() } }
-        openCodeCreatures.forEachIndexed { i,c -> state.openCodeCreatures.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition() } }
-        antigravityCreatures.forEachIndexed { i,c -> state.antigravityCreatures.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition() } }
+        val bodyRadii = mutableMapOf<String, Float>()
+        octopuses.forEachIndexed { i,c -> state.agents.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition(); bodyRadii[it.sessionId] = c.companionRadius(w,h) } }
+        cloudCreatures.forEachIndexed { i,c -> state.cloudCreatures.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition(); bodyRadii[it.sessionId] = c.companionRadius(w,h) } }
+        openCodeCreatures.forEachIndexed { i,c -> state.openCodeCreatures.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition(); bodyRadii[it.sessionId] = c.companionRadius(w,h) } }
+        antigravityCreatures.forEachIndexed { i,c -> state.antigravityCreatures.getOrNull(i)?.let { originals[it.sessionId] = c.simulationPosition(); bodyRadii[it.sessionId] = c.companionRadius(w,h) } }
         originals.keys.retainAll(visibleIDs)
         val now=System.nanoTime();val dt=if(lastCiFrame[0]==0L)0f else ((now-lastCiFrame[0])/1_000_000_000f).coerceIn(0f,.05f);lastCiFrame[0]=now
         ciMotions.keys.retainAll(originals.keys.intersect(state.ciWaits.keys))
@@ -127,6 +128,23 @@ fun ColorTerrariumCanvas(
 
         // Layer 6.5: Back-layer fish (behind creatures for 3D depth)
         dataParticles.drawBackLayer(this)
+
+        backgroundEffect.retain(visibleIDs)
+        val residents = aquariumResidents(state).associateBy { it.id }
+        val backgroundFrame = android.os.SystemClock.uptimeMillis()
+        fun drawBuddies(near: Boolean) {
+            for ((id,center) in originals) {
+                val resident=residents[id]
+                val r=bodyRadii[id] ?: continue
+                var nearest=Float.POSITIVE_INFINITY
+                for((other,p) in originals)if(other!=id && kotlin.math.abs(p.second-center.second)*h/r<2.5f) nearest=min(nearest,kotlin.math.abs(p.first-center.first)*w/r)
+                backgroundEffect.draw(drawContext.canvas.nativeCanvas,id,state.backgroundTaskCounts[id],
+                    id in state.backgroundAttentionIds || resident?.state==dev.agentdeck.terrarium.OctopusVisualState.ASKING || state.ciWaits[id]!=null,
+                    center.first*w,center.second*h,r,backgroundFrame,near,
+                    resident?.state==dev.agentdeck.terrarium.OctopusVisualState.WORKING,nearest)
+            }
+        }
+        drawBuddies(false)
 
         // Layer 7a: Worker crayfish (smaller, behind main)
         for (wc in workerCrayfish) wc.draw(this)
@@ -169,6 +187,8 @@ fun ColorTerrariumCanvas(
         // Layer 9.4: Antigravity creatures (peak/arc logo)
         for ((i,ag) in antigravityCreatures.withIndex()) if (state.antigravityCreatures.getOrNull(i)?.sessionId in visibleIDs) ag.draw(this)
 
+        drawBuddies(true)
+
         // Layer 9.45: name tags, resolved together so none hides a resident.
         CreatureNameTagLayer.active = null
         CreatureNameTagLayer.flush(this, nameTags)
@@ -179,14 +199,6 @@ fun ColorTerrariumCanvas(
             drawCiCompanion(drawContext.canvas.nativeCanvas,ciPaint,ciSprite,center,ciCompanionPosition(center,angle,w,h),wait,textScale=density)
         }
 
-
-        backgroundEffect.retain(visibleIDs)
-        val residents = aquariumResidents(state).associateBy { it.id }
-        for ((id, center) in originals) {
-            backgroundEffect.draw(drawContext.canvas.nativeCanvas, id, state.backgroundTaskCounts[id],
-                id in state.backgroundAttentionIds || residents[id]?.state == dev.agentdeck.terrarium.OctopusVisualState.ASKING,
-                center.first*w, center.second*h, min(w,h)*.055f, System.currentTimeMillis())
-        }
 
         // Layer 9.5: Front-layer fish (in front of creatures for 3D depth)
         dataParticles.drawFrontLayer(this)

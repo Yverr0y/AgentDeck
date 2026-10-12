@@ -59,6 +59,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
     private val materials = UbershaderProvider(viewer.engine)
     private val loader = AssetLoader(viewer.engine, materials, EntityManager.get())
     private val resources = ResourceLoader(viewer.engine)
+    private val buddies = BackgroundAquariumBuddies(context,viewer,loader,resources)
     private val transforms = viewer.engine.transformManager
     // Animation transactions sort TransformManager storage. Only entity IDs are
     // stable across frames, asset additions and removals; resolve instances at use.
@@ -129,7 +130,6 @@ internal class AquariumResidents(private val context: Context, private val viewe
         focusedId = focus
         val visible = visibleAquariumResidents(all, focus)
         val ids = visible.map { it.id }.toSet()
-        overlay.retainBackground(ids)
         for (id in bodies.keys.toList()) if (id !in ids) {
             val old = bodies.remove(id)!!
             viewer.scene.removeEntities(old.asset.entities)
@@ -174,7 +174,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
         }
     }
 
-    fun step(delta: Float, aspect: Float) {
+    fun step(delta: Float, aspect: Float, animate: Boolean = true) {
         val dt = delta.coerceIn(0f, .05f)
         val blend = 1f - exp(-dt * 3f)
         val columns = if (aspect < 1f) 2 else 4
@@ -252,6 +252,13 @@ internal class AquariumResidents(private val context: Context, private val viewe
                 transforms.setTransform(transforms.getInstance(joint.entity), pose)
             }
         }
+        buddies.retain(bodies.keys)
+        for(body in bodies.values) {
+            val r=max(.001f,body.halfX*body.size)
+            var nearest=Float.POSITIVE_INFINITY
+            for(other in bodies.values)if(other!==body && abs(other.y-body.y)/r<2.5f && abs(other.x-body.x)/r>.01f) nearest=min(nearest,abs(other.x-body.x)/r)
+            buddies.update(body.item,body.x,body.y,body.z,r,dt,animate,nearest)
+        }
         disturbSchool(dt)
     }
 
@@ -318,6 +325,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
     }
 
     fun dispose() {
+        buddies.dispose()
         for (body in bodies.values) {
             viewer.scene.removeEntities(body.asset.entities)
             loader.destroyAsset(body.asset)

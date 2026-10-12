@@ -101,6 +101,8 @@ class AntigravityCreature(
     }
 
     /** Current live position for tetra attractor tracking. */
+    fun companionRadius(width: Float, height: Float): Float = minOf(width, height * 2f) * TerrariumLayout.OCTOPUS_BODY_RADIUS_FRACTION * scaleFactor
+
     fun simulationPosition(): Pair<Float, Float> = currentX to currentY
     fun currentPosition(): Pair<Float, Float> = simulationPosition()
 
@@ -195,7 +197,7 @@ class AntigravityCreature(
         val h = scope.size.height
         val baseWidth = minOf(w, h * 2f)
 
-        val bodyRadius = baseWidth * TerrariumLayout.OCTOPUS_BODY_RADIUS_FRACTION * scaleFactor
+        val bodyRadius = companionRadius(w, h)
         val centerX = w * currentX
 
         // Bob only when swimming (WORKING); standing states have no bob

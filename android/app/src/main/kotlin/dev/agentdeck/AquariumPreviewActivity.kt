@@ -207,6 +207,7 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
         // Power queries cross Binder; sample them outside the per-frame hot path.
         if (lastBudgetCheck == 0L || frameTimeNanos - lastBudgetCheck >= 2_000_000_000L) {
             lastBudgetCheck = frameTimeNanos
+            reduceMotion = Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
             constrained = power.isPowerSaveMode || power.currentThermalStatus >= PowerManager.THERMAL_STATUS_MODERATE
             val maxEdge = if (constrained) 960 else 1440
             val scale = minOf(1f, maxEdge.toFloat() / maxOf(width, height, 1))
@@ -236,7 +237,7 @@ class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.Fr
                     animator.updateBoneMatrices()
                 }
             }
-            residents?.step(if (reduceMotion) 0f else dt, width.toFloat() / height.coerceAtLeast(1))
+            residents?.step(if (reduceMotion) 0f else dt, width.toFloat() / height.coerceAtLeast(1), animate = !reduceMotion)
             model.render(frameTimeNanos)
             // The authored enclosure is finite; a wide tablet must not expose
             // its black exterior. The native skybox supplies continuous water.
