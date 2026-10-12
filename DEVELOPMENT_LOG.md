@@ -30,6 +30,42 @@ tracked in [RELEASING.md](RELEASING.md): npm, Android and ESP32 are being prepar
 at 1.9.0, with Android versionCode 26. The checked Play production version is
 still 1.8.0 (25). Apple 1.9.0 remains a separate submitted release.
 
+## Startup cost migration found during release soak
+
+The installed npm candidate stopped answering health during SQLite work. A native
+process sample pinned the event loop in `better_sqlite3` `Database::JS_exec`.
+On a consistent 3.5 GB copy of the maintainer database, instrumented startup
+identified repeated `cost_known` backfills: 57 ms for runs, 32 ms for tasks and
+2,776 ms for sample events (2.882 s initialization). This copy measurement does
+not by itself explain the entire live outage; the installed soak must pass after
+the fix before npm tagging.
+
+Node and Swift now infer historical positive costs only when the corresponding
+table did not have `cost_known`. Subsequent opens preserve modern partially
+priced aggregates instead of falsely marking their subtotal as fully known.
+Regression coverage exercises legacy positive/zero costs and reopening on both
+runtimes; Node also pins the absence of the unbounded UPDATE statement. The
+Swift mirror is a follow-up after the submitted Apple 1.9.0/build 7901 and must
+not be described as part of that immutable submission.
+
+## Display fallback was the remaining live-response stall
+
+The committed cost fix passed the complete automated pre-release check at
+`fafb84ea`, but the installed fleet soak still timed out twice in 60 health
+requests (5 s deadline). A temporary inspector trace of slow synchronous calls
+identified 21 of 32 calls in DisplayMonitor: `pmset`, `ioreg` and `pgrep`, with
+one call taking 2,695 ms. The three ran serially on the HTTP/WS event loop.
+Only two SQLite writes crossed 200 ms (227/207 ms); the probe was removed and
+the loopback inspector closed after measurement.
+
+The fallback now runs three bounded asynchronous probes, preserves the last
+known component on unreadable/timeout results, and accepts pgrep exit 1 as the
+only no-match result. Stop/restart invalidates an in-flight poll; concurrent
+polls are suppressed. Regression tests cover event-loop availability while
+commands are pending, timeout/permission failure, recovery, and stale completions.
+Installed-candidate soak and a fresh full receipt remain required before npm
+publication.
+
 ## 2026-10-11 — A Codex turn reaching a Claude hook endpoint became a Claude Code session (#490)
 
 During the App Store 1.8.0 (7801) audit on 2026-10-09, one completed answer appeared twice at 12:43, once under the Claude Code icon and once under Codex. The roster labelled the session Claude Code while reporting an OpenAI model. The work was a single Codex thread (`codex-cli`, `gpt-6-astra`, turn 12:40:50–12:47:09 in `apme.sqlite`). No `claude-code` APME run existed in that window, and the persisted timelines no longer held the duplicate, so it lived in live session and timeline state.

@@ -47,6 +47,10 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## Unreleased
 
+- Swift APME startup preserves partially known costs and avoids repeating the
+  legacy cost backfill on every database open. This follow-up is not in the
+  already-submitted Apple 1.9.0/build 7901.
+
 ## 2026-10-12 — npm 1.9.0, Android 1.9.0, ESP32 1.9.0
 
 - Android adds skippable guided setup: choose a dashboard appearance, preview an
@@ -62,6 +66,10 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
   prevents duplicate timeline activity. OpenClaw steering targets the user's
   conversation instead of the last speaker. Hermes setup diagnostics explain
   missing or unreachable receivers.
+- The npm daemon avoids full-table cost backfills on every start and preserves
+  partially known costs across restarts. macOS display-state probes run
+  asynchronously with deadlines, keeping slow host commands off the daemon
+  event loop.
 - The CLI dashboard uses the Tide console. Pixoo gains Tide rendering and paced
   scene uploads; Timebox gains expressive faces, and compact displays match
   activity to the correct session.

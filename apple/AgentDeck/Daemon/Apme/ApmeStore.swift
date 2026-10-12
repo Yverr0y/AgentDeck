@@ -1604,9 +1604,14 @@ final class ApmeStore: @unchecked Sendable {
             exec("ALTER TABLE runs ADD COLUMN parent_run_id TEXT")
             exec("CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id)")
         }
-        exec("UPDATE runs SET cost_known=1 WHERE cost_usd > 0")
-        exec("UPDATE tasks SET cost_known=1 WHERE cost_usd > 0")
-        exec("UPDATE sample_events SET cost_known=1 WHERE cost_usd > 0")
+        // Only pre-provenance tables need this historical inference. Repeating
+        // it scans large tables and overwrites modern partially-known costs.
+        // Mirrors bridge/src/apme/store.ts; zero remains ambiguous on upgrade.
+        for (table, previousCols) in [("runs", runsCols), ("tasks", tasksCols), ("sample_events", sevCols)] {
+            if !previousCols.contains("cost_known") {
+                exec("UPDATE \(table) SET cost_known=1 WHERE cost_usd > 0")
+            }
+        }
 
         // ── Covering indexes for the per-run/per-task rollups ──
         // `MAX(ts)` over a run's steps was reading full rows to reach one

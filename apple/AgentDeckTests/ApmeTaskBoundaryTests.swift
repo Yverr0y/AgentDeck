@@ -9,6 +9,7 @@
 
 #if os(macOS)
 import XCTest
+import SQLite3
 @testable import AgentDeck
 
 // Exercises daemon-actor types (ApmeCollector, DaemonServer statics).
@@ -47,6 +48,48 @@ final class ApmeTaskBoundaryTests: XCTestCase {
     }
 
     // MARK: - allTodosCompleted (helper unit)
+
+    func testCostProvenanceIsBackfilledOnlyForLegacyTables() async throws {
+        let tmp = try makeTempStore()
+        defer { cleanup(tmp) }
+        tmp.store.close()
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(tmp.store.dbPath, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        func execute(_ sql: String) {
+            XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK, sql)
+        }
+        func scalar(_ sql: String) -> Int {
+            var stmt: OpaquePointer?
+            XCTAssertEqual(sqlite3_prepare_v2(db, sql, -1, &stmt, nil), SQLITE_OK, sql)
+            defer { sqlite3_finalize(stmt) }
+            XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW, sql)
+            return Int(sqlite3_column_int(stmt, 0))
+        }
+        let tables = ["runs", "tasks", "sample_events"]
+        for view in ["v_sample_scorecard", "v_category_scorecard", "v_model_scorecard", "v_run_metrics"] {
+            execute("DROP VIEW IF EXISTS \(view)")
+        }
+        for table in tables { execute("ALTER TABLE \(table) DROP COLUMN cost_known") }
+        for (id, cost) in [("positive", 0.5), ("zero", 0.0)] {
+            execute("INSERT INTO runs(id, session_id, agent_type, started_at, cost_usd) VALUES ('\(id)', '\(id)', 'claude-code', 1, \(cost))")
+            execute("INSERT INTO tasks(id, run_id, task_index, boundary_signal, started_at, cost_usd) VALUES ('\(id)', '\(id)', 0, 'prompt', 1, \(cost))")
+            execute("INSERT INTO sample_events(task_id, run_id, seq, ts, kind, cost_usd) VALUES ('\(id)', '\(id)', 0, 1, 'usage', \(cost))")
+        }
+        XCTAssertTrue(tmp.store.open())
+        tmp.store.close()
+        for table in tables {
+            XCTAssertEqual(scalar("SELECT cost_known FROM \(table) WHERE cost_usd>0"), 1)
+            XCTAssertEqual(scalar("SELECT cost_known FROM \(table) WHERE cost_usd=0"), 0)
+            // A modern positive subtotal may still include unpriced calls.
+            execute("UPDATE \(table) SET cost_known=0 WHERE cost_usd>0")
+        }
+        XCTAssertTrue(tmp.store.open())
+        for table in tables {
+            XCTAssertEqual(scalar("SELECT SUM(cost_known) FROM \(table)"), 0,
+                           "Reopening must preserve modern unknown costs")
+        }
+    }
 
     func testCapturedHermesIngestionPersistsModelOnRunTurnAndTask() async throws {
         let tmp = try makeTempStore()

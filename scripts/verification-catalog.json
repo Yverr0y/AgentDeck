@@ -1048,7 +1048,7 @@
         "bridge/src/__tests__/dot-matrix-glyphs.test.ts",
         "bridge/src/__tests__/matrix-expression.test.ts",
         "bridge/src/__tests__/peripheral-mapping.test.ts",
-        "bridge/src/__tests__/display-dim.test.ts",
+        "bridge/src/__tests__/display-*.test.ts",
         "bridge/src/__tests__/ips10-*.test.ts",
         "bridge/src/__tests__/glance-frame.test.ts",
         "bridge/src/__tests__/card-*.test.ts",
