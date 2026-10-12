@@ -233,7 +233,7 @@ extension DevicePreviewSelection {
                     // draws no satellites yet. Plumbing them through
                     // LivePreviewData is a separate change; leaving it at 0 is
                     // honest (nothing drawn) rather than invented.
-                    backgroundTaskCount: s.state == "error" ? nil : s.backgroundTaskCount, subagentCount: 0, ciWait: s.waitingOn, activity: (s.state == "error" || (s.state ?? "").hasPrefix("awaiting")) ? s.activity : BackgroundDevicePolicy.compact(s.backgroundTaskCount) ?? s.activity
+                    backgroundTaskCount: s.state == "error" ? nil : s.backgroundTaskCount, subagentCount: 0, ciWait: s.waitingOn, activity: (s.waitingOn != nil || s.state == "error" || (s.state ?? "").hasPrefix("awaiting")) ? s.activity : BackgroundDevicePolicy.compact(s.backgroundTaskCount) ?? s.activity
                 )
             }
         }

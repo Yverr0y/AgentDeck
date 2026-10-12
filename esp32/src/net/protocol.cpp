@@ -481,14 +481,22 @@ static void handleSessionsList(JsonObject& obj) {
 
     g_state.sessionClearPending = false;
     g_state.sessionClearPendingMs = 0;
-    // Fixed reusable scratch: retain unknown counts by identity, never roster slot.
-    // 340 bytes maximum, no render/parse-loop allocation.
-    struct PriorBackground { char id[32]; int16_t count; };
-    static PriorBackground priorBackground[sizeof(g_state.sessions) / sizeof(g_state.sessions[0])];
-    const uint8_t priorCount = g_state.sessionCount;
-    for (uint8_t i = 0; i < priorCount; ++i) {
-        memcpy(priorBackground[i].id, g_state.sessions[i].id, sizeof(priorBackground[i].id));
-        priorBackground[i].count = g_state.sessions[i].backgroundTaskCount;
+    // Resolve identities before mutating the roster. Only the ten small counts
+    // need scratch space: copying IDs cost 340 bytes of scarce TTGO static RAM.
+    int16_t retainedBackground[sizeof(g_state.sessions) / sizeof(g_state.sessions[0])];
+    for (uint8_t i = 0; i < incomingCount; ++i) {
+        JsonObject incoming = sessions[i];
+        int count = incoming["backgroundTaskCount"].is<int>()
+            ? BackgroundWork::count(incoming["backgroundTaskCount"].as<int>()) : -1;
+        const char* id = incoming["id"] | "";
+        if (count < 0 && id[0]) for (uint8_t old = 0; old < g_state.sessionCount; ++old) {
+            // Wire IDs are stored in the fixed-width firmware identity field.
+            if (!strncmp(id, g_state.sessions[old].id, sizeof(g_state.sessions[old].id) - 1)) {
+                count = g_state.sessions[old].backgroundTaskCount;
+                break;
+            }
+        }
+        retainedBackground[i] = count;
     }
     g_state.sessionCount = incomingCount;
 #if defined(BOARD_IPS10)
@@ -584,14 +592,11 @@ static void handleSessionsList(JsonObject& obj) {
         if (s["waitingOn"].is<JsonObject>()) ciPhase = CiWaitVisual::fromJsonWait(s["waitingOn"]);
         else if (s["waitingOn"].isNull() && s.containsKey("waitingOn")) ciPhase = CiWaitVisual::NONE;
         g_state.sessions[i].ciPhase = ciPhase;
-        int background = s["backgroundTaskCount"].is<int>() ? BackgroundWork::count(s["backgroundTaskCount"].as<int>()) : -1;
-        if (background < 0) for (uint8_t old = 0; old < priorCount; ++old) {
-            if (!strcmp(priorBackground[old].id, g_state.sessions[i].id)) { background = priorBackground[old].count; break; }
-        }
+        const int background = retainedBackground[i];
         g_state.sessions[i].backgroundTaskCount = background;
         copyTextU8(g_state.sessions[i].activity, sizeof(g_state.sessions[i].activity),
                    s["activity"] | "");
-        if (background >= 0 && strcmp(g_state.sessions[i].state, "error") && !strstr(g_state.sessions[i].state, "awaiting")) {
+        if (background >= 0 && ciPhase == CiWaitVisual::NONE && strcmp(g_state.sessions[i].state, "error") && !strstr(g_state.sessions[i].state, "awaiting")) {
             char bg[20]; BackgroundWork::label(background,bg,sizeof(bg));
             char activity[80];
             snprintf(activity,sizeof(activity),"%s%s%.55s",bg,g_state.sessions[i].activity[0] ? " / " : "",g_state.sessions[i].activity);

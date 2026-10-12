@@ -118,8 +118,8 @@ struct SessionInfo {
     // is session-scoped, so an interactive surface answers without global focus).
     SessionOption options[SESSION_OPTIONS_CAP];
     uint8_t optionCount;
-    int16_t backgroundTaskCount = -1; // unknown is separate from explicit zero; two bytes/session
     uint8_t ciPhase;         // generated phase ID, 0 explicitly clears; 10 bytes per roster
+    int16_t backgroundTaskCount = -1; // after the byte fields to reuse alignment padding
     char activity[80];      // shared one-liner summary of recent work ("" when none)
 #if defined(BOARD_IPS10)
     // Optional existing wire census. Six bytes per session, IPS10 only; no heap.

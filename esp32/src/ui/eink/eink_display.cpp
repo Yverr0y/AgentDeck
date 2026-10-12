@@ -449,7 +449,8 @@ void snapshot(Snap& s) {
         strncpy(dst.model, src.modelName, sizeof(dst.model) - 1);
         strncpy(dst.question, src.question, sizeof(dst.question) - 1);
         // Stable count/status projection; no animation or time-driven refresh.
-        if (src.backgroundTaskCount >= 0 && strcmp(src.state, "error") && !strstr(src.state, "awaiting"))
+        const bool showBackground = src.backgroundTaskCount >= 0 && !src.ciPhase && strcmp(src.state, "error") && !strstr(src.state, "awaiting");
+        if (showBackground)
             BackgroundWork::label(src.backgroundTaskCount, dst.activity, sizeof(dst.activity));
         else strncpy(dst.activity, src.activity, sizeof(dst.activity) - 1);
         dst.alive = src.alive;
@@ -494,6 +495,15 @@ void snapshot(Snap& s) {
                 dst.work[sizeof(dst.work) - 1] = '\0';
                 break;
             }
+        }
+        // Glance/focus pages prefer the durable work line over live activity.
+        // Keep that summary, but count changes must be visible and earn repaint.
+        if (showBackground) {
+            char summary[sizeof(dst.work)];
+            snprintf(summary, sizeof(summary), "%s%s%s", dst.activity,
+                     dst.work[0] ? " / " : "", dst.work);
+            memcpy(dst.work, summary, sizeof(dst.work));
+            dst.work[Utf8::utf8Boundary(dst.work, strlen(dst.work))] = '\0';
         }
     }
     s.optionCount = g_state.optionCount < 3 ? g_state.optionCount : 3;

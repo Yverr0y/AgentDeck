@@ -2,7 +2,7 @@
 #include "ui/companion/ci_companion.h"
 #include <cassert>
 #include <cstring>
-struct Row { const char *state, *question, *activity, *currentTool, *lastEventText; unsigned char ciPhase = 0; };
+struct Row { const char *state, *question, *activity, *currentTool, *lastEventText; unsigned char ciPhase = 0; int backgroundTaskCount = -1; };
 int main() {
     Row row={"processing", "", "Running tests", "Bash", "Earlier task completed"};
     assert(!strcmp(Companion::glanceText(row), "Running tests"));
@@ -22,6 +22,14 @@ int main() {
     row.state="error";row.activity="Build failed";
     assert(!strcmp(Companion::glanceText(row), "Build failed"));
     row.activity="";
+    assert(!strcmp(Companion::glanceText(row), "Check this session"));
+    row.state="idle";row.backgroundTaskCount=4;row.activity="BG 4";
+    assert(!strcmp(Companion::glanceText(row), "BG 4"));
+    row.backgroundTaskCount=0;row.activity="BG DONE";
+    assert(!strcmp(Companion::glanceText(row), "BG DONE"));
+    row.state="awaiting_permission";
+    assert(!strcmp(Companion::glanceText(row), "Allow this?"));
+    row.state="error";row.activity="";
     assert(!strcmp(Companion::glanceText(row), "Check this session"));
     CiCompanion::Memo memo;
     const uint32_t key = CiCompanion::sessionHash("real-session");
