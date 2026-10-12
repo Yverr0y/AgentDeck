@@ -63,6 +63,8 @@ data class TerrariumState(
     val focusedSessionId: String? = null,
     val ciWaits: Map<String, dev.agentdeck.net.CiWaitStatus> = emptyMap(),
     val ciWaitLabels: Map<String, String> = emptyMap(),
+    val backgroundTaskCounts: Map<String, Int> = emptyMap(),
+    val backgroundAttentionIds: Set<String> = emptySet(),
     val ciWaitingIds: Set<String> = emptySet(),
     val currentTool: String? = null,
     val toolProgress: String? = null,
@@ -382,6 +384,10 @@ fun DashboardState.toTerrariumState(
 
     return TerrariumState(
         focusedSessionId = focusedSessionId,
+        backgroundAttentionIds = siblingSessions.filter { it.alive && (it.state == "error" || it.state?.startsWith("awaiting") == true) }.map { it.id }.toSet(),
+        backgroundTaskCounts = siblingSessions.filter { it.alive }.mapNotNull { s ->
+            BackgroundWorkPolicy.count(s.backgroundTaskCount)?.let { s.id to it }
+        }.toMap(),
         ciWaits = siblingSessions.filter { it.state?.startsWith("awaiting") != true && it.id !in permissionIds }
             .mapNotNull { s -> s.waitingOn?.let { s.id to it } }.toMap(),
         ciWaitingIds = siblingSessions.filter { (it.waitingOn?.agentWaiting == true || (it.waitingOn?.phase == "failed" && it.state == "idle")) && it.state?.startsWith("awaiting") != true && it.id !in permissionIds }.map { it.id }.toSet(),

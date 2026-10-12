@@ -415,7 +415,7 @@ function calculateStateHash(): string {
   const uStale = lastUsageEvent?.usageStale ?? false;
 
   const sessionInfo = lastSessions
-    ? lastSessions.map(s => `${s.id}:${s.agentType}:${s.state}`).join(',')
+    ? lastSessions.map(s => `${s.id}:${s.agentType}:${s.state}:${s.backgroundTaskCount ?? "?"}`).join(',')
     : '';
   const subagentInfo = Object.entries(currentSubagentActivity())
     .map(([sessionId, activity]) =>

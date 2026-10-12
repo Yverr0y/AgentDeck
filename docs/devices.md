@@ -270,6 +270,24 @@ passive-only — see [appstore-feature-matrix.md](appstore-feature-matrix.md).
 - **Config**: `~/.agentdeck/pixoo.json` — `{ devices: [{ ip, name? }] }`
 - **Source**: `bridge/src/pixoo/` (6 files: client, bridge, renderer, sprites, font, settings)
 
+### Background work across displays
+
+Android LCD and Pixoo/ESP32 color displays attach bounded cyan movement to the
+owning creature. Exact counts remain on session rows/cards; Stream Deck and
+Ulanzi keys label background work explicitly (`BG N` / `BG DONE`). E-ink is a
+static count/status projection and gains no animation-driven refresh. Approval
+and error information retain priority. Child-agent counts are never added to
+background counts because they may describe overlapping work.
+
+TC001 keeps its provider mark and usage rail visible. Within each four-second
+window reading it shows the window label and percentage for two seconds, then
+`R` plus the reset countdown for two seconds (`R2H15M` = reset in 2h 15m,
+`R3D4H` = reset in 3d 4h). A missing reset is `R--`, never zero. Entering the page
+starts at the first window, so its eight-second auto-cycle shows both windows
+and both resets. Purchased credits remain a balance with no invented reset.
+Its Agents page adds cyan moving background dots and, when no attention is
+pending, a two-second `BG N` / `BG DONE` fleet count.
+
 ### iDotMatrix 32×32
 
 - **Transport**: BLE GATT transparent-UART. The App Store daemon uses native CoreBluetooth; the CLI daemon uses `bridge/src/idotmatrix/sync.py`.
@@ -277,11 +295,14 @@ passive-only — see [appstore-feature-matrix.md](appstore-feature-matrix.md).
 - **CLI runtime**: `@agentdeck/bridge` ships the Python clients. The first explicit BLE command prepares `bleak`, Pillow, and `idotmatrix` in `~/.agentdeck/python-ble`; use `agentdeck ble status` or `agentdeck ble setup` to inspect or prepare it directly. npm installation itself does not contact PyPI.
 - **Rendering — agent world**: Node and native Swift share the same policy and pixel
   art. The default is a simultaneous numeric summary: `WAIT` (live awaiting
-  sessions), `WORK` (live processing sessions), `RSLT` (explicit response/task-end
-  events in the last 90 seconds), and `LIVE` (all live sessions). `ERR` replaces
+  sessions), `WORK` (live processing sessions), `BG` (reported background tasks, separate from child agents; a dash when no count is known), and `LIVE` (all live sessions). `ERR` replaces
   the last row when any live session is in error, even if waiting has priority.
   Zero rows are dim; values over 99 show `99+`. These are observed counts, not
   progress percentages, attempt counts, or a claim that all work has completed.
+  The background row replaces the historical 90-second result tally, which mixed
+  completed turns with active work. Real replies still receive their brief `SENT`
+  scene. Background counts retain by session identity on missing telemetry;
+  explicit zero clears them and disconnect discards the old roster.
 - **Conversation scenes**: the reader's own turn is what the panel is for. When a
   user message reaches a live session (`chat_start`, not automated), that agent's
   official creature appears listening under `HEAR` until its reply lands or one

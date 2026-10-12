@@ -272,7 +272,7 @@ describe('expressive BLE matrices', () => {
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'matrix-parity-'));
     try {
       const exe = path.join(temp, 'parity');
-      execFileSync('xcrun', ['swiftc', 'apple/AgentDeck/Model/ObservedAgentRules.generated.swift',
+      execFileSync('xcrun', ['swiftc', 'apple/AgentDeck/Model/BackgroundDevicePolicy.generated.swift', 'apple/AgentDeck/Model/ObservedAgentRules.generated.swift',
         'apple/AgentDeck/Daemon/Modules/MatrixFrames.generated.swift',
         'apple/AgentDeck/Daemon/Dot/DotRules.generated.swift', 'apple/AgentDeck/Model/DotSurface.generated.swift',
         'apple/AgentDeck/Model/DotPixels.generated.swift', 'apple/AgentDeck/Daemon/Modules/MatrixExpression.swift', 'scripts/matrix-expression-parity.swift', '-o', exe], { timeout: 120000 });
@@ -281,6 +281,9 @@ describe('expressive BLE matrices', () => {
       add(1, { type: 'sessions_list', sessions: [] });
       add(100, { type: 'sessions_list', sessions: [row('c'), row('x', 'idle', 'codex-cli')] });
       for (let frame = 0; frame < 9; frame++) add(100 + frame * 750);
+      add(8000, { type: 'sessions_list', sessions: [{...row('c'),backgroundTaskCount:4},row('x','idle','codex-cli')] });
+      for (let frame=0;frame<8;frame++) add(8000+frame*100);
+      add(8900, { type: 'sessions_list', sessions: [{...row('c'),backgroundTaskCount:0},row('x','idle','codex-cli')] });
       add(10000, { type: 'sessions_list', sessions: [row('c', 'awaiting_option'), row('x', 'error', 'codex-cli')] });
       for (let frame = 0; frame < 8; frame++) add(10000 + frame * 750);
       add(17000, { type: 'sessions_list', sessions: [row('c', 'error'), row('x', 'idle', 'codex-cli')] });

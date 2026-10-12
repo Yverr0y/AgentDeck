@@ -77,6 +77,7 @@ fun ColorTerrariumCanvas(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val backgroundEffect = remember(context) { dev.agentdeck.terrarium.BackgroundWorkEffect(context) }
     val ciSprite = remember(context) { ciCompanionBitmap(context) }
     val ciMotions = remember { mutableMapOf<String,CiCompanionMotion>() }
     var lastCiFrame = remember { longArrayOf(0L) }
@@ -178,6 +179,14 @@ fun ColorTerrariumCanvas(
             drawCiCompanion(drawContext.canvas.nativeCanvas,ciPaint,ciSprite,center,ciCompanionPosition(center,angle,w,h),wait,textScale=density)
         }
 
+
+        backgroundEffect.retain(visibleIDs)
+        val residents = aquariumResidents(state).associateBy { it.id }
+        for ((id, center) in originals) {
+            backgroundEffect.draw(drawContext.canvas.nativeCanvas, id, state.backgroundTaskCounts[id],
+                id in state.backgroundAttentionIds || residents[id]?.state == dev.agentdeck.terrarium.OctopusVisualState.ASKING,
+                center.first*w, center.second*h, min(w,h)*.055f, System.currentTimeMillis())
+        }
 
         // Layer 9.5: Front-layer fish (in front of creatures for 3D depth)
         dataParticles.drawFrontLayer(this)

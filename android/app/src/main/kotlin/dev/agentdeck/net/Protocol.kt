@@ -413,6 +413,9 @@ data class SessionInfo(
     // count forever under retain-on-absent merging.
     val waitingOn: CiWaitStatus? = null,
     val subagents: SubagentSummary? = null,
+    /** Explicit zero completes work; null is unknown. Separate from subagents. */
+    @Serializable(with = BackgroundCountSerializer::class)
+    val backgroundTaskCount: Int? = null,
     /** Cross-session coordination census — see [CoordinationSummary]. Same
      *  emission rule as [subagents]: zeros once observed, absent only when the
      *  session has never had a relation. */
@@ -703,6 +706,26 @@ val protocolJson = Json {
     ignoreUnknownKeys = true
     isLenient = true
     coerceInputValues = true
+}
+
+/** Reject malformed counts locally without losing the entire session roster. */
+object BackgroundCountSerializer : KSerializer<Int?> {
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("BackgroundCount", PrimitiveKind.INT)
+
+    override fun deserialize(decoder: Decoder): Int? {
+        val raw = (decoder as? JsonDecoder)?.decodeJsonElement() as? kotlinx.serialization.json.JsonPrimitive
+            ?: return null
+        if (raw.isString) return null
+        val number = raw.doubleOrNull ?: return null
+        if (!number.isFinite() || number != kotlin.math.floor(number) ||
+            number < 0 || number > dev.agentdeck.terrarium.BackgroundWorkPolicy.MAX_COUNT) return null
+        return number.toInt()
+    }
+
+    override fun serialize(encoder: Encoder, value: Int?) {
+        if (value == null) encoder.encodeNull() else encoder.encodeInt(value)
+    }
 }
 
 object FlexibleLongSerializer : KSerializer<Long> {

@@ -51,6 +51,25 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
   legacy cost backfill on every database open. This follow-up is not in the
   already-submitted Apple 1.9.0/build 7901.
 
+## 2026-10-13 — Apple 1.10.0, Android 1.10.0, npm 1.10.0, ESP32 1.10.0, Stream Deck 1.9.0, Ulanzi 1.9.0
+
+- Background work now reaches Android, ESP32, Pixoo, Timebox, iDotMatrix and
+  physical session keys. LCD aquariums show bounded movement around the owning
+  session; Android and firmware e-ink surfaces prioritize stable counts and state.
+  Background tasks remain separate from the child-agent census.
+- iDotMatrix replaces its recent-result tally with a live background-task count,
+  beside waiting, working and live-session counts. Missing counts remain unknown;
+  explicit zero clears running work. Approval and error scenes keep priority.
+- TC001 usage pages alternate each window's percentage with time remaining until
+  reset, keeping the provider mark and usage rail visible. Window lengths such as
+  `5H` and `7D` no longer stand in for reset countdowns.
+- Android preserves counts by session identity across partial updates and rejects
+  malformed count fields without dropping the session roster. Reconnecting clears
+  stale counts. Completion motion is bounded and honors reduced-motion settings.
+- Apple keeps all Dot code excluded from Store builds. The device renderers share
+  generated presentation rules with the terminal daemon and native displays.
+
+
 ## 2026-10-12 — npm 1.9.0, Android 1.9.0, ESP32 1.9.0
 
 - Android adds skippable guided setup: choose a dashboard appearance, preview an

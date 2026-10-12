@@ -1,3 +1,4 @@
+#include "../util/background_work.generated.h"
 #include "../state/ci_wait_generated.h"
 #include "../audio/wake_word.h"
 #include "../audio/mic_capture.h"
@@ -480,6 +481,15 @@ static void handleSessionsList(JsonObject& obj) {
 
     g_state.sessionClearPending = false;
     g_state.sessionClearPendingMs = 0;
+    // Fixed reusable scratch: retain unknown counts by identity, never roster slot.
+    // 340 bytes maximum, no render/parse-loop allocation.
+    struct PriorBackground { char id[32]; int16_t count; };
+    static PriorBackground priorBackground[sizeof(g_state.sessions) / sizeof(g_state.sessions[0])];
+    const uint8_t priorCount = g_state.sessionCount;
+    for (uint8_t i = 0; i < priorCount; ++i) {
+        memcpy(priorBackground[i].id, g_state.sessions[i].id, sizeof(priorBackground[i].id));
+        priorBackground[i].count = g_state.sessions[i].backgroundTaskCount;
+    }
     g_state.sessionCount = incomingCount;
 #if defined(BOARD_IPS10)
     g_state.sessionsRotating = obj["rosterRotating"] | false;
@@ -574,8 +584,19 @@ static void handleSessionsList(JsonObject& obj) {
         if (s["waitingOn"].is<JsonObject>()) ciPhase = CiWaitVisual::fromJsonWait(s["waitingOn"]);
         else if (s["waitingOn"].isNull() && s.containsKey("waitingOn")) ciPhase = CiWaitVisual::NONE;
         g_state.sessions[i].ciPhase = ciPhase;
+        int background = s["backgroundTaskCount"].is<int>() ? BackgroundWork::count(s["backgroundTaskCount"].as<int>()) : -1;
+        if (background < 0) for (uint8_t old = 0; old < priorCount; ++old) {
+            if (!strcmp(priorBackground[old].id, g_state.sessions[i].id)) { background = priorBackground[old].count; break; }
+        }
+        g_state.sessions[i].backgroundTaskCount = background;
         copyTextU8(g_state.sessions[i].activity, sizeof(g_state.sessions[i].activity),
                    s["activity"] | "");
+        if (background >= 0 && strcmp(g_state.sessions[i].state, "error") && !strstr(g_state.sessions[i].state, "awaiting")) {
+            char bg[20]; BackgroundWork::label(background,bg,sizeof(bg));
+            char activity[80];
+            snprintf(activity,sizeof(activity),"%s%s%.55s",bg,g_state.sessions[i].activity[0] ? " / " : "",g_state.sessions[i].activity);
+            copyTextU8(g_state.sessions[i].activity,sizeof(g_state.sessions[i].activity),activity);
+        }
         // Daemon-computed latest milestone (TIMELINE parity for cards).
         copyTextU8(g_state.sessions[i].lastEventText, sizeof(g_state.sessions[i].lastEventText),
                    s["lastEventText"] | "");

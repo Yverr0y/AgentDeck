@@ -47,7 +47,7 @@
 // masked EPD47 bands, NM gate, "as of" band on EPD47/NM only, push delivery)
 // does not change the TRMNL dashboard this view mirrors. The OFFLINE subtitle
 // separators became ASCII; this mirror shows only "Searching for AgentDeck…".
-// SYNC-HASH esp32/src/ui/eink/eink_display.cpp cdd5dc53f502a265aa75159c02bc81dff91ed18e
+// SYNC-HASH esp32/src/ui/eink/eink_display.cpp c4b20ad9d1207962c194c76b6090cebdf068d2fa
 // SYNC-HASH esp32/src/ui/eink/eink_dashboard_layout.h 97b1d2a6f5c84e9cf733b3e5b3145ad45f3136e7
 
 import SwiftUI

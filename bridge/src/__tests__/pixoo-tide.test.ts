@@ -49,6 +49,7 @@ describe('tide loop', () => {
   it('closes: the step from the last frame back to the first is no bigger than any other step', () => {
     const scenes: Array<[string, SessionInfo[]]> = [
       ['working', [session('a', 'claude-code', 'processing')]],
+      ['background', [{ ...session('a', 'claude-code', 'processing'), backgroundTaskCount: 5 }]],
       ['asking', [session('a', 'codex-cli', 'awaiting_option'), session('b', 'claude-code', 'processing')]],
       ['idle', [session('a', 'opencode', 'idle'), session('b', 'kiro-cli', 'idle'), session('c', 'claude-code', 'idle')]],
       ['empty', []],
@@ -187,6 +188,7 @@ describe('tide frame digests (shared with the Swift daemon)', () => {
     renderTideLoop(st, us, ss, AT).map(f => createHash('sha256').update(f).digest('hex').slice(0, 16));
 
   it('renders the pinned frames', () => {
+    expect(digests(null, null, [{ ...sess('a', 'claude-code', 'processing'), backgroundTaskCount: 5 }])).toEqual(["f75e913c8cf7b6ff", "1aa41950f7ea9521", "52c46ff83453ce79", "cb52503f4cf85a16", "3b02ac315a810d6d", "5a6e3e676ddac82c"]);
     expect(digests(null, null, [])).toEqual([
       '8e96cc0790f21a1c', 'da28e790ad7d69e9', 'a453a44fd386fe72', '530f2353682c7241', '28c12d7dc8082fc6', 'df20752288cb3b5a',
     ]);

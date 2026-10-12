@@ -294,7 +294,7 @@ export function renderTideFrame(
   if (overflow > 0) drawText(buf, `+${overflow}`, SIZE - 2, 1, TEXT);
 
   // The CI companion is time-driven; the loop shows it frozen at `nowMs`.
-  drawCiCue(buf, SIZE, sessions, nowMs, anchors, false, sceneH);
+  drawCiCue(buf, SIZE, sessions, nowMs, anchors, false, sceneH, t / TIDE_LOOP.frames * Math.PI * 2);
   drawUsageHUD(buf, usageEvent, 0);
   return buf;
 }
@@ -342,7 +342,7 @@ export function tideSignature(
     .filter(s => s.alive && s.waitingOn && shown.has(s.id))
     .map(s => `${s.id}:${s.waitingOn?.phase}:${s.waitingOn?.agentWaiting === true}`);
   const scene = [
-    ...marks.map(m => `${m.glyph}:${m.state}:${m.sick}`), `+${overflow}`, ...ci,
+    ...marks.map(m => `${m.glyph}:${m.state}:${m.sick}`), `+${overflow}`, ...ci, ...(sessions ?? []).filter(s => s.alive && shown.has(s.id)).map(s => `${s.id}:bg:${s.backgroundTaskCount ?? "?"}`),
   ].join('|');
   const pct = (v: number | null | undefined) => (v == null ? '-' : String(Math.floor(v)));
   const cx = usageEvent?.codexRateLimits;

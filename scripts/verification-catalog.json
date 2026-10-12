@@ -1048,6 +1048,7 @@
         "bridge/src/__tests__/device-photo.test.ts",
         "bridge/src/__tests__/dot-matrix-glyphs.test.ts",
         "bridge/src/__tests__/matrix-expression.test.ts",
+        "shared/src/__tests__/background-work-presentation.test.ts",
         "bridge/src/__tests__/peripheral-mapping.test.ts",
         "bridge/src/__tests__/display-*.test.ts",
         "bridge/src/__tests__/ips10-*.test.ts",

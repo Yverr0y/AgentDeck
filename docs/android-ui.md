@@ -30,6 +30,20 @@ not spend a code against whichever host appeared first. Disconnected, connected
 without sessions and receiving activity have distinct readiness copy. Android is
 a companion: agent authorization remains on the computer running the agents.
 
+## Background work
+
+Background tasks remain attached to their session and are separate from child
+agents. LCD 2D and 3D show up to three moving cyan beads with an exact `BG N`
+label; a lower explicit count briefly expands a completion ring. Android's
+animation-duration setting freezes motion. Unknown telemetry retains the last
+known count by session identity, never creating a completion; disconnect drops
+that host's roster. Attention hides decorative cues while preserving the count.
+
+E-ink uses a stable count/status line in both the session column and Paper Board.
+There is no background-work animation timer or scheduled completion refresh on
+paper. Explicit zero reads “Background complete”; missing information adds no
+line. Agent permission/CI information keeps its priority.
+
 ## 표시 정보 (공통)
 
 - **Agent Identity**: 에이전트 타입, 세션명, 현재 모델, 상태 (IDLE/PROCESSING/AWAITING 등)

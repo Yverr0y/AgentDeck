@@ -75,6 +75,7 @@ fun SessionListPanel(
          *  whose turn closed is genuinely idle while its subagents keep
          *  working, and this row said "IDLE" through the whole fan-out. */
         val subagents: SubagentSummary? = null,
+        val backgroundTaskCount: Int? = null,
     )
 
     fun compareEntries(left: SessionEntry, right: SessionEntry): Int {
@@ -134,6 +135,7 @@ fun SessionListPanel(
             sessionId = sessionId,
             activity = primaryAnchorSibling?.activity,
             subagents = primaryAnchorSibling?.subagents,
+            backgroundTaskCount = primaryAnchorSibling?.backgroundTaskCount,
         )
     }
 
@@ -162,6 +164,7 @@ fun SessionListPanel(
                 sessionId = session.id,
                 activity = session.activity,
                 subagents = session.subagents,
+                backgroundTaskCount = session.backgroundTaskCount,
             )
         }
     val displayEntries = entries.sortedWith(::compareEntries)
@@ -277,6 +280,10 @@ fun SessionListPanel(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                dev.agentdeck.terrarium.BackgroundWorkPolicy.label(entry.backgroundTaskCount)?.let { label ->
+                    Text(text = label, color = TerrariumColors.HUDSubtext, fontSize = scale.fontSub,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 // Shared activity one-liner (bridge SSOT) — same summary the
                 // TRMNL 7.5" e-ink cards show, so surfaces don't drift.
                 if (entry.activity != null) {

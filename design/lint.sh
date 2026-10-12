@@ -170,8 +170,12 @@ while IFS=: read -r file line text; do
     text="${text#"${text%%[![:space:]]*}"}"
     emit "R8_marketing_uses_ui_token" "$file" "$line" "${text:0:160}"
   fi
-done < <(grep -rnHE -- '--ui-[a-z-]+' . 2>/dev/null \
-          | grep -v -E '(design/tokens\.css|design/components\.css|Design System\.html|Design Audit\.html)')
+done < <(while IFS= read -r candidate; do
+    # Reuse the source scope: recursive grep traverses native builds and every
+    # pnpm dependency even though none can be a shipped marketing surface.
+    [[ "$candidate" =~ option-.*-site|landing|index\.html ]] || continue
+    grep -nHE -- '--ui-[a-z-]+' "$candidate" 2>/dev/null || true
+  done <<< "$SCOPE_FILES")
 
 # ── Output ─────────────────────────────────────────────────────────────
 if [[ $JSON -eq 1 ]]; then

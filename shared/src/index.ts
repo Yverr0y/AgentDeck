@@ -73,3 +73,5 @@ export * from './session-settings-client.js';
 
 export * from './dot-appearance.js';
 export * from './dot-pixels.js';
+
+export * from './background-work-presentation.js';

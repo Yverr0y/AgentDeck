@@ -14,6 +14,7 @@ struct MatrixExpression {
         var ciFace: String? = nil
         /// Live children (`subagents.active`), non-negative.
         var children: Int = 0
+        var backgroundCount: Int? = nil
     }
     struct Result {
         let ts: Double
@@ -32,6 +33,7 @@ struct MatrixExpression {
         let counts: [Int]
         var face: String = ""
         var pips: Int = 0
+        var backgroundCount: Int = -1
     }
     #if AGENTDECK_DOT_PREVIEW
     private var dot: DotSurfaceSnapshot?
@@ -78,6 +80,8 @@ struct MatrixExpression {
                     resident.ciFace = MatrixFrames.ciFaces[phase]
                 }
                 resident.children = Self.count((row["subagents"] as? [String: Any])?["active"])
+                resident.backgroundCount = BackgroundDevicePolicy.decode(row["backgroundTaskCount"])
+                    ?? sessions?.first(where: { $0.id == id })?.backgroundCount
                 return resident
             }
             if sessions != nil {
@@ -193,7 +197,7 @@ struct MatrixExpression {
             frame: Int(max(0, frameTime) / Double(MatrixFrames.frameMs)) % MatrixFrames.frames,
             roster: live.map { Self.state($0.state) },
             counts: [waiting, working, done.count, errors > 0 ? errors : live.count],
-            face: face, pips: pips)
+            face: face, pips: pips, backgroundCount: live.contains(where: { $0.backgroundCount != nil }) ? live.reduce(0) { $0 + ($1.backgroundCount ?? 0) } : -1)
     }
     /// matrix-expression.ts `face`: no roster → needs-you → failure →
     /// conversation / entrance / fresh result → working → children under an
@@ -240,11 +244,15 @@ struct MatrixExpression {
             for c in 0..<3 { out[(y * size + x) * 3 + c] = UInt8((Double(color[c]) * intensity).rounded()) }
         }
         if size == 11 {
-            // The small panel is a face; population counts stay in scene metadata.
+            if scene.backgroundCount > 0 && !["waiting","choosing","reviewing","error","unknown"].contains(face) {
+                for i in 0..<min(BackgroundDevicePolicy.maxDots,scene.backgroundCount) {
+                    put((scene.frame * 11 / MatrixFrames.frames + i * MatrixFrames.backgroundDotStep) % 11, 10, MatrixFrames.colors["working"]!)
+                }
+            }
             return Data(out)
         }
         func number(_ value: Int, _ y: Int, _ tone: String) {
-            let text = scene.kind == "unknown" ? "-" : value > MatrixFrames.maxCount ? "99+" : String(value)
+            let text = scene.kind == "unknown" || value < 0 ? "-" : value > MatrixFrames.maxCount ? "99+" : String(value)
             for (d, character) in text.enumerated() {
                 for (i, v) in (MatrixFrames.digits[String(character)] ?? []).enumerated() where v != 0 {
                     put(MatrixFrames.countX + (MatrixFrames.countColumns - text.count + d) * MatrixFrames.digitStep + i % 3, y + i / 3, MatrixFrames.colors[tone]!, value == 0 ? MatrixFrames.zeroCountIntensity : 1)
@@ -252,8 +260,9 @@ struct MatrixExpression {
             }
         }
         if summary {
+            let counts = scene.counts.enumerated().map { $0.offset == 2 ? scene.backgroundCount : $0.element }
             if scene.kind != "unknown" {
-                for (row, value) in scene.counts.enumerated() where value == 0 {
+                for (row, value) in counts.enumerated() where value == 0 {
                     let start = row * MatrixFrames.summaryStep * size * 3
                     let end = (row + 1) * MatrixFrames.summaryStep * size * 3
                     for i in start..<end { out[i] = UInt8((Double(out[i]) * MatrixFrames.zeroRowIntensity).rounded()) }
@@ -263,7 +272,7 @@ struct MatrixExpression {
             else {
                 var tones = MatrixFrames.summaryKinds
                 if error { tones[3] = "error" }
-                for (row, value) in scene.counts.enumerated() {
+                for (row, value) in counts.enumerated() {
                     number(value, MatrixFrames.countY + row * MatrixFrames.summaryStep, tones[row])
                 }
             }

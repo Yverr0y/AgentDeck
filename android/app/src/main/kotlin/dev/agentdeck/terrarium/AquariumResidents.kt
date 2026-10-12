@@ -14,7 +14,7 @@ import kotlin.math.*
 
 /** Uses the canonical state projection, including its observed child census. */
 internal data class AquariumResident(val id: String, val kind: String, val title: String,
-    val state: OctopusVisualState, val helpers: Int = 0, val ciWaitLabel: String? = null, val ciWait: dev.agentdeck.net.CiWaitStatus? = null)
+    val state: OctopusVisualState, val helpers: Int = 0, val backgroundTaskCount: Int? = null, val backgroundAttention: Boolean = false, val ciWaitLabel: String? = null, val ciWait: dev.agentdeck.net.CiWaitStatus? = null)
 
 internal fun aquariumResidents(state: TerrariumState): List<AquariumResident> {
     fun project(item: AgentCreatureState, kind: String) = AquariumResident(
@@ -44,7 +44,7 @@ internal fun aquariumResidents(state: TerrariumState): List<AquariumResident> {
             CrayfishVisualState.WAITING -> OctopusVisualState.ASKING
             else -> OctopusVisualState.FLOATING
         }, state.workerCrayfishCount))
-    return (result + claw).distinctBy { it.id }.map { it.copy(ciWaitLabel = state.ciWaitLabels[it.id], ciWait = state.ciWaits[it.id]) }
+    return (result + claw).distinctBy { it.id }.map { it.copy(backgroundTaskCount = state.backgroundTaskCounts[it.id], backgroundAttention = it.id in state.backgroundAttentionIds, ciWaitLabel = state.ciWaitLabels[it.id], ciWait = state.ciWaits[it.id]) }
 }
 
 /** Keep readable models bounded; every session remains accessible in the roster. */
@@ -129,6 +129,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
         focusedId = focus
         val visible = visibleAquariumResidents(all, focus)
         val ids = visible.map { it.id }.toSet()
+        overlay.retainBackground(ids)
         for (id in bodies.keys.toList()) if (id !in ids) {
             val old = bodies.remove(id)!!
             viewer.scene.removeEntities(old.asset.entities)

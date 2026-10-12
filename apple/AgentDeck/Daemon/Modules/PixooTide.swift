@@ -144,7 +144,7 @@ enum PixooTide {
                   let wait = s["waitingOn"] as? [String: Any] else { return nil }
             return "\(id):\(wait["phase"] as? String ?? ""):\((wait["agentWaiting"] as? Bool) == true)"
         }
-        let scene = (marks.marks.map { "\($0.glyph):\($0.state.rawValue):\($0.sick)" } + ["+\(marks.overflow)"] + ci)
+        let scene = (marks.marks.map { "\($0.glyph):\($0.state.rawValue):\($0.sick)" } + ["+\(marks.overflow)"] + ci + (sessions ?? []).filter { (($0["alive"] as? Bool) ?? true) && shown.contains($0["id"] as? String ?? "") }.map { "bg:\($0["id"] ?? ""):\($0["backgroundTaskCount"] ?? "?")" })
             .joined(separator: "|")
         func pct(_ v: Double?) -> String { v.map { String(Int($0.rounded(.down))) } ?? "-" }
         let cx = usage.codexRateLimits
@@ -365,7 +365,7 @@ extension PixooRenderer {
         }
 
         // The CI companion is time-driven; the loop shows it frozen at `nowMs`.
-        drawCiCue(&buf, size: Tide.size, state: dashboardState, now: nowMs, anchors: anchors, tiny: false, bottom: sceneH)
+        drawCiCue(&buf, size: Tide.size, state: dashboardState, now: nowMs, anchors: anchors, tiny: false, bottom: sceneH, backgroundPhase: Double(t) / Double(Tide.frames) * Double.pi * 2)
         drawUsageHUD(&buf, dashboardState: dashboardState, animFrame: 0)
         return Data(buf)
     }

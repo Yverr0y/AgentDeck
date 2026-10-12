@@ -1,4 +1,4 @@
-import { paintDotPixels } from '@agentdeck/shared';
+import { paintDotPixels, BACKGROUND_PRESENTATION } from '@agentdeck/shared';
 import { paintOfficialFeatures } from './official-features.js';
 /** Canonical pixel art for both BLE runtimes. Swift consumes generated RLE frames
  * from this renderer, so eyes, official masks and motion cannot drift by platform. */
@@ -21,7 +21,7 @@ export const MATRIX_FACE_COLORS: Record<MatrixFace, string> = {
   waiting: UI.attn, choosing: UI.attn, reviewing: UI.attn, error: UI.error, done: UI.ok,
   arrival: UI.cyan, asked: UI.cyan, reply: UI.ok,
 };
-export const MATRIX_LAYOUT = { countX: 20, countColumns: 3, countY: 1, dotX: 1, dotY: 29, dotStep: 4, summaryStep: 8, zeroRowIntensity: .35, zeroCountIntensity: .4, dotIntensity: .7, digitStep: 4, maxCount: 99 };
+export const MATRIX_LAYOUT = { countX: 20, countColumns: 3, countY: 1, dotX: 1, dotY: 29, dotStep: 4, summaryStep: 8, zeroRowIntensity: .35, zeroCountIntensity: .4, dotIntensity: .7, digitStep: 4, backgroundDotStep: 3, maxCount: 99 };
 export const MATRIX_GLYPHS = ['summary', 'summary-error', 'neutral', ...Object.keys(OFFICIAL_DOT_GLYPHS)];
 export function rgb(hex: string): number[] { return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)); }
 function painter(buf: Uint8Array, size: number) {
@@ -38,7 +38,7 @@ export function matrixDigit(value: string): number[] {
 /**
  * The Timebox Mini's 11×11 robot face — one original face for the whole desk,
  * never a provider mark. Eyes sit at x 1-3 / 7-9, rows 3-5; brows on row 1;
- * the mouth on rows 7-9; row 10 stays clear. Broad shapes
+ * the mouth on rows 7-9; row 10 is reserved for background-work cues. Broad shapes
  * survive the panel's 4-bit colour packing.
  */
 export function renderMatrixFace(face: MatrixFace | MatrixKind, frame: number): Uint8Array {
@@ -189,8 +189,8 @@ export function renderMatrixBase(size: 11 | 32, kind: MatrixKind, glyph: string,
   if (size === 11) return renderMatrixFace(kind, frame);
 
   if (glyph.startsWith('summary')) {
-    const labels = ['WAIT', 'WORK', 'RSLT', glyph === 'summary-error' ? 'ERR' : 'LIVE'];
-    const tones: MatrixKind[] = ['waiting', 'working', 'done', glyph === 'summary-error' ? 'error' : 'idle'];
+    const labels = ['WAIT', 'WORK', 'BG', glyph === 'summary-error' ? 'ERR' : 'LIVE'];
+    const tones: MatrixKind[] = ['waiting', 'working', 'working', glyph === 'summary-error' ? 'error' : 'idle'];
     if (kind === 'unknown') {
       labels.splice(0, labels.length, 'SYNC');
       tones.splice(0, tones.length, 'unknown');
@@ -277,12 +277,18 @@ export function renderMatrixBase(size: 11 | 32, kind: MatrixKind, glyph: string,
 export function renderMatrixScene(size: 11 | 32, scene: MatrixScene): Uint8Array {
   if (size === 11) {
     const face = scene.face ?? scene.kind;
-    return renderMatrixFace(face, scene.frame);
+    const out = renderMatrixFace(face, scene.frame);
+    // The spare bottom row carries background work; questions/errors own it.
+    if ((scene.backgroundCount ?? 0) > 0 && !['waiting','choosing','reviewing','error','unknown'].includes(face)) {
+      const put=painter(out,11);
+      for(let i=0;i<Math.min(BACKGROUND_PRESENTATION.maxDots,scene.backgroundCount!);i++) put((Math.floor(scene.frame * 11 / MATRIX_RULES.frames) + i * MATRIX_LAYOUT.backgroundDotStep) % 11, 10, UI.cyan);
+    }
+    return out;
   }
   const out = renderMatrixBase(size, scene.kind, scene.glyph, scene.frame);
   const put = painter(out, 32);
   const number = (value: number, y: number, tone: MatrixKind) => {
-    const count = scene.kind === 'unknown' ? '-' : value > MATRIX_LAYOUT.maxCount ? '99+' : String(value);
+    const count = scene.kind === 'unknown' || value < 0 ? '-' : value > MATRIX_LAYOUT.maxCount ? '99+' : String(value);
     for (let d = 0; d < count.length; d++) {
       matrixDigit(count[d]).forEach((v, i) => { if (v) put(MATRIX_LAYOUT.countX + (MATRIX_LAYOUT.countColumns - count.length + d) * MATRIX_LAYOUT.digitStep + i % 3,
         y + Math.floor(i / 3), MATRIX_COLORS[tone], value === 0 ? MATRIX_LAYOUT.zeroCountIntensity : 1); });
@@ -295,14 +301,15 @@ export function renderMatrixScene(size: 11 | 32, scene: MatrixScene): Uint8Array
     // Error row is present even when waiting has higher priority.
     const base = renderMatrixBase(32, scene.kind, error ? 'summary-error' : 'summary', scene.frame);
     out.set(base);
-    if (scene.kind !== 'unknown') scene.counts.forEach((value, row) => {
+    const counts = scene.counts.map((n,i) => i===2 ? scene.backgroundCount ?? -1 : n);
+    if (scene.kind !== 'unknown') counts.forEach((value, row) => {
       if (value !== 0) return;
       for (let y = row * MATRIX_LAYOUT.summaryStep; y < (row + 1) * MATRIX_LAYOUT.summaryStep; y++) {
         for (let x = 0; x < 32 * 3; x++) out[y * 32 * 3 + x] = Math.round(out[y * 32 * 3 + x] * MATRIX_LAYOUT.zeroRowIntensity);
       }
     });
     if (scene.kind === 'unknown') number(0, MATRIX_LAYOUT.countY, 'unknown');
-    else scene.counts.forEach((value, row) => number(value, MATRIX_LAYOUT.countY + row * MATRIX_LAYOUT.summaryStep, tones[row]));
+    else counts.forEach((value, row) => number(value, MATRIX_LAYOUT.countY + row * MATRIX_LAYOUT.summaryStep, tones[row]));
     return out;
   }
   // A conversation scene's label carries the meaning; a count there would read

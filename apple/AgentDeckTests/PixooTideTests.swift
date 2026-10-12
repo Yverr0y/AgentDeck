@@ -28,7 +28,7 @@ final class PixooTideTests: XCTestCase {
             guard let id = raw["id"] as? String else { return nil }
             return SessionInfo(id: id, port: 9121, projectName: raw["projectName"] as? String,
                                agentType: raw["agentType"] as? String, alive: (raw["alive"] as? Bool) ?? true,
-                               state: raw["state"] as? String)
+                               state: raw["state"] as? String, backgroundTaskCount: raw["backgroundTaskCount"] as? Int)
         }
         let marks = PixooTide.resolveMarks(
             sessions: sessions, primary: nil, gatewayHasError: gatewayHasError,
@@ -54,6 +54,7 @@ final class PixooTideTests: XCTestCase {
     /// Same scenarios, same table as `tide frame digests` in pixoo-tide.test.ts.
     func testFramesMatchTheNodeRendererByteForByte() {
         let scenes: [(String, (state: DashboardState, marks: PixooTide.Marks), [String])] = [
+            ("background", scene([payload("a", "claude-code", "processing").merging(["backgroundTaskCount": 5]) { _, new in new }]), ["f75e913c8cf7b6ff", "1aa41950f7ea9521", "52c46ff83453ce79", "cb52503f4cf85a16", "3b02ac315a810d6d", "5a6e3e676ddac82c"]),
             ("empty", scene([]), [
                 "8e96cc0790f21a1c", "da28e790ad7d69e9", "a453a44fd386fe72", "530f2353682c7241", "28c12d7dc8082fc6", "df20752288cb3b5a",
             ]),

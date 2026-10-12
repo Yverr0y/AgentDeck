@@ -22,9 +22,15 @@ internal class AquariumResidentOverlay(context: Context) {
         canvas.drawText(ciCompanionBadge(wait),x,y+size/2+8f*density,paint)
     }
 
+    private val backgroundEffect = BackgroundWorkEffect(context)
+
+    fun retainBackground(ids: Set<String>) { backgroundEffect.retain(ids) }
+
     /** Selection rails and the working bars — body cues, drawn whether or not tags are. */
     fun drawCues(canvas: Canvas, item: AquariumResident, bodyX: Float, bodyY: Float, unit: Float,
         phase: Float, selected: Boolean) {
+        backgroundEffect.draw(canvas, item.id, item.backgroundTaskCount, item.backgroundAttention || item.state == OctopusVisualState.ASKING,
+            bodyX, bodyY, unit*.75f, System.currentTimeMillis())
         paint.style = Paint.Style.FILL
         paint.alpha = 255
         if (selected) {
