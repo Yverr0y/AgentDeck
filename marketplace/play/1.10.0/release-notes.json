@@ -1,0 +1,5 @@
+{
+  "en-US": "Background jobs now have animated jar companions in the aquarium, with clear counts and completion effects. Native 3D animation adapts to device performance and temperature for smoother motion. E-ink keeps stable, readable status text. Improved connection setup and recovery.",
+  "ko-KR": "수족관에 백그라운드 작업을 나타내는 작은 병 동료와 개수·완료 효과를 추가했습니다. 기기 성능과 발열에 맞춰 3D 애니메이션을 조절해 끊김을 줄였습니다. 전자잉크에서는 읽기 쉬운 개수와 상태를 안정적으로 표시합니다. 연결 설정과 재연결 흐름도 개선했습니다.",
+  "ja-JP": "水槽にバックグラウンド作業を表す小さな瓶の仲間と、件数・完了エフェクトを追加しました。端末の性能と温度に合わせて3D描画を調整し、動きを滑らかにしました。電子ペーパーでは件数と状態を読みやすく表示します。接続設定と再接続も改善しました。"
+}
