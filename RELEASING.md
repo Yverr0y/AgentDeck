@@ -95,6 +95,27 @@ above and PR review own that judgment. After delivery, update the
 [README release table](README.md#releases) and the per-channel receipt from
 observed portal/artifact state; do not present a candidate as public.
 
+### 2026-10-13 remaining release decision
+
+Checked before changing manifests: [ASC status run](https://github.com/puritysb/AgentDeck/actions/runs/38322073839),
+npm registry, GitHub release tags, Maker Console Versions and Ulanzi published/review records.
+No new product milestone is allocated. Android 1.10.0 / 27 is unchanged.
+
+| Target / routes | Last verified public | Uploaded / reserved | Proposed | Class and previous → new behavior | Applicability |
+| --- | --- | --- | --- | --- | --- |
+| Apple / iOS + macOS | 1.9.0 on both platforms | 1.9.0 / 7901; no 1.10 upload | 1.9.1; CI build above 7901 | Patch: repair setup/connection flows, preserve partial APME costs, complete background display counts | Existing dashboard and device behavior; Dot remains excluded |
+| npm / four public packages | 1.9.0 | 1.9.0 | 1.9.1 | Patch: complete existing background-work propagation and live matrix counts | Existing daemon/device contract |
+| ESP32 / firmware assets | 1.9.0 | esp32-v1.9.0 | 1.9.1 + source build identity | Patch: complete LCD/e-ink background indicators and replace TC001 window labels with reset countdowns | Existing shipping boards; panel-appropriate presentation |
+| Stream Deck / GitHub + Marketplace | 1.8 (package 1.8.0) | 1.8 published; no newer row | 1.8.1 (manifest 1.8.1.0) | Patch: retain background counts across partial updates and complete session-key rendering | Existing keys/encoders; no new device capability |
+| Ulanzi / GitHub + Marketplace | 1.6.0 Marketplace; 1.8.0 GitHub | 1.8.0 under review | 1.8.1 | Patch: complete background state rendering and expire stale Dot state | Existing D200H/D200X keypad behavior; no Dial support |
+
+Apple 1.9.1 version records were subsequently created for iOS and macOS in App
+Store Connect, both **Prepare for Submission**. English, Korean and Japanese
+release notes and platform-specific review notes are saved; no build is attached
+and neither platform is submitted. Other candidates are not uploaded or submitted.
+Validation requires the full recorded tier, native builds/archive checks, npm's
+three-mode installed-package soak and applicable physical device/plugin checks.
+
 ### October 2026 correction
 
 Android 1.10.0 has already been published to GitHub and internal Play and
@@ -634,7 +655,7 @@ So when a channel first goes live, sweep the surfaces that state its status: the
 
 **Play's live state reads without a console login.** `curl "https://play.google.com/store/apps/details?id=dev.agentdeck&hl=en"` returns the download bucket, the content rating, `Updated on`, and the localized *What's new* — so the notes a store is actually serving can be transcribed instead of reconstructed from the changelog — and `store/search?q=<term>&c=apps` measures whether the listing surfaces for anything besides its own name. Only the exact install count and the acquisition funnel (listing views versus installs) need the owner's login; that pair is what separates "nobody arrived" from "arrived and did not install".
 
-## Shared major, independent minor/patch and delivery
+## Shared major, aligned milestones and independent delivery
 
 | Surface                                                   | Target version                               | Independent monotonic value                                                | Tag / delivery                             |
 | --------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------ |
@@ -651,7 +672,7 @@ Tag prefixes remain because channels ship independently and may point to differe
 ## Version rules
 
 1. All targets must share root `VERSION`'s major. Changing it is a coordinated compatibility release.
-2. Minor and patch versions may differ by target without ordering constraints. `A.B.C` and `A.D.E` are mutually compatible for any numeric `B`–`E`; bump only the target being delivered.
+2. Minor milestones follow the product-wide allocation above; patch versions and delivery timing may differ by target. `A.B.C` and `A.D.E` are mutually compatible for any numeric `B`–`E`; bump only the target being delivered.
 3. Never reuse, delete-and-recreate, or lower a version that reached an external registry/store. Git tags do not reset external version floors.
 4. Apple build number and Android versionCode increase only when those targets are actually built for delivery.
 5. Public npm packages stay in lockstep and publish in dependency order: `hooks` + `shared` → `bridge` → `setup`.
@@ -668,7 +689,7 @@ Tag prefixes remain because channels ship independently and may point to differe
 
 ## Preparing a target release
 
-1. Choose the next SemVer for the target, preserving the shared compatibility major. Use minor for substantial backward-compatible features and patch for small fixes.
+1. Choose the next SemVer for the target, preserving the shared compatibility major. Apply the classification and decision record above: minor for a named new product capability, patch for completing or improving an existing capability.
 2. Update that target's internal mirrors. Do not bump unrelated targets merely to align minor or patch values.
 3. Increment Android `versionCode` when releasing Android. Apple CI owns `CURRENT_PROJECT_VERSION` (run number × 100 + attempt); its source value is a local default.
 4. **Write the `CHANGELOG.md` entry, and the delivery table in `README.md`.** The

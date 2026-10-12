@@ -155,6 +155,23 @@ AgentDeck은 독립적인 프로젝트이며 Anthropic, OpenAI, Google, SST, Cor
 claude code,ai,agent,dashboard,stream deck,monitoring,apme,openclaw,codex,ipad,companion,developer
 ```
 
+### What's New (v1.9.1)
+
+**macOS App**
+
+```
+• 초기 설정과 연결 복구 흐름을 다듬었습니다.
+• 기기 화면의 백그라운드 작업 개수와 상태 표시를 개선했습니다.
+• 앱 시작 시 일부만 알려진 세션 평가 비용을 보존하고 불필요한 재계산을 줄였습니다.
+```
+
+**iOS App**
+
+```
+• 초기 설정, Mac 선택과 QR 페어링의 복구 흐름을 개선했습니다.
+• 백그라운드 작업 표시의 일관성을 다듬었습니다.
+```
+
 ### What's New (v1.9.0)
 
 **macOS App**
@@ -545,6 +562,23 @@ AgentDeckは独立したプロジェクトであり、Anthropic、OpenAI、Googl
 claude code,ai,エージェント,ダッシュボード,stream deck,monitoring,apme,openclaw,codex,ipad,developer
 ```
 
+### What's New (v1.9.1)
+
+**macOS App**
+
+```
+• 初回設定と接続の復旧フローを改善しました。
+• デバイス画面のバックグラウンドタスク数と状態表示を改善しました。
+• 起動時に一部だけ判明している評価コストを保持し、不要な再計算を減らしました。
+```
+
+**iOS App**
+
+```
+• 初回設定、Macの選択、QRペアリングの復旧フローを改善しました。
+• バックグラウンドタスク表示の一貫性を改善しました。
+```
+
 ### What's New (v1.9.0)
 
 **macOS App**
@@ -931,6 +965,23 @@ AgentDeck is independent and is not affiliated with or endorsed by Anthropic, Op
 
 ```
 claude code,ai,agent,dashboard,monitoring,apme,openclaw,codex,ipad,stream deck,developer
+```
+
+### What's New (v1.9.1)
+
+**macOS App**
+
+```
+• Refined initial setup and connection recovery.
+• Improved background-task counts and status on device displays.
+• Preserved partially known evaluation costs at startup and avoided unnecessary recalculation.
+```
+
+**iOS App**
+
+```
+• Improved recovery during initial setup, Mac selection and QR pairing.
+• Refined consistency of background-task displays.
 ```
 
 ### What's New (v1.9.0)

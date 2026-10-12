@@ -330,8 +330,12 @@ adaptive frame pacing, while e-ink emphasizes static counts and status. See
 the [Android delivery receipt](RELEASING.md#android-1100-delivery-readback-2026-10-13).
 
 **Other candidates, 2026-10-13:** the background-work improvements for Apple,
-npm and ESP32 1.10.0, plus Stream Deck/Ulanzi 1.9.0, are in source. Those
-channels were not published by this Android release.
+npm and ESP32 1.9.1, plus Stream Deck/Ulanzi 1.8.1, are in source.
+These patch candidates complete existing capabilities; see the
+[release decision](RELEASING.md#2026-10-13-remaining-release-decision).
+Apple 1.9.1 has metadata drafts on both platforms, with no build attached; no
+candidate is uploaded or submitted. Apple 1.9.0 / 7901 is now verified public
+on both iOS and macOS (2026-10-13 ASC readback).
 
 **Previous delivery, 2026-10-12:** Android 1.9.0 (26) is public on Google Play
 (100% rollout across 178 countries/regions) and as a signed GitHub APK. Its
@@ -340,8 +344,8 @@ and e-ink, while preserving existing settings and paired hosts on upgrade.
 All four npm packages and their `latest` tags are public at 1.9.0. ESP32 1.9.0
 firmware is public for twelve boards; all 60 binaries match the release manifest.
 
-Apple iOS/macOS 1.8.0 remains Ready for Distribution; 1.9.0 (7901 on each
-platform) is Waiting for Review with automatic release after approval. Elgato
+At that October 12 readback, Apple 1.9.0 / 7901 was Waiting for Review; the
+October 13 check above supersedes that status. Elgato
 1.8 is public (Marketplace read October 11). Ulanzi 1.8.0 remains submitted,
 with 1.6.0 the last verified public version. Neither deck plugin was republished
 in this round. See the [additional-channel delivery readback](RELEASING.md#additional-190-delivery-readback-2026-10-12)
