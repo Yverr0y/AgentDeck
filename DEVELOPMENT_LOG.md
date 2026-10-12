@@ -34,6 +34,21 @@ The normal Node owner remains running; iDotMatrix is connected. No NM erase or
 flash was attempted. Submitted Apple build 7901 is immutable and does not include
 these source changes.
 
+## Verification record
+
+[The clean-source receipt](verification/receipts/2026-10-12-38ca654.json) records
+all 25 automated full-verification steps passing on `38ca6544` in 14m41s. This
+includes coverage, Android, Apple Store and DotPreview configurations, ESP32
+host/simulator/TTGO builds and clean npm installation acceptance. The three lab
+gates remain unattested. Windows Node 22/24/26 passed separately in GitHub CI.
+
+A later read-only USB-JTAG reset/ROM `read-mac` probe also received no serial
+data. The NM continued to report fresh Wi-Fi telemetry with advancing uptime
+and no reboot, while its serial entry remained explicitly `deviceInfoFresh:false`.
+No flash/erase was attempted; the normal daemon's serial ownership was restored.
+The new bounded reader itself returned without identity in 3.142 seconds on the
+physical port. Physical reconnection and signed-app acceptance remain outstanding.
+
 ## 2026-10-12 — Android guided setup and additional 1.9.0 release preparation
 
 Android previously opened directly into the dashboard. New installations now
