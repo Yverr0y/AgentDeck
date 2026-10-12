@@ -63,6 +63,8 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 - TC001 usage pages alternate each window's percentage with time remaining until
   reset, keeping the provider mark and usage rail visible. Window lengths such as
   `5H` and `7D` no longer stand in for reset countdowns.
+- Android 3D uses one frame scheduler with GPU-adaptive resolution and a thermal
+  rendering budget, keeping dashboard text crisp while reducing animation stalls.
 - Android preserves counts by session identity across partial updates and rejects
   malformed count fields without dropping the session roster. Reconnecting clears
   stale counts. Completion motion is bounded and honors reduced-motion settings.

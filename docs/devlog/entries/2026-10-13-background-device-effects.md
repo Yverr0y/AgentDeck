@@ -79,3 +79,31 @@ had identical pixels in the aquarium region. The original setting, 3D dashboard
 selection and production 9120 connection were restored; the fixture was stopped.
 Crema retained the static background count in its high-contrast session column.
 No 1.10.0 store release was submitted by this correction.
+
+## Native Android frame pacing follow-up
+
+The remaining 3D lag came from competing frame gates and GPU shadow/render-target
+cost, not the Compose FPS counter. Filament now owns cadence, its pacing target
+and dynamic-resolution interval agree, and the mobile HDR/MSAA/upscaling path
+keeps HUD text at full display resolution. Thermal/power-constrained rendering
+uses a 30 Hz budget without sampled shadows. Sustained missed 60 Hz submissions
+also select that budget until resume, after a loading grace period. Shared GLB
+instances and immutable materials replace per-buddy geometry/resource loading;
+hidden instances return to a bounded high-water pool across roster changes.
+
+Signed Lenovo measurements used SurfaceFlinger SurfaceView presentation stats:
+previous production scene 13.238 FPS; revised 8-session × 12-task scene 29.855 FPS,
+693 displayed frames and zero dropped frames in the measured interval. Thermal
+status was SEVERE (3), with no override; this proves the constrained 30 Hz budget,
+not unconstrained 60 FPS or identical macOS hardware performance. A separate
+25-second sample measured 29.854 FPS / 739 frames / zero drops. Release profiling
+also exposed a Filament JNI FrameInfo/R8 field-lookup abort; the optional GPU
+history probe was removed and signed trace capture was rerun successfully.
+
+Three roster-identity/reconnect cycles kept the native instance high-water mark
+at 144. Physical captures cover 5 → 2 → approval → resume → 0, with jars hidden
+for approval and no permanent completion badge in the aquarium. Reduced motion
+produced identical aquarium-region pixels one second apart; the original system
+setting was restored. Android's 501 tests include warmup, sustained-capacity,
+resume and thermal-recovery budget cases plus immutable GLB material checks.
+The final full release gate and store delivery are recorded separately.
