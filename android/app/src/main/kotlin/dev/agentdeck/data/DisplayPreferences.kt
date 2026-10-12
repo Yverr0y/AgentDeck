@@ -36,6 +36,7 @@ class DisplayPreferences(
 ) {
 
     companion object {
+        private val ONBOARDING_COMPLETED_KEY = booleanPreferencesKey("onboarding_completed")
         private val DASHBOARD_TYPE_KEY = stringPreferencesKey("dashboard_type")
         private val ORIENTATION_KEY = intPreferencesKey("orientation")
         private val KEEP_AWAKE_KEY = booleanPreferencesKey("keep_awake")
@@ -52,6 +53,21 @@ class DisplayPreferences(
         private val ALLOW_UNSUPPORTED_KEY = booleanPreferencesKey("allow_unsupported_device")
 
         private const val STARTUP_READ_TIMEOUT_MS = 500L
+    }
+
+    /** Null while the one-time migration is loading; never flash setup over an existing dashboard. */
+    val onboardingCompletedFlow: Flow<Boolean?> = context.dataStore.data.map { it[ONBOARDING_COMPLETED_KEY] }
+
+    suspend fun initializeOnboarding(isUpgrade: Boolean) {
+        context.dataStore.edit { prefs ->
+            if (prefs[ONBOARDING_COMPLETED_KEY] == null) {
+                prefs[ONBOARDING_COMPLETED_KEY] = isUpgrade || prefs.asMap().isNotEmpty()
+            }
+        }
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        context.dataStore.edit { it[ONBOARDING_COMPLETED_KEY] = completed }
     }
 
     val dashboardTypeFlow: Flow<DashboardType> = context.dataStore.data.map {

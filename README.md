@@ -318,6 +318,10 @@ advance independently; you do not need to update every device together.
 | Ulanzi D200H / D200X LCD keys | [Ulanzi Marketplace](https://ugc.ulanzistudio.com/contentView/1141); D200X encoders are not supported | `ulanzi-v*` |
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
 
+**In preparation, 2026-10-12:** npm, Android and ESP32 1.9.0 are being verified,
+including Android guided setup on LCD and e-ink. The delivery states below remain
+in effect until each channel's publication or submission is read back.
+
 **Delivery status, 2026-10-06:** Android 1.8.0's signed APK and Stream Deck/Ulanzi
 1.8.0 packages are public on GitHub. Google Play 1.8.0 (25) is also live. Apple
 iOS/macOS 1.8.0 is Ready for Distribution in App Store Connect (read October 12);

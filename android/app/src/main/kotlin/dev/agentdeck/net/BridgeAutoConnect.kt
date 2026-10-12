@@ -95,7 +95,7 @@ fun BridgeAutoConnect(
         // needs no stored credential (same-machine over the tunnel), and until
         // it is issued nothing holds the LAN fallback back but `loopbackTried`
         // — so a DataStore read that took its time would hand the turn away.
-        if (connection.status.value != ConnectionStatus.CONNECTED) {
+        if (AutoConnectRules.shouldProbeOnEntry(connection.status.value, connection.selectedUrl)) {
             autoConnectDebug { "Trying localhost:${BridgeConstants.WS_PORT} (USB)..." }
             connection.connect(BridgeConstants.LOCALHOST_WS_URL)
         }
@@ -238,6 +238,10 @@ suspend fun adoptPairedUrl(
 
 /** Pure ladder rules, kept out of the composable so they have a test. */
 object AutoConnectRules {
+    /** A composition remount after guided setup must not replace the chosen host with USB. */
+    fun shouldProbeOnEntry(status: ConnectionStatus, selectedUrl: String?): Boolean =
+        status == ConnectionStatus.DISCONNECTED && selectedUrl == null
+
 
     /** How long the startup ladder gives the loopback dial before the saved URL. */
     const val LOOPBACK_SETTLE_MS = 3_000L

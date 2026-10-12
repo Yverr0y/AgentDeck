@@ -45,9 +45,17 @@ Android device and computer must be on the same local network.
    npx @agentdeck/setup
    ```
 
-3. **Open the Android app.** It discovers the daemon automatically over the
-   local network. Start Claude Code, Codex, or OpenCode normally; their sessions
-   then appear on the dashboard.
+3. **Open the Android app.** On first use, guided setup lets you choose the
+   dashboard appearance, preview it without live sessions, connect a computer,
+   and check readiness. Choose the intended host when several are discovered.
+   Approve this device from the Mac's **Devices → Pair Device**, or enter that
+   computer's six-digit code. Readers need no camera. Start an enabled agent on
+   your computer; its sessions then appear on the dashboard.
+
+Setup is skippable, and **Settings → Guided setup** reopens it. Existing
+installations keep their appearance and pairing without a forced walkthrough.
+E-ink uses the same steps with a static high-contrast preview; continuous 3D is
+only offered on LCD. The preview contains no fabricated live activity.
 
 If the app stays on **Searching for AgentDeck**, confirm that the computer app
 or daemon is still running and both devices are on the same Wi-Fi/LAN. Then use

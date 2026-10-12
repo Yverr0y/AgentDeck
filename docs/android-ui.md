@@ -16,6 +16,20 @@ validators: [bash design/lint.sh, pnpm test:android]
 
 두 디바이스에서 iOS Dashboard 와 같은 에이전트 정보를 같은 조작 모델로 시각화한다. Android tablet 은 iOS Dashboard 의 UX parity 를 목표로 하고, e-ink 는 별도 “기능 UX”가 아니라 느린 화면 갱신/저대비/작은 화면을 위한 고대비 projection 을 둔다. 빌드/기기 레퍼런스는 [android.md](android.md) 참조.
 
+## Guided setup
+
+First use follows Appearance → Connect → Ready on both LCD and e-ink. Use the
+production renderers with an empty local habitat for appearance previews; never
+inject sample sessions into `AgentStateHolder`. Back, skip and completion remain
+reachable on compact screens and with the keyboard open. Completion is persisted;
+legacy installations retain their settings and may opt in through Settings.
+
+Connection reuses `BridgeAutoConnect` and `ConnectionPanel`, including host-bound
+credentials, approval recovery and six-digit pairing. An ambiguous host list must
+not spend a code against whichever host appeared first. Disconnected, connected
+without sessions and receiving activity have distinct readiness copy. Android is
+a companion: agent authorization remains on the computer running the agents.
+
 ## 표시 정보 (공통)
 
 - **Agent Identity**: 에이전트 타입, 세션명, 현재 모델, 상태 (IDLE/PROCESSING/AWAITING 등)
@@ -122,7 +136,7 @@ TIMELINE
 
 ## Launcher app
 
-`android/` — Jetpack Compose, minSdk 29, CATEGORY_HOME, NSD mDNS discovery, QR pairing (CameraX + ML Kit), e-ink detection (Crema/Onyx/Kobo).
+`android/` — Jetpack Compose, minSdk 29, CATEGORY_HOME, NSD mDNS discovery, operator approval and six-digit pairing (no QR scanner), e-ink detection (Crema/Onyx/Kobo).
 
 **3-tab nav**: Dashboard (terrarium bg + HUD overlay panels, connection overlay when disconnected) / Deck (encoder strip + 2×4 button grid + context area) / Settings. MonitorService: CPU wake lock + system stay-on + screen wake on state change (e-ink).
 

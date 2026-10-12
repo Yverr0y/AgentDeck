@@ -584,7 +584,8 @@
       "proves": [
         "the Android app compiles",
         "protocol parsing, timeline store and state logic behave as specified on the JVM",
-        "multi-host refusal recovery retains endpoint-specific errors and distinguishes approval from network failure"
+        "multi-host refusal recovery retains endpoint-specific errors and distinguishes approval from network failure",
+        "guided setup completion and upgrade migration preserve appearance and pairing; setup handoff retains the selected host"
       ],
       "does_not_prove": ["Compose UI on a device or e-ink panel (there are no instrumented tests)"]
     },

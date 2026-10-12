@@ -212,6 +212,8 @@ fun TabletSettingsDialog(
                     },
                 )
 
+                dev.agentdeck.ui.onboarding.GuidedSetupButton(displayPrefs)
+
                 // About
                 AboutFooter()
 

@@ -101,6 +101,12 @@ class MainActivity : ComponentActivity() {
         val connection = BridgeConnection.instance
         val displayPrefs = DisplayPreferences(this, isEink = deviceProfile.isEink)
 
+        lifecycleScope.launch {
+            @Suppress("DEPRECATION")
+            val installed = packageManager.getPackageInfo(packageName, 0)
+            displayPrefs.initializeOnboarding(installed.lastUpdateTime > installed.firstInstallTime)
+        }
+
         // Apply saved orientation preference (async — for user changes via Settings)
         lifecycleScope.launch {
             displayPrefs.orientationFlow.collect { orientation ->
@@ -179,6 +185,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val dashboardType by displayPrefs.dashboardTypeFlow.collectAsState(initial = dev.agentdeck.data.DashboardType.Default)
+            val onboardingCompleted by displayPrefs.onboardingCompletedFlow.collectAsState(initial = null)
             AgentDeckTheme(profile = deviceProfile) {
                 when {
                     !showDashboard -> UnsupportedDeviceScreen(
@@ -192,6 +199,12 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
+                    onboardingCompleted == null -> androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                            androidx.compose.material3.Text("Opening AgentDeck…")
+                        }
+                    }
+                    onboardingCompleted == false -> dev.agentdeck.ui.onboarding.OnboardingScreen(displayPrefs, connection)
                     deviceProfile.isEink -> EinkMonitorScreen(stateHolder, connection, displayPrefs)
                     dashboardType == dev.agentdeck.data.DashboardType.Paper -> Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                         EinkMonitorScreen(stateHolder, connection, displayPrefs)
