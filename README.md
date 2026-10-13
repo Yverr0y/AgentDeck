@@ -316,7 +316,7 @@ together. See the [version decision policy](RELEASING.md#choosing-a-version).
 |---|---|---|
 | Mac · iPhone · iPad | [App Store](https://apps.apple.com/app/id6784822497?pt=128040795&ct=github-readme-202610&mt=8) | `apple-v*` |
 | Android tablets and e-ink | [Google Play](https://play.google.com/store/apps/details?id=dev.agentdeck) · [signed GitHub APK](https://github.com/puritysb/AgentDeck/releases?q=android-v&expanded=true) | `android-v1.10.0` |
-| CLI + daemon | [`npx @agentdeck/setup`](https://www.npmjs.com/package/@agentdeck/setup) | `npm-v1.9.0` |
+| CLI + daemon | [`npx @agentdeck/setup`](https://www.npmjs.com/package/@agentdeck/setup) | `npm-v1.9.1` |
 | Stream Deck / Mini / XL / Plus / + XL | [Elgato Marketplace](https://marketplace.elgato.com/product/agentdeck-dce3806b-176e-40f2-be7d-e029bec0f464) | `streamdeck-v*` |
 | Ulanzi D200H / D200X LCD keys | [Ulanzi Marketplace](https://ugc.ulanzistudio.com/contentView/1141); D200X encoders are not supported | `ulanzi-v*` |
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
@@ -330,10 +330,10 @@ adaptive frame pacing, while e-ink emphasizes static counts and status. See
 the [Android delivery receipt](RELEASING.md#android-1100-delivery-readback-2026-10-13).
 
 **Other delivery, 2026-10-13:** Stream Deck and Ulanzi 1.8.1 are public on
-GitHub and awaiting marketplace review. ESP32 1.9.1 is tagged and building.
-Apple 1.9.1 / 8301 was uploaded, but a replacement build is needed for the
-subsequent timeline handover repair; neither platform has been submitted.
-npm 1.9.1 awaits final installed-package acceptance. Apple 1.9.0 / 7901 remains
+GitHub and awaiting marketplace review. ESP32 1.9.1 is public for all 12 boards.
+Apple iOS/macOS 1.9.1 / 8401, including the timeline handover repair, is uploaded;
+neither platform has been submitted for review.
+npm 1.9.1 is public, including all four packages and their latest tags. Apple 1.9.0 / 7901 remains
 the verified public Store version. These patches complete existing capabilities;
 see the [release decision and delivery states](RELEASING.md#2026-10-13-remaining-release-decision).
 

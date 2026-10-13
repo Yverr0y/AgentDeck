@@ -113,13 +113,15 @@ existing selection/filter contract rather than introducing a new minor milestone
 | Stream Deck / GitHub + Marketplace | 1.8 (package 1.8.0) | 1.8 published; no newer row | 1.8.1 (manifest 1.8.1.0) | Patch: retain background counts across partial updates and complete session-key rendering | Existing keys/encoders; no new device capability |
 | Ulanzi / GitHub + Marketplace | 1.6.0 Marketplace; 1.8.0 GitHub | 1.8.0 under review | 1.8.1 | Patch: complete background state rendering and expire stale Dot state | Existing D200H/D200X keypad behavior; no Dial support |
 
-Delivery update, 2026-10-13 (source `0acb96c4`, PR #526):
+Delivery update, 2026-10-13 (PR #526 at `0acb96c4`; handover repair #527 at `88e31aa0`):
 
-- Apple iOS/macOS **1.9.1 / 8301 uploaded**, both signed archive/upload jobs passed
-  ([run](https://github.com/puritysb/AgentDeck/actions/runs/38374654727)).
-  The version records remain Prepare for Submission. Build 8301 is superseded
-  as a candidate by the subsequent bidirectional timeline/early-readiness repair;
-  a replacement signed upload and App Store Connect login are required. This is not a live Store release.
+- Apple iOS/macOS **1.9.1 / 8401 uploaded**, both signed archive/export checks and
+  upload jobs passed ([run 38384637676](https://github.com/puritysb/AgentDeck/actions/runs/38384637676)).
+  [ASC readback](https://github.com/puritysb/AgentDeck/actions/runs/38386771646)
+  confirms both 8401 builds are VALID. This candidate includes #527 and supersedes
+  uploaded build 8301. The version
+  records remain Prepare for Submission; build attachment and review submission
+  still require App Store Connect login. This is not a live Store release.
 - Android **1.10.1 / 28 is on internal Play** and installed from Play on Lenovo.
   General promotion awaits physical 3D creature-tap acceptance; mirrored input
   distorted the pointer-up coordinates, so it cannot establish this result.
@@ -131,20 +133,30 @@ Delivery update, 2026-10-13 (source `0acb96c4`, PR #526):
   unsupported Dial/AU05 remain unchecked. The installed Studio process was
   restarted and verified against bundle SHA-256
   `4f4bdca407965ad9d1ef6c7e497c08469c075f9b699d66d74c9edeb79cd8bb55`.
-- npm **1.9.1 remains unpublished**. Installed-package acceptance exposed missing
-  timeline handover in both directions. PR #527 adds bounded authenticated capture
-  before CLI takeover and a local-only Mac snapshot cache before Swift promotion.
-  The repaired Node-to-Swift run restored port 9120 in 139 seconds; Mac and Lenovo
-  retained the CLI and Swift turns and displayed a new Swift completion. The
-  reverse capture also retained both histories. Final clean full verification and
-  merged-source delivery are still required before tagging.
-- ESP32 **1.9.1 is tagged at `0acb96c4`**, with the 12-board release build
-  running. TC001 and NM serial readback and T-Embed WiFi readback report 1.9.1.
-  Firmware publication and optical inspection are distinct from these checks.
+- npm **1.9.1 is public**, with all four exact versions and `latest` tags read
+  back after [release run 38384949327](https://github.com/puritysb/AgentDeck/actions/runs/38384949327).
+  Registry integrity checks pass for all four tarballs; all 320 runtime JS files
+  match the verified candidate. The setup registry README is nonempty.
+  Installed-package acceptance exposed missing timeline handover in both
+  directions; #527 fixes it. Real CLI-only and Swift-only turns reached Mac and
+  Lenovo, both histories survived takeover, and Swift recovered port 9120 in
+  138.772 seconds. Dashboard readiness now precedes device discovery.
+  The persistent main CLI link is restored, and automatic local deployment of
+  `88e31aa0` passed with daemon build `b9bb2770bf62` and verified Stream Deck runtime.
+- ESP32 **1.9.1 is public at `0acb96c4`**, with 12 boards and 62 release assets
+  ([run 38379792242](https://github.com/puritysb/AgentDeck/actions/runs/38379792242)).
+  All 60 binary sizes and SHA-256 hashes match the public manifest/checksums.
+  TC001 and NM serial readback and T-Embed WiFi readback report 1.9.1. These
+  installed candidates were built from the same source; optical inspection is
+  distinct from telemetry and artifact verification.
 
-The recorded full tier at `d98ee6e` passed before PR #526 (subsequent changes were
-release evidence only). It does not attest the later timeline handover fix,
-physical optical acceptance, or store publication.
+The [clean final full-tier receipt](verification/receipts/2026-10-13-cc0d21a.json)
+passes in 14m11s and covers the bidirectional handover candidate; its tree matches
+merge `88e31aa0`. Windows Node 22/24/26 and all Apple CI configurations pass. The
+first Windows 26 hook check exceeded 10 seconds; the same-commit retry passed.
+The earlier full tier at `d98ee6e` passed before PR #526 and does not attest the
+later fix. Automated verification does not establish physical optical acceptance
+or store publication.
 
 ### October 2026 correction
 
