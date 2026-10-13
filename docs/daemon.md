@@ -174,6 +174,17 @@ agentdeck daemon port --clear  # 저장값 삭제 → 기본 9120 으로 복귀
 
 **아직 열려 있음**: `daemon install` 은 유닛을 로드하기만 하므로, 이미 돌고 있는 (supervisor 밖) 데몬이 있으면 유닛의 잡이 incumbent 가드에 걸려 `exit 0` 하고 그대로 `state = not running` 이 된다. 즉 install 직후에도 데몬은 감시 밖일 수 있다 — 수렴시키는 건 지금은 `daemon restart` 다.
 
+## Timeline handover
+
+Before a same-user Swift daemon yields to the CLI, the CLI captures its recent
+`timeline_history` through the authenticated loopback WebSocket. A bounded
+`timeline-handover.json` staging file preserves that snapshot without writing the
+active daemon's `timeline.json` or reading the app's sandbox container. The bound
+Node daemon merges the staged rows with its persisted history at startup. A
+failed or silent capture refuses takeover and leaves the app serving; an explicit
+empty history is valid. APME activity capture is separate and does not preserve
+the dashboard timeline by itself.
+
 ## Session timeline relay
 
 `SessionTimelineRelay` (`session-timeline-relay.ts`) — daemon subscribes to sibling session bridges' WS to relay `timeline_event`/`timeline_history` events + `state_update.modelCatalog` (Claude Code OAuth catalog → daemon `cachedModelCatalog`, merged with Gateway catalog by name dedup). 10s sync interval detects new/removed sessions. Eliminates client-side `StateTimelineGenerator` duplication (Android/Apple) — daemon provides unified timeline stream for all agent types.

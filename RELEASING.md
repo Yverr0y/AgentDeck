@@ -113,12 +113,34 @@ existing selection/filter contract rather than introducing a new minor milestone
 | Stream Deck / GitHub + Marketplace | 1.8 (package 1.8.0) | 1.8 published; no newer row | 1.8.1 (manifest 1.8.1.0) | Patch: retain background counts across partial updates and complete session-key rendering | Existing keys/encoders; no new device capability |
 | Ulanzi / GitHub + Marketplace | 1.6.0 Marketplace; 1.8.0 GitHub | 1.8.0 under review | 1.8.1 | Patch: complete background state rendering and expire stale Dot state | Existing D200H/D200X keypad behavior; no Dial support |
 
-Apple 1.9.1 version records were subsequently created for iOS and macOS in App
-Store Connect, both **Prepare for Submission**. English, Korean and Japanese
-release notes and platform-specific review notes are saved; no build is attached
-and neither platform is submitted. Other candidates are not uploaded or submitted.
-Validation requires the full recorded tier, native builds/archive checks, npm's
-three-mode installed-package soak and applicable physical device/plugin checks.
+Delivery update, 2026-10-13 (source `0acb96c4`, PR #526):
+
+- Apple iOS/macOS **1.9.1 / 8301 uploaded**, both signed archive/upload jobs passed
+  ([run](https://github.com/puritysb/AgentDeck/actions/runs/38374654727)).
+  The version records remain Prepare for Submission; build attachment and review
+  submission await App Store Connect login. This is not a live Store release.
+- Android **1.10.1 / 28 is on internal Play** and installed from Play on Lenovo.
+  General promotion awaits physical 3D creature-tap acceptance; mirrored input
+  distorted the pointer-up coordinates, so it cannot establish this result.
+- Stream Deck **1.8.1 is public on GitHub and Pending review in Maker Console**;
+  auto-publish is off for DRM encoder acceptance. The submitted CI package SHA-256
+  is `a90a870b8ed6f0b6c991515355ac055b30885c96315484f751df46e533c75a9e`.
+- Ulanzi **1.8.1 is public on GitHub and under Marketplace review**, replacing the
+  pending 1.8.0. All seven listing locales were restored after ZIP upload;
+  unsupported Dial/AU05 remain unchecked. The installed Studio process was
+  restarted and verified against bundle SHA-256
+  `4f4bdca407965ad9d1ef6c7e497c08469c075f9b699d66d74c9edeb79cd8bb55`.
+- npm **1.9.1 remains unpublished**. Installed-package CLI-only and Swift-only
+  real turns reached Mac and Lenovo. Node-to-Swift recovery took 145 seconds,
+  and reverse ownership takeover succeeded, but the latter lost the Swift-only
+  dashboard history. APME activity capture did not include timeline rows; the
+  timeline handover fix needs final installed-package acceptance before tagging.
+- ESP32 **1.9.1 remains a candidate**. TC001 OTA completed and fresh serial
+  telemetry reports 1.9.1 / `0acb96c4`; other representative boards are in progress.
+
+The recorded full tier at `d98ee6e` passed before PR #526 (subsequent changes were
+release evidence only). It does not attest the later timeline handover fix,
+physical optical acceptance, or store publication.
 
 ### October 2026 correction
 
