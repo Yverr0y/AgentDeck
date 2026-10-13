@@ -8,6 +8,23 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
 
+## 1.10.1 internal — 2026-10-13
+
+Internal testing **28 (1.10.1)** is available to internal testers, published
+October 13 at **11:42 KST**. All three [release-note languages](1.10.1/release-notes.json)
+were verified before release. Supported-device coverage is unchanged; the
+native-debug-symbol warning remains non-blocking. Production remains 1.10.0.
+
+The clean source at `d98ee6eb` passed the
+[full pre-release check](../../verification/receipts/2026-10-13-d98ee6e.json)
+in 16m05s, including isolated npm package acceptance, Android tests and Apple
+Store/Dot configurations. Signed Crema acceptance passed Codex/Claude history,
+filter clear/back, empty history and independent Mac/Crema inspection.
+Play-signed 1.10.1 acceptance on Lenovo is still pending.
+
+AAB SHA-256: `702886c2fdbeee6b2cfaa83ccf0ddf55bb2ddaa88aef90fcd5f4c06d4bfd6ac0`.
+No production rollout or public GitHub 1.10.1 release is claimed here.
+
 ## 1.10.0 public — production readback (2026-10-13)
 
 Play Console release overview now confirms **27 (1.10.0)** available in

@@ -1,0 +1,5 @@
+{
+  "en-US": "Creature and session taps now filter history only on the current screen, independently of device controls. Fixed missing Codex history and added native 3D creature selection. E-ink history now has a dedicated reading view with in-progress, interrupted and ended records, plus clear and back navigation.",
+  "ko-KR": "크리처와 세션을 누르면 해당 화면의 기록만 필터링하며, 다른 기기의 제어 대상은 바꾸지 않습니다. Codex 기록 누락을 수정하고 3D 크리처 선택을 지원합니다. 전자잉크에서는 진행 중·중단·종료 기록을 전용 읽기 화면에서 확인하고 해제 또는 뒤로가기로 보드에 돌아올 수 있습니다.",
+  "ja-JP": "生き物やセッションをタップすると、その画面の履歴だけを絞り込み、他の端末の操作対象は変更しません。Codexの履歴漏れを修正し、3Dの生き物選択に対応しました。電子ペーパーでは進行中・中断・終了の履歴を専用の閲覧画面に表示し、解除や戻る操作でボードへ戻れます。"
+}
