@@ -99,11 +99,15 @@ observed portal/artifact state; do not present a candidate as public.
 
 Checked before changing manifests: [ASC status run](https://github.com/puritysb/AgentDeck/actions/runs/38322073839),
 npm registry, GitHub release tags, Maker Console Versions and Ulanzi published/review records.
-No new product milestone is allocated. Android 1.10.0 / 27 is unchanged.
+No new product milestone is allocated. Android 1.10.0 / 27 remains immutable.
+The subsequent dashboard-inspection repair is Android 1.10.1 / 28: Play's bundle
+list was checked on 2026-10-13 and its latest uploaded code was 27. This fixes the
+existing selection/filter contract rather than introducing a new minor milestone.
 
 | Target / routes | Last verified public | Uploaded / reserved | Proposed | Class and previous → new behavior | Applicability |
 | --- | --- | --- | --- | --- | --- |
-| Apple / iOS + macOS | 1.9.0 on both platforms | 1.9.0 / 7901; no 1.10 upload | 1.9.1; CI build above 7901 | Patch: repair setup/connection flows, preserve partial APME costs, complete background display counts | Existing dashboard and device behavior; Dot remains excluded |
+| Android / Play + GitHub | 1.10.0 / 27 | 27 is the latest uploaded bundle | 1.10.1 / 28 | Patch: isolate dashboard history selection, restore Codex member filtering and add the missing native 3D tap route | Existing dashboard interaction; retain delivered 1.10.0 identity |
+| Apple / iOS + macOS | 1.9.0 on both platforms | 1.9.0 / 7901; no 1.10 upload | 1.9.1; CI build above 7901 | Patch: repair setup/connection flows, preserve partial APME costs, complete background display counts and isolate dashboard history selection | Existing dashboard and device behavior; Dot remains excluded |
 | npm / four public packages | 1.9.0 | 1.9.0 | 1.9.1 | Patch: complete existing background-work propagation and live matrix counts | Existing daemon/device contract |
 | ESP32 / firmware assets | 1.9.0 | esp32-v1.9.0 | 1.9.1 + source build identity | Patch: complete LCD/e-ink background indicators and replace TC001 window labels with reset countdowns | Existing shipping boards; panel-appropriate presentation |
 | Stream Deck / GitHub + Marketplace | 1.8 (package 1.8.0) | 1.8 published; no newer row | 1.8.1 (manifest 1.8.1.0) | Patch: retain background counts across partial updates and complete session-key rendering | Existing keys/encoders; no new device capability |

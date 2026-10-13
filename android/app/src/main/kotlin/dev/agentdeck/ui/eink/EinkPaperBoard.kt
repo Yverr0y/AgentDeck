@@ -584,19 +584,28 @@ internal fun EinkPaperBoard(
     usage: List<EinkUsageGroup>,
     sleepSnapshotMode: Boolean,
     modifier: Modifier = Modifier,
+    inspectionLabel: String? = null,
+    onClearInspection: () -> Unit = {},
     tank: (@Composable (Modifier) -> Unit)? = null,
 ) {
     val scale = rememberEinkLayoutScale()
     val board = remember(state) { buildPaperBoard(state) }
     val pad = scale.contentPadding + 4.dp
-    val nowKey = remember(board) {
+    val nowKey = remember(board, inspectionLabel) {
         (board.needsYou + board.working + board.quiet).joinToString("|") {
             "${it.id}:${it.state}:${it.name}:${it.activity}:${it.question}:${it.ciWait}"
-        } + ":${board.offline}"
+        } + ":${board.offline}:$inspectionLabel"
     }
     val hasRecent = remember(timelineEntries) { paperRecent(timelineEntries, 1).isNotEmpty() }
     val sessions: @Composable ColumnScope.() -> Unit = {
-        Column(Modifier.padding(pad)) { NowZones(board, scale, onFocusSession) }
+        Column(Modifier.padding(pad)) {
+            if (inspectionLabel != null) {
+                Text("History · $inspectionLabel  ×", color = Ink,
+                    modifier = Modifier.clickable(onClick = onClearInspection))
+                if (!hasRecent) Text("No events for this session", color = Ink)
+            }
+            NowZones(board, scale, onFocusSession)
+        }
     }
     if (landscape) {
         // Text reads down one column; the terrarium is a full-height window

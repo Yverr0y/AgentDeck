@@ -430,7 +430,7 @@ long-form sections above are for the Resolution Center reply, where length is no
 NO ACCOUNT REQUIRED. A paired Mac is optional for reviewing the offline Device Previews.
 
 NEW IN 1.9.1
-This patch refines the existing setup and pairing recovery flows and completes background-work display consistency. It introduces no new account, permissions or cloud service.
+This patch refines the existing setup and pairing recovery flows, completes background-work display consistency, and keeps dashboard history inspection separate from device control targets. It introduces no new account, permissions or cloud service.
 
 VERIFY ON A CLEAN IPAD OR IPHONE
 1. Choose an aquarium appearance and continue to connection setup.
@@ -458,7 +458,7 @@ Contact: admin@foundby.kr
 NO ACCOUNT REQUIRED. Review on a clean Mac with only AgentDeck installed; no external process or terminal setup is required for these instructions.
 
 NEW IN 1.9.1
-This patch refines existing setup and connection recovery, completes background-work count presentation on device renderers, and preserves partially known evaluation costs during startup. Dot is entirely excluded from this macOS/iOS submission, including setup, authentication, hosting, cloud connections and companion rendering. No hidden or remote switch enables it.
+This patch refines existing setup and connection recovery, completes background-work count presentation on device renderers, preserves partially known evaluation costs during startup, and repairs per-creature history inspection without changing other devices’ control targets. Dot is entirely excluded from this macOS/iOS submission, including setup, authentication, hosting, cloud connections and companion rendering. No hidden or remote switch enables it.
 
 WHAT IT DOES
 The sandboxed Swift daemon monitors local coding-agent sessions, ingests user-enabled hooks, serves the dashboard, pairs companions and evaluates turns. Users start agents independently. Optional Hermes rows from an existing relay are read-only; the app offers no relay installer.

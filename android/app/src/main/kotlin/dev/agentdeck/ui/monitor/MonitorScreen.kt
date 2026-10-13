@@ -83,6 +83,7 @@ import dev.agentdeck.state.AgentStateHolder
 import dev.agentdeck.state.DashboardState
 import dev.agentdeck.state.ObservedAgentRules
 import dev.agentdeck.state.TimelineSessionFilter
+import dev.agentdeck.state.timelineInspectionFilter
 import dev.agentdeck.state.TimelineStore
 import dev.agentdeck.terrarium.CrayfishVisualState
 import dev.agentdeck.terrarium.TerrariumColors
@@ -139,6 +140,11 @@ fun MonitorScreen(
     var aquariumUnavailable by remember(dashboardType) { mutableStateOf(false) }
     val nativeAquarium = dashboardType == dev.agentdeck.data.DashboardType.Aquarium3D && !aquariumUnavailable
     val dashState by stateHolder.state.collectAsState()
+    var creatureHitTest by remember { mutableStateOf<((Float, Float) -> String?)?>(null) }
+    var inspection by remember { mutableStateOf<TimelineSessionFilter?>(null) }
+    val inspectSession: (String) -> Unit = { id ->
+        inspection = if (inspection?.sessionId == id) null else timelineInspectionFilter(id, dashState)
+    }
     val timelineEntries by TimelineStore.instance.entries.collectAsState()
     // Child activity for the creature decoration, wire census first.
     //
@@ -167,33 +173,11 @@ fun MonitorScreen(
         }
         merged.toMap()
     }
-    val terrariumState = remember(dashState, subagentActivity) {
-        dashState.toTerrariumState(subagentActivity)
+    val terrariumState = remember(dashState, subagentActivity, inspection) {
+        dashState.copy(focusedSessionId = inspection?.sessionId).toTerrariumState(subagentActivity)
     }
-    // Per-session timeline filter, driven by focusedSessionId — mirrors Swift
-    // TimelineStripView.timelineFilter. Primary session first, then siblings,
-    // then the virtual OpenClaw Gateway session, then a bare sessionId fallback.
-    val timelineFilter: TimelineSessionFilter? = remember(
-        dashState.focusedSessionId,
-        dashState.sessionId,
-        dashState.projectName,
-        dashState.agentType,
-        dashState.siblingSessions,
-    ) {
-        val focused = dashState.focusedSessionId ?: return@remember null
-        when {
-            dashState.sessionId == focused ->
-                TimelineSessionFilter(focused, dashState.projectName, dashState.agentType)
-            else -> {
-                val sib = dashState.siblingSessions.firstOrNull { it.id == focused }
-                when {
-                    sib != null -> TimelineSessionFilter(focused, sib.projectName, sib.agentType)
-                    focused == "openclaw-gateway" -> TimelineSessionFilter(focused, "OpenClaw", "openclaw")
-                    else -> TimelineSessionFilter(focused, null, null)
-                }
-            }
-        }
-    }
+    // Inspection belongs to this screen; wire focus remains the control target.
+    val timelineFilter = inspection
     val connectionStatus by connection.status.collectAsState()
     val currentUrl by connection.url.collectAsState()
     val rawLastError by connection.lastError.collectAsState()
@@ -277,7 +261,8 @@ fun MonitorScreen(
         if (nativeAquarium) {
             dev.agentdeck.AquariumBackground(
                 Modifier.fillMaxSize(),
-                terrariumState, dashState.focusedSessionId, viewingMode = hudHidden, onUnavailable = { aquariumUnavailable = true })
+                terrariumState, inspection?.sessionId, viewingMode = hudHidden, onUnavailable = { aquariumUnavailable = true },
+                onHitTestReady = { creatureHitTest = it })
 
         } else ColorTerrariumBackground(
             state = terrariumState,
@@ -296,8 +281,11 @@ fun MonitorScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures { hudHidden = !hudHidden }
+                    .pointerInput(creatureHitTest, inspection, dashState.siblingSessions) {
+                        detectTapGestures { point ->
+                            val id = creatureHitTest?.invoke(point.x, point.y)
+                            if (id != null) inspectSession(id) else hudHidden = !hudHidden
+                        }
                     },
             )
         }
@@ -328,6 +316,7 @@ fun MonitorScreen(
                     TimelineStrip(
                         entries = timelineEntries,
                         filter = timelineFilter,
+                        onClearFilter = { inspection = null },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
@@ -351,6 +340,8 @@ fun MonitorScreen(
                 // intersect.
                 MonitorHUD(
                     dashState = dashState,
+                    onInspectSession = inspectSession,
+                    inspectedSessionId = inspection?.sessionId,
                     hudHidden = hudHidden,
                     showSessionList = showSessionList,
                     showTopologyRail = showTankStatus || showDeviceDiagnostic,
@@ -965,6 +956,8 @@ private fun OpenClawForegroundLayer(
 @Composable
 private fun MonitorHUD(
     dashState: DashboardState,
+    onInspectSession: (String) -> Unit,
+    inspectedSessionId: String?,
     hudHidden: Boolean = false,
     showSessionList: Boolean = true,
     showTopologyRail: Boolean = true,
@@ -1035,7 +1028,8 @@ private fun MonitorHUD(
                                 ?.takeIf { dashState.gatewayConnected == true },
                             permissionMode = dashState.permissionMode,
                             scale = readableScale,
-                            onFocusSession = { BridgeConnection.instance.sendFocusSession(it) },
+                            onFocusSession = onInspectSession,
+                    inspectedSessionId = inspectedSessionId,
                             modifier = Modifier
                                 .heightIn(max = compactRailHeightCap)
                                 .fillMaxWidth(),
@@ -1074,7 +1068,8 @@ private fun MonitorHUD(
                     workerSessionCount = dashState.workerSessionCount?.takeIf { dashState.gatewayConnected == true },
                     permissionMode = dashState.permissionMode,
                     scale = scale,
-                    onFocusSession = { BridgeConnection.instance.sendFocusSession(it) },
+                    onFocusSession = onInspectSession,
+                    inspectedSessionId = inspectedSessionId,
                     modifier = Modifier
                         .padding(start = scale.panelEdgeInset, top = scale.panelEdgeInset)
                         // Cap the panel height so a long session list scrolls inside

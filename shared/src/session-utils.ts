@@ -69,14 +69,14 @@ export const OBSERVED_SESSION_AGENT_KEYS = [
   'claude', 'codex', 'codex-app', 'opencode', 'antigravity', 'kiro', 'kiro-ide', 'hermes',
 ] as const;
 
-/** `observed:<key>:` for every key above — the form clients actually match. */
+/** Node observed IDs plus the Swift daemon's Codex hook ID form. */
 export const OBSERVED_SESSION_PREFIXES: readonly string[] =
-  OBSERVED_SESSION_AGENT_KEYS.map((k) => `observed:${k}:`);
+  [...OBSERVED_SESSION_AGENT_KEYS.map((k) => `observed:${k}:`), 'codex:'];
 
 // Built from the list rather than written beside it, so the regex and the
 // array cannot disagree about which agents exist.
 export const OBSERVED_SESSION_PREFIX_RE =
-  new RegExp(`^observed:(?:${OBSERVED_SESSION_AGENT_KEYS.join('|')}):`);
+  new RegExp(`^(?:${OBSERVED_SESSION_PREFIXES.join('|')})`);
 
 /** Bare uuid form of a session id — unchanged when it has no observed prefix. */
 export function rawSessionId(sessionId: string): string {

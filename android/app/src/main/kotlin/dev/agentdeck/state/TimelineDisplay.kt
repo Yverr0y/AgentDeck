@@ -424,6 +424,7 @@ data class TimelineSessionFilter(
     val sessionId: String,
     val projectName: String? = null,
     val agentType: String? = null,
+    val memberSessionIds: List<String> = emptyList(),
 ) {
     /** Human label for the header pill: project name if present, else a
      *  friendly agent name, else the raw session id. */
@@ -464,8 +465,8 @@ fun canonicalTimelineSessionId(value: String?): String? {
  *  Swift `TimelineEntry.matchesTimelineFilter`. */
 fun TimelineEntry.matchesTimelineFilter(filter: TimelineSessionFilter): Boolean {
     val sid = canonicalTimelineSessionId(sessionId)
-    val focusedSid = canonicalTimelineSessionId(filter.sessionId)
-    if (sid != null && sid == focusedSid) return true
+    val selectedIds = (listOf(filter.sessionId) + filter.memberSessionIds).mapNotNull(::canonicalTimelineSessionId)
+    if (sid != null && sid in selectedIds) return true
     // OpenClaw entries are daemon-local and historically used agent
     // attribution without a session id — keep them visible when the virtual
     // Gateway session is focused.
@@ -615,3 +616,14 @@ private fun hasPairedChatStart(end: TimelineEntry, groups: List<GroupedEntry>): 
     }
 
 private fun String?.hasText(): Boolean = !isNullOrBlank()
+
+/** Read-only dashboard inspection: no focus command and no project-name guessing. */
+fun timelineInspectionFilter(id: String, state: DashboardState): TimelineSessionFilter {
+    val row = state.siblingSessions.firstOrNull { it.id == id || it.foldedSessionIds?.contains(id) == true }
+    return TimelineSessionFilter(
+        row?.id ?: id,
+        row?.projectName ?: state.projectName.takeIf { state.sessionId == id },
+        row?.agentType ?: state.agentType.takeIf { state.sessionId == id },
+        row?.foldedSessionIds ?: emptyList(),
+    )
+}

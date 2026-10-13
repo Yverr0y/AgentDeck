@@ -82,3 +82,9 @@ internal fun resolveResidentLabels(inputs: List<ResidentLabelInput>): List<Resid
     }
     return decisions.asReversed()
 }
+
+/** Hit only rendered creature bounds, nearest camera depth first. */
+internal data class ResidentHitRegion(val id: String, val bounds: LabelBox, val depth: Float)
+internal fun residentAtPoint(regions: List<ResidentHitRegion>, x: Float, y: Float): String? =
+    regions.filter { it.depth > 0f && x >= it.bounds.left && x <= it.bounds.right &&
+        y >= it.bounds.top && y <= it.bounds.bottom }.minByOrNull { it.depth }?.id

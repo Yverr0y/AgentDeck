@@ -30,7 +30,7 @@
 // Re-ported 2026-10-06 (#463 phase 2): OpenClaw idle MODEL / THINKING picker
 // entry tiles; the picker sub-view itself is listed under INTENTIONALLY OMITTED.
 // SYNC-HASH shared/src/d200h-layout.ts 64612c5a5fcc17cb9439695fb0159c80215080ec
-// SYNC-HASH shared/src/session-utils.ts 1a1728e640a5dc3a8b55b61e309431c7debecad1
+// SYNC-HASH shared/src/session-utils.ts 83ad7aaf29fa227e7841b772d33894ee2257f8c6
 // SYNC-HASH shared/src/dot-deck.ts 2aa36a3fc11092ade2f29f2086eb796c823583c6
 //
 // INTENTIONALLY OMITTED (not needed by a read-only preview):

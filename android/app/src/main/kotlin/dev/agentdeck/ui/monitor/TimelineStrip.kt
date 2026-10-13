@@ -93,6 +93,7 @@ fun TimelineStrip(
     entries: List<TimelineEntry>,
     modifier: Modifier = Modifier,
     filter: TimelineSessionFilter? = null,
+    onClearFilter: () -> Unit = {},
     scale: MonitorLayoutScale = rememberMonitorLayoutScale(),
 ) {
     val layoutMode = rememberTimelineLayoutMode()
@@ -126,6 +127,9 @@ fun TimelineStrip(
     LaunchedEffect(filter) {
         focusedKey = null
         expandedKey = null
+        stickToBottom = true
+        stickyLayoutCount = -1
+        if (grouped.isNotEmpty()) listState.scrollToItem(grouped.lastIndex)
     }
 
     val focusedGroup: GroupedEntry? = when {
@@ -178,7 +182,7 @@ fun TimelineStrip(
                         .fillMaxHeight()
                         .padding(start = 8.dp, top = 4.dp, bottom = 4.dp),
                 ) {
-                    TimelineHeader(scale = scale, filter = filter)
+                    TimelineHeader(scale = scale, filter = filter, onClearFilter = onClearFilter)
                     // weight(1f, fill = false) bounds the LazyColumn's height
                     // to the column's remaining space — required because a
                     // scrollable composable measured with infinite max height
@@ -216,7 +220,7 @@ fun TimelineStrip(
             TimelineLayoutMode.Compact -> Column(
                 modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 4.dp, vertical = 4.dp),
             ) {
-                TimelineHeader(scale = scale, filter = filter)
+                TimelineHeader(scale = scale, filter = filter, onClearFilter = onClearFilter)
                 // weight(1f, fill = false): bound LazyColumn height to the
                 // remaining vertical space in the compact column.
                 TimelineList(
@@ -263,7 +267,7 @@ private fun rememberRunningRotation(active: Boolean): Float {
 }
 
 @Composable
-private fun TimelineHeader(scale: MonitorLayoutScale, filter: TimelineSessionFilter? = null) {
+private fun TimelineHeader(scale: MonitorLayoutScale, filter: TimelineSessionFilter? = null, onClearFilter: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -280,7 +284,8 @@ private fun TimelineHeader(scale: MonitorLayoutScale, filter: TimelineSessionFil
         // obviously scoped. Mirrors Swift TimelineStripView.timelineHeader.
         if (filter != null) {
             Text(
-                text = "· ${filter.label}",
+                text = "· ${filter.label}  ×",
+                modifier = Modifier.clickable(onClick = onClearFilter),
                 color = TerrariumColors.TetraNeon.copy(alpha = 0.82f),
                 fontSize = scale.fontSub,
                 fontWeight = FontWeight.Medium,

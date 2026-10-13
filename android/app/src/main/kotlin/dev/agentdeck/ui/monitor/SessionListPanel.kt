@@ -1,6 +1,7 @@
 package dev.agentdeck.ui.monitor
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +58,7 @@ fun SessionListPanel(
     permissionMode: PermissionMode = PermissionMode.DEFAULT,
     scale: MonitorLayoutScale = MonitorLayoutScale.phone,
     onFocusSession: (String) -> Unit = {},
+    inspectedSessionId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     // Build unified entry list: primary + siblings (excluding self)
@@ -250,7 +252,8 @@ fun SessionListPanel(
                     .then(if (indent) Modifier.padding(start = 10.dp) else Modifier)
                     .then(
                         if (entry.sessionId != null) {
-                            Modifier.clickable { onFocusSession(entry.sessionId) }
+                            Modifier.background(if (entry.sessionId == inspectedSessionId) TerrariumColors.TetraNeon.copy(alpha = 0.16f) else Color.Transparent)
+                                .clickable { onFocusSession(entry.sessionId) }
                         } else {
                             Modifier
                         }

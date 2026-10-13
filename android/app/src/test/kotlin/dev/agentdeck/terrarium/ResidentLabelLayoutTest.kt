@@ -10,6 +10,15 @@ import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 class ResidentLabelLayoutTest {
+    @Test fun `creature picking chooses visible nearest bounds and ignores empty water`() {
+        val bounds = LabelBox(10f, 20f, 50f, 80f)
+        val regions = listOf(ResidentHitRegion("far", bounds, 8f), ResidentHitRegion("near", bounds, 2f),
+            ResidentHitRegion("behind-camera", bounds, -1f))
+        assertEquals("near", residentAtPoint(regions, 30f, 40f))
+        assertNull(residentAtPoint(regions, 100f, 40f))
+        assertNull(residentAtPoint(emptyList(), 30f, 40f))
+    }
+
     private fun input(id: String, rank: Int, x: Float, bodyBottom: Float = 400f) = ResidentLabelInput(
         id, rank,
         body = LabelBox(x - 40f, bodyBottom - 80f, x + 40f, bodyBottom),

@@ -319,7 +319,7 @@
       "name": "Sandboxed Swift Codex live acceptance",
       "gate": "swift-codex-live",
       "tiers": ["full"],
-      "manual": "With the signed sandboxed app running, run node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app, then pass --attest swift-codex-live=pass."
+      "manual": "With the signed sandboxed app running, run node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app --allow-visible-fixtures, then pass --attest swift-codex-live=pass."
     }
   ],
   "gates": [
@@ -422,9 +422,10 @@
       "workflow": null,
       "trigger": "Opt-in after deploying the Swift app",
       "blocking": false,
-      "command": "node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app",
+      "command": "node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app --allow-visible-fixtures",
       "evidence": [
-        "scripts/verify-swift-codex-live.mjs"
+        "scripts/verify-swift-codex-live.mjs",
+        "scripts/__tests__/swift-live-fixture-opt-in.test.ts"
       ],
       "proves": [
         "A verified sandboxed Swift process accepts Codex lifecycle HTTP events and broadcasts matching WebSocket roster states",

@@ -18,6 +18,7 @@ enum TerrariumHUD {
 }
 
 struct SessionListPanel: View {
+    @EnvironmentObject private var inspection: DashboardInspection
     @EnvironmentObject private var stateHolder: AgentStateHolder
     @EnvironmentObject private var preferences: AppPreferences
     #if os(macOS)
@@ -184,7 +185,7 @@ struct SessionListPanel: View {
         // type was present, while the terrarium still rendered the promoted
         // creature.
         let primarySessionId = stateHolder.state.sessionId
-        let focusedSessionId = stateHolder.state.focusedSessionId
+        let focusedSessionId = inspection.sessionId
         // Capture the sibling that backs the primary so we can borrow its
         // startedAt below. Without an anchor the primary entry collapses to
         // nil-startedAt, which sorts to the end of its (project, agentType)
@@ -354,9 +355,7 @@ struct SessionListPanel: View {
         .background(TerrariumHUD.subtext.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
     }
 
-    /// Row wrapper that handles taps: dispatches `focusSession` so the
-    /// dashboard/terrarium centers this session. Tapping the focused row again
-    /// clears explicit focus so the HUD can return to neutral.
+    /// Inspect locally; tapping the selected row again restores all events.
     @ViewBuilder
     private func sessionRowInteractive(
         entry: SessionEntry,
@@ -365,11 +364,7 @@ struct SessionListPanel: View {
     ) -> some View {
         Button {
             if let sid = entry.sessionId {
-                if entry.isFocused {
-                    stateHolder.sendCommand(.clearSessionFocus)
-                } else {
-                    stateHolder.sendCommand(.focusSession(sessionId: sid))
-                }
+                inspection.toggle(sid, state: stateHolder.state)
             }
         } label: {
             sessionRow(entry: entry, label: label, compact: compact)

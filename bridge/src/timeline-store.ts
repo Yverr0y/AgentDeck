@@ -442,7 +442,7 @@ export class BridgeTimelineStore {
     // so accept either form.
     const raw = rawSessionId(sessionId);
     const matched = this.entries.filter(
-      (e) => (e.sessionId === sessionId || e.sessionId === raw) && (since == null || e.ts > since),
+      (e) => (e.sessionId != null && rawSessionId(e.sessionId) === raw) && (since == null || e.ts > since),
     );
     matched.sort((a, b) => a.ts - b.ts);
     // `limit` applies to the chat/tool stream; task hierarchy rows ride along

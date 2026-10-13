@@ -271,6 +271,9 @@ internal class AquariumResidents(private val context: Context, private val viewe
         return true
     }
 
+    private var hitRegions: List<ResidentHitRegion> = emptyList()
+    fun hitSession(x: Float, y: Float): String? = residentAtPoint(hitRegions, x, y)
+
     private class Projected(val body: Body, val bodyX: Float, val bodyY: Float, val unit: Float,
         val tagX: Float, val tagY: Float, val box: LabelBox)
 
@@ -292,6 +295,10 @@ internal class AquariumResidents(private val context: Context, private val viewe
             val box = LabelBox(min(left, screenX), min(top, screenY), max(left, screenX), max(top, screenY))
             if (!project(canvas, body.x, body.y + .75f, body.z)) return@mapNotNull null
             Projected(body, bodyX, bodyY, unit, screenX, screenY, box)
+        }
+        hitRegions = onScreen.map { p ->
+            project(canvas, p.body.x, p.body.y, p.body.z)
+            ResidentHitRegion(p.body.item.id, p.box, projected[3])
         }
         for (p in onScreen) {
             overlay.drawCues(canvas, p.body.item, p.bodyX, p.bodyY, p.unit, p.body.phase, p.body.item.id == focusedId)
@@ -333,6 +340,7 @@ internal class AquariumResidents(private val context: Context, private val viewe
             body.companion?.let { viewer.scene.removeEntities(it.entities);loader.destroyAsset(it) }
         }
         bodies.clear()
+        hitRegions = emptyList()
         resources.destroy()
         loader.destroy()
         materials.destroyMaterials()

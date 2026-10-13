@@ -55,6 +55,7 @@ enum ObservedAgentRules {
         "observed:kiro:",
         "observed:kiro-ide:",
         "observed:hermes:",
+        "codex:",
     ]
 
     /// Agents whose observed per-tool rows would drown their own prompt and

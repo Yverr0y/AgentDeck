@@ -5,6 +5,28 @@ import XCTest
 
 final class TimelineTests: XCTestCase {
 
+    @MainActor
+    func testDashboardInspectionIsLocalAndIncludesOnlyDeclaredFoldMembers() {
+        var state = DashboardState()
+        state.focusedSessionId = "hardware-target"
+        var row = SessionInfo(id: "codex:one", port: 9120, projectName: "Same project")
+        row.agentType = "codex-app"
+        row.foldedSessionIds = ["codex:one", "codex:two"]
+        state.siblingSessions = [row]
+        let mac = DashboardInspection(), phone = DashboardInspection()
+        mac.toggle("codex:one", state: state)
+        XCTAssertNil(phone.filter)
+        XCTAssertEqual(state.focusedSessionId, "hardware-target")
+        let member = TimelineEntry(ts: 1, type: .chatStart, raw: "hi", sessionId: "two")
+        let other = TimelineEntry(ts: 2, type: .chatStart, raw: "hi", projectName: "Same project", sessionId: "three")
+        XCTAssertTrue(member.matchesTimelineFilter(mac.filter!))
+        XCTAssertFalse(other.matchesTimelineFilter(mac.filter!))
+        state.focusedSessionId = "other-device"
+        XCTAssertEqual(mac.sessionId, "codex:one")
+        mac.toggle("codex:one", state: state)
+        XCTAssertNil(mac.filter)
+    }
+
     func testTurnOwnsToolsAndReplyAcrossBusyDashboard() {
         for agent in ["openclaw", "claude-code", "codex-cli", "opencode", "kiro-cli", "antigravity", "hermes"] {
             let start = TimelineEntry(ts: 1000, type: .chatStart, raw: "Inspect disk usage",

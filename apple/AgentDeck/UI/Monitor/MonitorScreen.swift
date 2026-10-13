@@ -19,6 +19,7 @@ struct MonitorScreen: View {
     @AppStorage("dashboardCollaborationEnabled") private var collaborationEnabled = false
     #endif
 
+    @StateObject private var inspection = DashboardInspection()
     @State private var terrariumState = TerrariumState()
     #if os(macOS) && AGENTDECK_DOT_PREVIEW
     @State private var showDotSetup = false
@@ -45,7 +46,7 @@ struct MonitorScreen: View {
         let primary = [
             String(stateHolder.state.bridgeConnected),
             stateHolder.state.sessionId ?? "",
-            stateHolder.state.focusedSessionId ?? "",
+            inspection.sessionId ?? "",
             stateHolder.state.agentType ?? "",
             stateHolder.state.projectName ?? "",
             stateHolder.state.modelName ?? "",
@@ -79,6 +80,7 @@ struct MonitorScreen: View {
 
     var body: some View {
         mainContent
+            .environmentObject(inspection)
             #if os(iOS)
             .sheet(isPresented: $showSettingsSheet) {
                 SettingsScreen()
@@ -543,11 +545,7 @@ struct MonitorScreen: View {
 
     private func handleCreatureTap(_ sessionId: String) {
         guard let focusSessionId = focusSessionId(forCreatureHit: sessionId) else { return }
-        if stateHolder.state.focusedSessionId == focusSessionId {
-            stateHolder.sendCommand(.clearSessionFocus)
-        } else {
-            stateHolder.sendCommand(.focusSession(sessionId: focusSessionId))
-        }
+        inspection.toggle(focusSessionId, state: stateHolder.state)
     }
 
     private func focusSessionId(forCreatureHit sessionId: String) -> String? {
@@ -574,7 +572,9 @@ struct MonitorScreen: View {
     }
 
     private func updateTerrariumState() {
-        terrariumState = stateHolder.state.toTerrariumState(
+        var displayState = stateHolder.state
+        displayState.focusedSessionId = inspection.sessionId
+        terrariumState = displayState.toTerrariumState(
             previous: terrariumState,
             subagentActivityBySession: subagentActivityForTerrarium(),
             activityAvailable: stateHolder.state.bridgeConnected

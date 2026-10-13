@@ -6,6 +6,18 @@ import org.junit.Test
 
 class TimelineStoreTest {
 
+    @Test
+    fun `inspection includes declared folded members without retargeting controls`() {
+        val state = DashboardState(focusedSessionId = "hardware-target", siblingSessions = listOf(
+            dev.agentdeck.net.SessionInfo("codex:one", 9120, projectName = "Same project", agentType = "codex-app",
+                foldedSessionIds = listOf("codex:one", "codex:two"))))
+        val filter = timelineInspectionFilter("codex:one", state)
+        assertTrue(TimelineEntry(1, "chat_start", "hi", sessionId = "two").matchesTimelineFilter(filter))
+        assertFalse(TimelineEntry(2, "chat_start", "hi", projectName = "Same project", sessionId = "three").matchesTimelineFilter(filter))
+        assertEquals("hardware-target", state.focusedSessionId)
+        assertEquals("codex:one", filter.sessionId)
+    }
+
     // Use reflection to create fresh instances (singleton pattern)
     private lateinit var store: TimelineStore
 

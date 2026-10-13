@@ -91,6 +91,15 @@ describe('BridgeTimelineStore task-row retention', () => {
     expect(store.getHistoryForSession('observed:codex:other-uuid')).toHaveLength(0);
   });
 
+  it('matches Swift hook and bare IDs in either history-query direction', () => {
+    const store = new BridgeTimelineStore();
+    store.addEntry(entry({ type: 'chat_start', sessionId: 'codex:swift-id', raw: 'Swift event' }));
+    for (const id of ['swift-id', 'codex:swift-id', 'observed:codex:swift-id']) {
+      expect(store.getHistoryForSession(id)).toHaveLength(1);
+    }
+    expect(store.getHistoryForSession('codex:other-id')).toHaveLength(0);
+  });
+
   it('loadPersistedEntries keeps task rows past the generic trim', () => {
     const store = new BridgeTimelineStore();
     const rows: TimelineEntry[] = [];

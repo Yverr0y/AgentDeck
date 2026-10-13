@@ -45,7 +45,15 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## Unreleased
 
+## 2026-10-13 — Android 1.10.1
+
+- Keep dashboard history inspection local to each screen, separate from hardware control focus. Selecting or clearing a session no longer changes another dashboard's timeline.
+- Include every declared member of a folded Codex session and normalize Swift/Node session IDs consistently. Reset the timeline scroll position when the selected session changes.
+- Make native 3D creatures selectable by their visible bounds; keep empty-water viewing mode and expose a clear-filter action on LCD and e-ink dashboards.
+
 ## 2026-10-13 — Apple 1.9.1
+
+- Separate per-dashboard creature/history inspection from hardware control focus. Restore Codex ID/member matching, reset stale filter scroll positions and provide an explicit clear action.
 
 - Setup, connection selection and QR pairing flows recover more clearly from
   offline or incomplete connection attempts.
@@ -57,12 +65,16 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## 2026-10-13 — npm 1.9.1
 
+- Normalize Swift Codex hook IDs and observed Node IDs in both directions when serving session history.
+
 - Complete background-work propagation to physical session keys, ESP32, Pixoo,
   Timebox and iDotMatrix without combining tasks with the child-agent census.
 - iDotMatrix reports live background tasks beside waiting, working and live
   sessions. Unknown values stay unknown; explicit zero clears completed work.
 
 ## 2026-10-13 — ESP32 1.9.1
+
+- Pin TC001 to the official ESP32 toolchain used by the prior release so a local pioarduino installation cannot silently change its compiler/framework.
 
 - Complete bounded background-work movement on LCD panels and stable task counts
   and state on e-ink panels.

@@ -50,6 +50,9 @@ describe('observed session ids', () => {
     for (const key of OBSERVED_SESSION_AGENT_KEYS) {
       expect(rawSessionId(`observed:${key}:abc-123`)).toBe('abc-123');
     }
+    expect(sameSession('codex:abc-123', 'abc-123')).toBe(true);
+    expect(sameSession('codex:abc-123', 'observed:codex:abc-123')).toBe(true);
+    expect(sameSession('codex:abc-123', 'codex:other')).toBe(false);
     expect(sameSession('observed:kiro:abc-123', 'abc-123')).toBe(true);
     expect(sameSession('observed:kiro-ide:abc-123', 'abc-123')).toBe(true);
   });
@@ -116,7 +119,13 @@ describe('generated mirrors', () => {
           // colon. Without it `observed:codex-app:` also counts as
           // `observed:codex` and every legitimate single-agent line reads as a
           // list of two — the check flagged two innocent files before this.
-          const named = OBSERVED_SESSION_PREFIXES.filter((p) => line.includes(p)).length;
+          // Count non-overlapping occurrences: codex: is also a suffix of
+          // observed:codex:, so one spelling must never count as two.
+          let rest = line;
+          let named = 0;
+          for (const prefix of [...OBSERVED_SESSION_PREFIXES].sort((a, b) => b.length - a.length)) {
+            if (rest.includes(prefix)) { named++; rest = rest.split(prefix).join(''); }
+          }
           const inlineList = named >= 2 || /observed:\(\?:/.test(line);
           if (inlineList) offenders.push(`${file.slice(repoRoot.length + 1)}:${i + 1}`);
         }

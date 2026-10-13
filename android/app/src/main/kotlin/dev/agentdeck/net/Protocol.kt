@@ -420,6 +420,7 @@ data class SessionInfo(
      *  emission rule as [subagents]: zeros once observed, absent only when the
      *  session has never had a relation. */
     val coordination: CoordinationSummary? = null,
+    val foldedSessionIds: List<String>? = null,
 )
 
 /**

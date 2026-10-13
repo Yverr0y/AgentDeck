@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Live, opt-in HTTP/WS replay against an already running sandboxed macOS app.
- * Usage: node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app
+ * Usage: node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app --allow-visible-fixtures
  * Does not launch agents, change config/trust, restart daemons or incur model calls.
  * Creates uniquely named synthetic sessions/timeline entries; removes its own roster rows.
  */
@@ -19,14 +19,19 @@ const { values } = parseArgs({
     app: { type: 'string' },
     output: { type: 'string' },
     help: { type: 'boolean' },
+    'allow-visible-fixtures': { type: 'boolean', default: false },
   },
 });
 if (values.help) {
   console.log(
-    'node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app [--output report.json]',
+    'node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app --allow-visible-fixtures [--output report.json]',
   );
   process.exit(0);
 }
+assert(
+  values['allow-visible-fixtures'],
+  'Refusing to create visible test sessions and persistent timeline entries. Use an isolated test app/data store, or explicitly pass --allow-visible-fixtures after accounting for connected dashboards.',
+);
 assert.equal(process.platform, 'darwin', 'Requires the real macOS app');
 const port = Number(values.port),
   pid = Number(values.pid);
