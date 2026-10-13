@@ -53,6 +53,8 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## 2026-10-13 — Apple 1.9.1
 
+- Keep timeline rows inside their touch area so the clear-filter button responds reliably on iPhone.
+
 - Preserve the local CLI daemon’s timeline when the Mac app takes over, and reconnect the dashboard as soon as its listener is ready instead of waiting for device discovery.
 
 - Separate per-dashboard creature/history inspection from hardware control focus. Restore Codex ID/member matching, reset stale filter scroll positions and provide an explicit clear action.

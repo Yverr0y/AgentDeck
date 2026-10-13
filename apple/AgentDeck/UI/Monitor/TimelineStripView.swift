@@ -149,6 +149,7 @@ struct TimelineStripView: View {
             HStack(alignment: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     timelineHeader
+                        .zIndex(1)
                     timelineList(allowExpand: false)
                 }
                 .frame(width: geo.size.width * 0.65, alignment: .topLeading)
@@ -176,6 +177,7 @@ struct TimelineStripView: View {
         // unused vertical space, which reads as middle-of-area.
         VStack(alignment: .leading, spacing: 0) {
             timelineHeader
+                .zIndex(1)
             timelineList(allowExpand: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -281,6 +283,9 @@ struct TimelineStripView: View {
                 // must anchor the newest row before ScrollViewReader can resolve
                 // lazy row IDs; an immediate scrollTo alone can be dropped.
                 .defaultScrollAnchor(grouped.isEmpty ? .top : .bottom)
+                // Off-viewport rows must not intercept taps on the filter header.
+                .contentShape(Rectangle())
+                .clipped()
                 .coordinateSpace(.named(Self.scrollSpace))
                 .id(timelineFilterKey)
                 .onChange(of: timelineFilterKey, initial: true) {
