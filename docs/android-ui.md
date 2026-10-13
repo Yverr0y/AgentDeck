@@ -38,8 +38,9 @@ Native 3D creature taps use the rendered silhouette bounds, picking the nearest
 visible creature when bounds overlap. Empty water retains the viewing-mode toggle.
 Session-list taps provide the same inspection route, including on e-ink.
 On e-ink, inspection opens a scrollable reading view; clear returns to the board.
-It includes interrupted turns and abandoned task summaries with their outcome
-labels, while the normal DONE zone remains limited to finished work.
+It includes unanswered turns marked IN PROGRESS, interrupted turns, and abandoned
+task summaries with their outcome labels. The normal DONE zone remains limited
+to finished work.
 Hardware relay focus does not retarget this history. The full contract is in
 [protocol.md](protocol.md#dashboard-inspection-and-control-focus).
 

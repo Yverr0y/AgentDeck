@@ -155,10 +155,15 @@ internal fun paperRecent(entries: List<TimelineEntry>, limit: Int, historyMode: 
             }
             "chat_start", "chat_response" -> {
                 val reply = if (e.type == "chat_start") {
-                    g.mergedResponse ?: g.mergedCompletion?.takeIf { historyMode } ?: continue
+                    g.mergedResponse ?: (g.mergedCompletion ?: e).takeIf { historyMode } ?: continue
                 } else e
                 val text = paperHeadline(reply.summary, reply.detail) ?: continue
-                val mark = if (reply.type == "chat_end") reply.status?.uppercase(Locale.US) ?: "ENDED" else null
+                val mark = when {
+                    !historyMode -> null
+                    reply.type == "chat_start" -> "IN PROGRESS"
+                    g.mergedCompletion != null -> g.mergedCompletion.status?.uppercase(Locale.US) ?: "ENDED"
+                    else -> null
+                }
                 PaperRecentItem(g.lastTs, e.projectName, e.agentType, text, mark)
             }
             "chat_end" -> {

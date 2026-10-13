@@ -10,6 +10,15 @@ import org.junit.Test
 
 class EinkPaperBoardTest {
 
+    @Test fun `inspection shows an unanswered turn without putting it in done`() {
+        val rows = listOf(entry(100, "chat_start", "Inspect the current creature selection"))
+        assertTrue(paperRecent(rows, 5).isEmpty())
+        val history = paperRecent(rows, 5, historyMode = true)
+        assertEquals("IN PROGRESS", history.single().mark)
+        assertEquals("Inspect the current creature selection", history.single().text)
+    }
+
+
     @Test fun `inspection shows interrupted Codex turns without calling them done`() {
         val rows = listOf(
             entry(100, "chat_start", "Inspect creature selection").copy(sessionId = "codex:one", agentType = "codex-app"),
