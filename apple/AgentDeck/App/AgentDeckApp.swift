@@ -193,6 +193,12 @@ struct AgentDeckApp: App {
             }
         }
 
+        stateHolder.onLocalTimelineSnapshot = { [daemonService] entries in
+            guard daemonService.isUsingExternalDaemon,
+                  let data = try? JSONEncoder().encode(entries) else { return }
+            DaemonTimelineStore.stageHandoverSnapshot(data)
+        }
+
         // On external→owner promotion, purge Node-relayed usage/subscription
         // cache so unsupported-in-self-daemon data doesn't linger as a stale
         // trace (Claude quota, ChatGPT/Google subscription rows). Self-daemon

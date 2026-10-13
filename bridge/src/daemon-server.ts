@@ -1,3 +1,4 @@
+import { loadHandoverTimeline } from './daemon-timeline-handover.js';
 import { dotSurfaceSnapshot } from '@agentdeck/shared';
 import { readDotAppearance } from './dot-appearance.js';
 import { startConfiguredDotHost, dotResultModule, readDotConfiguration } from './dot-host.js';
@@ -4611,6 +4612,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // on-disk format.
   const bridgeLogStream = new BridgeLogStream();
   core.wireTimeline(bridgeLogStream);
+  core.bridgeTimeline.loadPersistedEntries(loadHandoverTimeline());
   const timelinePath = latestTimelinePath();
   if (timelinePath) {
     const loaded = core.bridgeTimeline.loadPersistedFile(timelinePath);

@@ -82,9 +82,19 @@ describe('negotiateIncumbentDaemon', () => {
     expect(calls).toEqual(['adopt', 'stand-down']);
   });
 
+  it('leaves Swift serving when its timeline cannot be captured', async () => {
+    const { calls, deps } = spies({ captureTimeline: async () => false });
+    expect(await negotiateIncumbentDaemon(
+      { port: 9120, incumbent: { mode: 'daemon', pid: 42, isSwift: true }, portWasExplicit: false },
+      { ...deps, ownership: MINE },
+    )).toBe('refuse');
+    expect(calls).toEqual(['adopt']);
+  });
+
   it('captures the Swift activity projection before the listener stands down', async () => {
     const { calls, deps } = spies({
       captureActivity: vi.fn(async () => { calls.push('activity'); return true; }),
+      captureTimeline: vi.fn(async () => { calls.push('timeline'); return true; }),
       standDown: vi.fn(async () => { calls.push('stand-down'); return true; }),
     });
     const outcome = await negotiateIncumbentDaemon(
@@ -92,7 +102,7 @@ describe('negotiateIncumbentDaemon', () => {
       { ...deps, ownership: MINE },
     );
     expect(outcome).toBe('proceed');
-    expect(calls).toEqual(['adopt', 'activity', 'stand-down']);
+    expect(calls).toEqual(['adopt', 'activity', 'timeline', 'stand-down']);
   });
 
   it('proceeds when ownership cannot be proven, because absence is not evidence', async () => {

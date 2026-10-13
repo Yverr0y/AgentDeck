@@ -72,12 +72,14 @@ struct DaemonTimelineEntry: Codable, Sendable {
 
 actor DaemonTimelineStore {
     private var entries: [DaemonTimelineEntry] = []
-    private let maxEntries = 200
+    private static let entryLimit = 200
+    private var maxEntries: Int { Self.entryLimit }
     /// Separate retention cap for task hierarchy rows — mirrors
     /// `BridgeTimelineStore.MAX_TASK_ENTRIES`. Task rows are exempt from the
     /// generic FIFO so a long task's `task_start` doesn't scroll away while
     /// its turns stream in (which would leave the `task_end` unpaired).
-    private let maxTaskEntries = 60
+    private static let taskEntryLimit = 60
+    private var maxTaskEntries: Int { Self.taskEntryLimit }
 
     static func isTaskRow(_ e: DaemonTimelineEntry) -> Bool {
         e.type == "task_start" || e.type == "task_end" || e.type == "task_milestone"
@@ -99,6 +101,7 @@ actor DaemonTimelineStore {
         return rm > 0 ? "\(h)h \(rm)m" : "\(h)h"
     }
     private let persistFile: URL
+    private let handoverFile: URL?
     private var dirty = false
     private var persistenceStarted = false
     // .userInteractive: DaemonServer.startServices calls start() →
@@ -109,7 +112,8 @@ actor DaemonTimelineStore {
     // startup critical path.
     private static let ioQueue = DispatchQueue(label: "dev.agentdeck.timeline.io", qos: .userInteractive)
 
-    init(persistFile: URL? = nil) {
+    init(persistFile: URL? = nil, handoverFile: URL? = nil) {
+        self.handoverFile = handoverFile ?? (persistFile == nil ? AuthManager.agentDeckDir.appendingPathComponent("timeline-handover.json") : nil)
         self.persistFile = persistFile ?? AuthManager.agentDeckDir.appendingPathComponent("timeline.json")
         // loadFromDisk is called after actor init via start()
     }
@@ -329,23 +333,46 @@ actor DaemonTimelineStore {
         dirty = false
     }
 
+    /// Stage a local external daemon's wire snapshot without writing timeline.json.
+    /// The serial IO queue preserves event order and makes a following start() read
+    /// wait behind pending writes. The app's own container is the only destination.
+    static func stageHandoverSnapshot(_ data: Data, to file: URL? = nil) {
+        guard let rows = try? JSONDecoder().decode([DaemonTimelineEntry].self, from: data),
+              let bounded = try? JSONEncoder().encode(boundedHistory(rows)) else { return }
+        let destination = file ?? AuthManager.agentDeckDir.appendingPathComponent("timeline-handover.json")
+        ioQueue.async {
+            try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? bounded.write(to: destination, options: .atomic)
+        }
+    }
+
+    private static func boundedHistory(_ rows: [DaemonTimelineEntry]) -> [DaemonTimelineEntry] {
+        var keyed: [String: DaemonTimelineEntry] = [:]
+        for row in rows.compactMap({ normalizeForStorage($0) }) {
+            keyed["\(row.ts):\(row.type):\(row.raw)"] = row
+        }
+        let normalized = keyed.values.sorted { $0.ts < $1.ts }
+        let tasks = normalized.filter { isTaskRow($0) }.suffix(Self.taskEntryLimit)
+        let rest = normalized.filter { !isTaskRow($0) }.suffix(Self.entryLimit - tasks.count)
+        return (tasks + rest).sorted { $0.ts < $1.ts }
+    }
+
     private func loadFromDisk() {
         let box = TimelineDataBox()
         let semaphore = DispatchSemaphore(value: 0)
-        let persistFile = persistFile
+        let paths = [persistFile] + (handoverFile.map { [$0] } ?? [])
         Self.ioQueue.async {
-            box.set(try? Data(contentsOf: persistFile))
+            let rows = paths.flatMap { path -> [DaemonTimelineEntry] in
+                guard let data = try? Data(contentsOf: path) else { return [] }
+                return (try? JSONDecoder().decode([DaemonTimelineEntry].self, from: data)) ?? []
+            }
+            box.set(try? JSONEncoder().encode(rows))
             semaphore.signal()
         }
         guard semaphore.wait(timeout: .now() + .milliseconds(700)) == .success,
               let data = box.get(),
               let loaded = try? JSONDecoder().decode([DaemonTimelineEntry].self, from: data) else { return }
-        let normalized = loaded.compactMap { Self.normalizeForStorage($0) }
-        // Task-protected trim (mirrors BridgeTimelineStore.loadPersistedEntries):
-        // task rows keep their own deeper retention on reload.
-        let taskRows = normalized.filter { Self.isTaskRow($0) }.suffix(maxTaskEntries)
-        let rest = normalized.filter { !Self.isTaskRow($0) }.suffix(maxEntries - taskRows.count)
-        entries = (taskRows + rest).sorted { $0.ts < $1.ts }
+        entries = Self.boundedHistory(loaded)
     }
 
     // Exposed (default internal) so test targets can drive the predicate

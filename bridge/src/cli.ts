@@ -1475,6 +1475,7 @@ daemon
     // driven in tests against a foreign-owned incumbent.
     const { negotiateIncumbentDaemon } = await import('./daemon-takeover.js');
     const { capturePeerActivity } = await import('./apme/activity-history.js');
+    const { capturePeerTimeline } = await import('./daemon-timeline-handover.js');
     const incumbent = await probeDaemonHealth(targetPort);
     const outcome = await negotiateIncumbentDaemon(
       {
@@ -1491,6 +1492,7 @@ daemon
         waitForExit: waitForDaemonExit,
         waitForBindable: waitForPortBindable,
         captureActivity: capturePeerActivity,
+        captureTimeline: capturePeerTimeline,
       },
     );
     if (outcome === 'already-running') process.exit(0);
@@ -1521,6 +1523,7 @@ daemon
             waitForExit: waitForDaemonExit,
             waitForBindable: waitForPortBindable,
             captureActivity: capturePeerActivity,
+            captureTimeline: capturePeerTimeline,
           },
         );
         if (decision === 'already-running') process.exit(0);

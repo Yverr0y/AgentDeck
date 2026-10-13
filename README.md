@@ -322,20 +322,20 @@ together. See the [version decision policy](RELEASING.md#choosing-a-version).
 | ESP32 panels and TRMNL 7.5" | [Browser flasher](https://puritysb.github.io/AgentDeck/flash/) · [firmware releases](https://github.com/puritysb/AgentDeck/releases?q=esp32-v&expanded=true) | `esp32-v*` |
 
 **Android delivery, 2026-10-13:** the signed 1.10.0 APK is public on GitHub.
-Google Play 1.10.0 (27) is available to internal testers and submitted for
-production review; the last verified public Play version is 1.9.0 (26).
-Lenovo runs the actual Play-installed 1.10.0; Crema and Pantone run the signed
-GitHub build. Native 3D background companions now share geometry and use
+Google Play 1.10.0 (27) is public in production. The 1.10.1 (28) patch is
+available on internal Play and installed from Play on Lenovo; promotion awaits
+physical 3D creature-tap acceptance. Crema runs the signed 1.10.1 candidate,
+and Pantone retains 1.10.0. Native 3D background companions now share geometry and use
 adaptive frame pacing, while e-ink emphasizes static counts and status. See
 the [Android delivery receipt](RELEASING.md#android-1100-delivery-readback-2026-10-13).
 
-**Other candidates, 2026-10-13:** the background-work improvements for Apple,
-npm and ESP32 1.9.1, plus Stream Deck/Ulanzi 1.8.1, are in source.
-These patch candidates complete existing capabilities; see the
-[release decision](RELEASING.md#2026-10-13-remaining-release-decision).
-Apple 1.9.1 has metadata drafts on both platforms, with no build attached; no
-candidate is uploaded or submitted. Apple 1.9.0 / 7901 is now verified public
-on both iOS and macOS (2026-10-13 ASC readback).
+**Other delivery, 2026-10-13:** Stream Deck and Ulanzi 1.8.1 are public on
+GitHub and awaiting marketplace review. ESP32 1.9.1 is tagged and building.
+Apple 1.9.1 / 8301 was uploaded, but a replacement build is needed for the
+subsequent timeline handover repair; neither platform has been submitted.
+npm 1.9.1 awaits final installed-package acceptance. Apple 1.9.0 / 7901 remains
+the verified public Store version. These patches complete existing capabilities;
+see the [release decision and delivery states](RELEASING.md#2026-10-13-remaining-release-decision).
 
 **Previous delivery, 2026-10-12:** Android 1.9.0 (26) is public on Google Play
 (100% rollout across 178 countries/regions) and as a signed GitHub APK. Its

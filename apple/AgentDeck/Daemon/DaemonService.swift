@@ -288,7 +288,9 @@ final class DaemonService: ObservableObject {
 
                 // Run daemon (awaits NWListener `.ready`; throws on bind failure).
                 do {
-                    try await daemon.startServices()
+                    try await daemon.startServices { [weak self] in
+                        await self?.publishDashboardReady(daemon)
+                    }
                 } catch {
                     // Bind failed — tear down partial state and route to startup-failure handler.
                     await daemon.shutdown()
@@ -301,14 +303,6 @@ final class DaemonService: ObservableObject {
                 }
                 self.startHealthMonitor()
 
-                // Notify dashboard to connect to local daemon (listener is actually bound now).
-                let wsUrl = "ws://127.0.0.1:\(daemon.port)"
-                self.readyUrl = wsUrl
-                self.listenerFailureRetries = 0  // reset backoff on success
-                self.squatterCleanupAttempted = false
-                self.syncResolvedPortState(actualPort: Int(daemon.port))
-                DaemonLogger.shared.info("Daemon ready — dashboard can connect to \(wsUrl)")
-                self.onReady?(wsUrl)
             } catch DaemonError.alreadyRunning(let port) {
                 // Another daemon (e.g. Node.js) is running — connect as client instead
                 await self.connectToExternalDaemon(port: port)
@@ -322,6 +316,17 @@ final class DaemonService: ObservableObject {
                 DaemonLogger.shared.error(self.errorMessage!)
             }
         }
+    }
+
+    private func publishDashboardReady(_ daemon: DaemonServer) {
+        guard server === daemon else { return }
+        let wsUrl = "ws://127.0.0.1:\(daemon.port)"
+        readyUrl = wsUrl
+        listenerFailureRetries = 0
+        squatterCleanupAttempted = false
+        syncResolvedPortState(actualPort: Int(daemon.port))
+        DaemonLogger.shared.info("Daemon ready — dashboard can connect to \(wsUrl)")
+        onReady?(wsUrl)
     }
 
     /// Bounce only the OpenClaw Gateway adapter — leaves the daemon, session
