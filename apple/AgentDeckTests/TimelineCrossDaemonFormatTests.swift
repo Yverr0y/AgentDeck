@@ -23,6 +23,28 @@ import XCTest
 @testable import AgentDeck
 
 final class TimelineCrossDaemonFormatTests: XCTestCase {
+    func testStagedNodeHistorySurvivesSwiftPromotionWithoutReplacingOwnHistory() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let ownFile = dir.appendingPathComponent("timeline.json")
+        let peerFile = dir.appendingPathComponent("timeline-handover.json")
+        let own = Data(#"[{"ts":1000,"type":"chat_response","raw":"existing Swift history"}]"#.utf8)
+        try own.write(to: ownFile)
+        // Copied from the installed Node candidate's actual 2026-10-13 acceptance turn.
+        let peer = Data(#"[{"ts":1791885086142,"type":"chat_response","raw":"CLI handover repair accepted.","detail":"CLI handover repair accepted.","sessionId":"01a13493-b966-76a1-837a-3a6129dfe22d","agentType":"codex-cli","startedAt":1791885058410,"endedAt":1791885086142,"taskId":"6e5799d6-400c-42a7-bde2-b8e59ad0082d","projectName":"AgentDeck \u00b7 AgentDeck"}]"#.utf8)
+        DaemonTimelineStore.stageHandoverSnapshot(peer, to: peerFile)
+        let store = DaemonTimelineStore(persistFile: ownFile, handoverFile: peerFile)
+        await store.start()
+        let rows = await store.getAll()
+        XCTAssertEqual(rows.map(\.raw), ["existing Swift history", "CLI handover repair accepted."])
+        XCTAssertEqual(try Data(contentsOf: ownFile), own, "Staging must not write the active daemon's file")
+        let again = DaemonTimelineStore(persistFile: ownFile, handoverFile: peerFile)
+        await again.start()
+        let repeated = await again.getAll()
+        XCTAssertEqual(repeated.count, 2)
+    }
+
     @DaemonActor
     func testSharedCiScheduledDedupVectors() async throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

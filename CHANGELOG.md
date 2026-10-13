@@ -53,6 +53,8 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## 2026-10-13 — Apple 1.9.1
 
+- Preserve the local CLI daemon’s timeline when the Mac app takes over, and reconnect the dashboard as soon as its listener is ready instead of waiting for device discovery.
+
 - Separate per-dashboard creature/history inspection from hardware control focus. Restore Codex ID/member matching, reset stale filter scroll positions and provide an explicit clear action.
 
 - Setup, connection selection and QR pairing flows recover more clearly from
@@ -64,6 +66,8 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 - Dot remains excluded from both App Store targets.
 
 ## 2026-10-13 — npm 1.9.1
+
+- Preserve the Mac app’s recent timeline during CLI takeover; keep the app serving if its history cannot be read.
 
 - Normalize Swift Codex hook IDs and observed Node IDs in both directions when serving session history.
 

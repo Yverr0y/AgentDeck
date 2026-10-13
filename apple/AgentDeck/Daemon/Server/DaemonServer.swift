@@ -1949,7 +1949,7 @@ final class DaemonServer {
     private let dotOwnership = UUID()
     #endif
 
-    func startServices() async throws {
+    func startServices(onDashboardReady: (@Sendable () async -> Void)? = nil) async throws {
         #if AGENTDECK_DOT_PREVIEW
         DotHost.shared.owned(by: dotOwnership)
         do { try DotHost.shared.resumeIfEnabled() } catch { DaemonLogger.shared.error("Dot configuration could not be loaded") }
@@ -2192,6 +2192,10 @@ final class DaemonServer {
                 }
             }
         }
+
+        // The listener, handlers and restored timeline are usable now. Slow
+        // device discovery must not pin the dashboard to a retired fallback port.
+        await onDashboardReady?()
 
         // 7. Start device modules
         DaemonLogger.shared.info("startServices: step7 startDeviceModules begin")

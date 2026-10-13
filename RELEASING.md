@@ -117,8 +117,9 @@ Delivery update, 2026-10-13 (source `0acb96c4`, PR #526):
 
 - Apple iOS/macOS **1.9.1 / 8301 uploaded**, both signed archive/upload jobs passed
   ([run](https://github.com/puritysb/AgentDeck/actions/runs/38374654727)).
-  The version records remain Prepare for Submission; build attachment and review
-  submission await App Store Connect login. This is not a live Store release.
+  The version records remain Prepare for Submission. Build 8301 is superseded
+  as a candidate by the subsequent bidirectional timeline/early-readiness repair;
+  a replacement signed upload and App Store Connect login are required. This is not a live Store release.
 - Android **1.10.1 / 28 is on internal Play** and installed from Play on Lenovo.
   General promotion awaits physical 3D creature-tap acceptance; mirrored input
   distorted the pointer-up coordinates, so it cannot establish this result.
@@ -130,13 +131,16 @@ Delivery update, 2026-10-13 (source `0acb96c4`, PR #526):
   unsupported Dial/AU05 remain unchecked. The installed Studio process was
   restarted and verified against bundle SHA-256
   `4f4bdca407965ad9d1ef6c7e497c08469c075f9b699d66d74c9edeb79cd8bb55`.
-- npm **1.9.1 remains unpublished**. Installed-package CLI-only and Swift-only
-  real turns reached Mac and Lenovo. Node-to-Swift recovery took 145 seconds,
-  and reverse ownership takeover succeeded, but the latter lost the Swift-only
-  dashboard history. APME activity capture did not include timeline rows; the
-  timeline handover fix needs final installed-package acceptance before tagging.
-- ESP32 **1.9.1 remains a candidate**. TC001 OTA completed and fresh serial
-  telemetry reports 1.9.1 / `0acb96c4`; other representative boards are in progress.
+- npm **1.9.1 remains unpublished**. Installed-package acceptance exposed missing
+  timeline handover in both directions. PR #527 adds bounded authenticated capture
+  before CLI takeover and a local-only Mac snapshot cache before Swift promotion.
+  The repaired Node-to-Swift run restored port 9120 in 139 seconds; Mac and Lenovo
+  retained the CLI and Swift turns and displayed a new Swift completion. The
+  reverse capture also retained both histories. Final clean full verification and
+  merged-source delivery are still required before tagging.
+- ESP32 **1.9.1 is tagged at `0acb96c4`**, with the 12-board release build
+  running. TC001 and NM serial readback and T-Embed WiFi readback report 1.9.1.
+  Firmware publication and optical inspection are distinct from these checks.
 
 The recorded full tier at `d98ee6e` passed before PR #526 (subsequent changes were
 release evidence only). It does not attest the later timeline handover fix,

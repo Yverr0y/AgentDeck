@@ -24,6 +24,8 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
     let connection = BridgeConnection()
     let discovery = BridgeDiscovery()
     let timelineStore = TimelineStore()
+    /// App-layer handover cache; only snapshots from the preferred local daemon qualify.
+    var onLocalTimelineSnapshot: (([TimelineEntry]) -> Void)?
     let displaySync = DisplaySyncService()
     private(set) var timelineGenerator: StateTimelineGenerator!
 
@@ -800,6 +802,9 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             timelineVersion += 1
         }
 
+        if case .timelineEvent = event { stageLocalTimelineForHandover() }
+        if case .timelineHistory = event { stageLocalTimelineForHandover() }
+
         // Track last data received time for stale indicator
         switch event {
         case .stateUpdate, .usageUpdate, .sessionsList, .timelineEvent, .timelineHistory:
@@ -811,6 +816,12 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
         // Cache state for offline display
         if case .stateUpdate = event { lastKnownState = state }
         if case .usageUpdate = event { lastKnownState = state }
+    }
+
+    private func stageLocalTimelineForHandover() {
+        guard let preferredLocalBridgeUrl,
+              PairingCredential.sameEndpoint(preferredLocalBridgeUrl, connection.url) else { return }
+        onLocalTimelineSnapshot?(timelineStore.entries)
     }
 
     // MARK: - State Update

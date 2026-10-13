@@ -183,7 +183,11 @@ active daemon's `timeline.json` or reading the app's sandbox container. The boun
 Node daemon merges the staged rows with its persisted history at startup. A
 failed or silent capture refuses takeover and leaves the app serving; an explicit
 empty history is valid. APME activity capture is separate and does not preserve
-the dashboard timeline by itself.
+the dashboard timeline by itself. In the reverse direction, the Mac app stages
+snapshots received from its preferred local external daemon into its own
+container's separate handover cache. Its daemon merges that cache on promotion;
+remote dashboard connections cannot populate it. The dashboard reconnects once
+the listener, handlers and history are ready, before device-module discovery.
 
 ## Session timeline relay
 
