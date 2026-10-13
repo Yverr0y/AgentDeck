@@ -30,6 +30,27 @@ The fixture opt-in/catalog checks passed 17 tests. Store/Dot build configuration
 physical flow checks and release delivery remain separately recorded; these test
 results alone do not claim a public release or exact screenshot reproduction.
 
+Physical macOS acceptance used the signed candidate in `/Applications`: a Codex
+creature click showed six matching lifecycle rows and the matching detail card;
+Habitat/Collaboration shared the same dashboard-local inspection; clear restored
+all sessions. The wire control target remained empty throughout inspection.
+The clear flow exposed an additional first-layout issue: `scrollTo` could run
+before lazy row IDs existed. A default bottom anchor now makes the initial
+layout deterministic; the repeated clear flow measured the list scrollbar at
+1 (latest), with empty filters still top-aligned and their detail cleared.
+
+TC001's Mac-only FastLED failure was reproduced with the same dependency version
+as Linux CI: case-insensitive header lookup activated an unused `fs.h` adapter
+against Arduino `FS.h`. The unchanged firmware compiled on a case-sensitive APFS
+volume with the pinned official platform. This is build evidence, not a flash or
+panel-acceptance claim. iPhone/iPad were unavailable during the final UI pass.
+
+Packaged npm acceptance subsequently passed all stages, including 60 health
+probes over 60 seconds (worst 65 ms, zero parse errors) and restart persistence.
+Two earlier local runs failed during concurrent heavy host work; their failures
+were retained and were not converted into passing receipts. The repeat used the
+same timeouts and assertions after stopping this task's extra firmware build.
+
 ## 2026-10-13 — Background work on downstream displays
 
 The device projections now carry background-task counts independently of the

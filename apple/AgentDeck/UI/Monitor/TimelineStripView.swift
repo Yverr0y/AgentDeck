@@ -277,6 +277,10 @@ struct TimelineStripView: View {
                         )
                     }
                 }
+                // A filter change creates a new scroll view. Its initial layout
+                // must anchor the newest row before ScrollViewReader can resolve
+                // lazy row IDs; an immediate scrollTo alone can be dropped.
+                .defaultScrollAnchor(grouped.isEmpty ? .top : .bottom)
                 .coordinateSpace(.named(Self.scrollSpace))
                 .id(timelineFilterKey)
                 .onChange(of: timelineFilterKey, initial: true) {
