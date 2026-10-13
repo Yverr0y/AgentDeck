@@ -1,8 +1,11 @@
 package dev.agentdeck.ui.eink
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -132,16 +135,17 @@ internal data class PaperRecentItem(
  * `taskSummary`) is the best account of what finished; a turn counts only
  * when the agent answered it. A prompt still waiting for its answer is the
  * reader's own words, not news; automated turns and tool noise never count,
- * and an abandoned task did not finish.
+ * and an abandoned task did not finish. Explicit history inspection also shows
+ * terminal lifecycle rows and abandoned summaries with their outcome labels.
  */
-internal fun paperRecent(entries: List<TimelineEntry>, limit: Int): List<PaperRecentItem> {
+internal fun paperRecent(entries: List<TimelineEntry>, limit: Int, historyMode: Boolean = false): List<PaperRecentItem> {
     val items = mutableListOf<Triple<String?, Boolean, PaperRecentItem>>()
     for (g in groupConsecutive(entries.filter { it.automated != true })) {
         val e = g.entry
         val item = when (e.type) {
             "task_end" -> {
                 val mark = when (e.taskOutcome) {
-                    "abandoned" -> continue
+                    "abandoned" -> if (historyMode) "ABANDONED" else continue
                     "failure", "failed" -> "FAILED"
                     "partial" -> "PARTIAL"
                     else -> null
@@ -150,9 +154,17 @@ internal fun paperRecent(entries: List<TimelineEntry>, limit: Int): List<PaperRe
                 PaperRecentItem(e.endedAt ?: e.timestamp, e.projectName, e.agentType, text, mark)
             }
             "chat_start", "chat_response" -> {
-                val reply = if (e.type == "chat_start") g.mergedResponse ?: continue else e
+                val reply = if (e.type == "chat_start") {
+                    g.mergedResponse ?: g.mergedCompletion?.takeIf { historyMode } ?: continue
+                } else e
                 val text = paperHeadline(reply.summary, reply.detail) ?: continue
-                PaperRecentItem(g.lastTs, e.projectName, e.agentType, text, null)
+                val mark = if (reply.type == "chat_end") reply.status?.uppercase(Locale.US) ?: "ENDED" else null
+                PaperRecentItem(g.lastTs, e.projectName, e.agentType, text, mark)
+            }
+            "chat_end" -> {
+                if (!historyMode) continue
+                PaperRecentItem(e.endedAt ?: e.timestamp, e.projectName, e.agentType,
+                    paperHeadline(e.summary, e.detail) ?: continue, e.status?.uppercase(Locale.US) ?: "ENDED")
             }
             "error" -> PaperRecentItem(e.timestamp, e.projectName, e.agentType,
                 paperHeadline(e.summary, e.detail) ?: continue, "FAILED")
@@ -479,10 +491,10 @@ private fun UsageRow(row: EinkLimitLine, cols: UsageColumns, body: TextUnit) {
 private val timeFormat = SimpleDateFormat("HH:mm", Locale.US)
 
 @Composable
-private fun RecentZone(entries: List<TimelineEntry>, scale: EinkLayoutScale, limit: Int) {
-    val recent = remember(entries, limit) { paperRecent(entries, limit) }
+private fun RecentZone(entries: List<TimelineEntry>, scale: EinkLayoutScale, limit: Int, historyMode: Boolean) {
+    val recent = remember(entries, limit, historyMode) { paperRecent(entries, limit, historyMode) }
     if (recent.isEmpty()) return
-    ZoneLabel("DONE", scale)
+    ZoneLabel(if (historyMode) "HISTORY" else "DONE", scale)
     Column(verticalArrangement = Arrangement.spacedBy(scale.rowSpacing + 2.dp)) {
         recent.forEach { item ->
             Row {
@@ -525,10 +537,10 @@ private val RecentItemHeight = 62.dp
 
 /** As many finished items as the zone's height holds — the zone is sized by the layout, not by the list. */
 @Composable
-private fun RecentFill(entries: List<TimelineEntry>, scale: EinkLayoutScale, modifier: Modifier = Modifier) {
+private fun RecentFill(entries: List<TimelineEntry>, scale: EinkLayoutScale, modifier: Modifier = Modifier, historyMode: Boolean = false) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val fits = ((maxHeight - 26.dp) / RecentItemHeight).toInt().coerceIn(1, 10)
-        Column { RecentZone(entries, scale, limit = fits) }
+        Column { RecentZone(entries, scale, limit = fits, historyMode = historyMode) }
     }
 }
 
@@ -596,14 +608,33 @@ internal fun EinkPaperBoard(
             "${it.id}:${it.state}:${it.name}:${it.activity}:${it.question}:${it.ciWait}"
         } + ":${board.offline}:$inspectionLabel"
     }
-    val hasRecent = remember(timelineEntries) { paperRecent(timelineEntries, 1).isNotEmpty() }
+    val historyMode = inspectionLabel != null
+    val hasRecent = remember(timelineEntries, historyMode) { paperRecent(timelineEntries, 1, historyMode).isNotEmpty() }
+    // Inspection is a reading surface. The normal roster/usage layout can
+    // consume all available height on a small reader, hiding the selected history.
+    if (historyMode) {
+        BackHandler(onBack = onClearInspection)
+        TextZone(Zone.CONTEXT_FAST, timelineEntries to inspectionLabel, sleepSnapshotMode,
+            modifier.fillMaxSize(), fill = true) {
+            Column(Modifier.fillMaxSize().padding(pad)) {
+                Text("History · $inspectionLabel  ×", color = Ink,
+                    modifier = Modifier.clickable(onClick = onClearInspection).padding(vertical = 8.dp))
+                HorizontalDivider(thickness = 1.dp, color = Ink)
+                if (!hasRecent) {
+                    Text("No events for this session", color = Ink, modifier = Modifier.padding(top = 8.dp))
+                } else {
+                    androidx.compose.runtime.key(inspectionLabel) {
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 8.dp)) {
+                            RecentZone(timelineEntries, scale, limit = timelineEntries.size, historyMode = true)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
     val sessions: @Composable ColumnScope.() -> Unit = {
         Column(Modifier.padding(pad)) {
-            if (inspectionLabel != null) {
-                Text("History · $inspectionLabel  ×", color = Ink,
-                    modifier = Modifier.clickable(onClick = onClearInspection))
-                if (!hasRecent) Text("No events for this session", color = Ink)
-            }
             NowZones(board, scale, onFocusSession)
         }
     }
@@ -616,11 +647,11 @@ internal fun EinkPaperBoard(
                 if (usage.isNotEmpty() || hasRecent) {
                     HorizontalDivider(thickness = 1.dp, color = Ink, modifier = Modifier.padding(horizontal = pad))
                 }
-                TextZone(Zone.STATUS_SLOW, usage to timelineEntries.size, sleepSnapshotMode, Modifier.weight(1f), fill = true) {
+                TextZone(Zone.STATUS_SLOW, Triple(usage, timelineEntries, inspectionLabel), sleepSnapshotMode, Modifier.weight(1f), fill = true) {
                     Column(Modifier.fillMaxHeight().padding(pad)) {
                         UsageZone(usage, scale)
                         if (usage.isNotEmpty() && hasRecent) BoardDivider()
-                        if (hasRecent) RecentFill(timelineEntries, scale, Modifier.weight(1f))
+                        if (hasRecent) RecentFill(timelineEntries, scale, Modifier.weight(1f), historyMode)
                     }
                 }
             }
@@ -652,8 +683,8 @@ internal fun EinkPaperBoard(
             }
             if (hasRecent) {
                 HorizontalDivider(thickness = 2.dp, color = Ink)
-                TextZone(Zone.STATUS_SLOW, timelineEntries.size, sleepSnapshotMode, Modifier.weight(0.4f), fill = true) {
-                    RecentFill(timelineEntries, scale, Modifier.fillMaxHeight().padding(pad))
+                TextZone(Zone.STATUS_SLOW, timelineEntries to inspectionLabel, sleepSnapshotMode, Modifier.weight(0.4f), fill = true) {
+                    RecentFill(timelineEntries, scale, Modifier.fillMaxHeight().padding(pad), historyMode)
                 }
             }
         }

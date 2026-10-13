@@ -8,6 +8,14 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
 
+## 1.10.0 public — production readback (2026-10-13)
+
+Play Console release overview now confirms **27 (1.10.0)** available in
+production with full rollout across **178 countries/regions**, updated at
+**08:13 KST** on October 13. Internal testing became available at 07:44 KST.
+This supersedes the review-pending production state recorded below; the next
+1.10.1/code 28 candidate has not been uploaded at this readback.
+
 ## 1.10.0 submitted — 2026-10-13
 
 Internal testing **27 (1.10.0)** is active and **available to internal testers**,

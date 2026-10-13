@@ -32,11 +32,14 @@ a companion: agent authorization remains on the computer running the agents.
 
 ## Session inspection
 
-LCD and e-ink history selection is local to the current screen. Tapping the same
-session again clears the filter; the history header also exposes a clear action.
+LCD and e-ink history selection is local to the current screen. On LCD, tapping
+the same session again clears the filter; both history headers expose a clear action.
 Native 3D creature taps use the rendered silhouette bounds, picking the nearest
 visible creature when bounds overlap. Empty water retains the viewing-mode toggle.
 Session-list taps provide the same inspection route, including on e-ink.
+On e-ink, inspection opens a scrollable reading view; clear returns to the board.
+It includes interrupted turns and abandoned task summaries with their outcome
+labels, while the normal DONE zone remains limited to finished work.
 Hardware relay focus does not retarget this history. The full contract is in
 [protocol.md](protocol.md#dashboard-inspection-and-control-focus).
 

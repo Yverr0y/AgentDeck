@@ -10,6 +10,28 @@ import org.junit.Test
 
 class EinkPaperBoardTest {
 
+    @Test fun `inspection shows interrupted Codex turns without calling them done`() {
+        val rows = listOf(
+            entry(100, "chat_start", "Inspect creature selection").copy(sessionId = "codex:one", agentType = "codex-app"),
+            entry(200, "chat_end", "Interrupted while inspecting creature selection").copy(
+                sessionId = "codex:one", agentType = "codex-app", status = "interrupted", startedAt = 100),
+        )
+        assertTrue(paperRecent(rows, 5).isEmpty())
+        val history = paperRecent(rows, 5, historyMode = true)
+        assertEquals(1, history.size)
+        assertEquals("INTERRUPTED", history.single().mark)
+        assertEquals("Interrupted while inspecting creature selection", history.single().text)
+    }
+
+    @Test fun `inspection retains standalone completions and abandoned task summaries`() {
+        val rows = listOf(
+            entry(100, "chat_end", "Stopped before another response").copy(status = "interrupted"),
+            entry(200, "task_end").copy(taskOutcome = "abandoned", taskSummary = "Investigated connection recovery"),
+        )
+        assertTrue(paperRecent(rows, 5).isEmpty())
+        assertEquals(listOf("ABANDONED", "INTERRUPTED"), paperRecent(rows, 5, historyMode = true).map { it.mark })
+    }
+
     @Test fun `CI waits stay readable in quiet paper chips and clear without inventing an outcome`() {
         val wait = dev.agentdeck.net.CiWaitStatus(phase = "unknown",agentWaiting = true,pr = 432,
             checks = dev.agentdeck.net.CiWaitChecks(10,7,0,3))

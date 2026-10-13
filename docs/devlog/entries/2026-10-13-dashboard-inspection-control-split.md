@@ -46,3 +46,17 @@ probes over 60 seconds (worst 65 ms, zero parse errors) and restart persistence.
 Two earlier local runs failed during concurrent heavy host work; their failures
 were retained and were not converted into passing receipts. The repeat used the
 same timeouts and assertions after stopping this task's extra firmware build.
+
+Crema S physical acceptance exposed two additional e-ink issues: the DONE
+projection omitted Codex end-only/interrupted turns, and the roster/usage zones
+could leave the selected history clipped below the screen. Inspection now opens
+a scrollable reading view with a clear/back route. Interrupted/end-only turns
+and abandoned task summaries retain their outcome labels; the ordinary DONE
+projection keeps its existing meaning. Same-count filter changes also invalidate
+the e-ink refresh region. Two behavioral regression cases cover these terminal
+records; all 505 Android tests passed, along with quick and scoped changed gates.
+The signed 1.10.1/code 28 candidate was installed in place on Crema: Codex history,
+clear, toolkit history, and return to the board passed. Mac stayed on its own
+Codex filter while Crema inspected toolkit. The app's version/settings were
+preserved; this is local-device acceptance, not Play delivery. Play separately
+confirmed production 1.10.0/code 27 fully available across 178 countries.
