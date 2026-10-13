@@ -1,13 +1,11 @@
 # Changelog
 
-All delivery channels share one compatibility major. Minor and patch versions,
-and prefixed release tags (`apple-v*`, `streamdeck-v*`, `ulanzi-v*`, `npm-v*`,
-`android-v*`, `esp32-v*`), advance independently by target. Root `VERSION` is
-the repository baseline, not a minor/patch ceiling: any numeric `A.B.C` and
-`A.D.E` are mutually compatible. Minor releases add substantial backward-compatible
-features; patches carry small backward-compatible fixes. `pnpm verify-version`
-gates the shared major and target-internal version consistency. See
-[RELEASING.md](RELEASING.md).
+All delivery channels share one compatibility major. New minor versions identify
+named product-wide feature milestones; patches complete or improve existing
+capabilities, including performance, onboarding and rendering parity. Targets
+ship independently with channel-prefixed tags. Published identities are immutable.
+Root `VERSION` is the compatibility anchor, not a minor/patch ceiling.
+See [RELEASING.md](RELEASING.md#choosing-a-version) for classification and receipts.
 
 **This file is the source of every GitHub Release body.** `scripts/release-notes.mjs`
 looks up a delivery tag here and renders the release page from what it finds;
@@ -47,11 +45,57 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## Unreleased
 
-- Swift APME startup preserves partially known costs and avoids repeating the
-  legacy cost backfill on every database open. This follow-up is not in the
-  already-submitted Apple 1.9.0/build 7901.
+## 2026-10-13 — Android 1.10.1
 
-## 2026-10-13 — Apple 1.10.0, Android 1.10.0, npm 1.10.0, ESP32 1.10.0, Stream Deck 1.9.0, Ulanzi 1.9.0
+- Keep dashboard history inspection local to each screen, separate from hardware control focus. Selecting or clearing a session no longer changes another dashboard's timeline.
+- Include every declared member of a folded Codex session and normalize Swift/Node session IDs consistently. Reset the timeline scroll position when the selected session changes.
+- Make native 3D creatures selectable by their visible bounds; keep empty-water viewing mode and expose a clear-filter action on LCD and e-ink dashboards.
+
+## 2026-10-13 — Apple 1.9.1
+
+- Separate per-dashboard creature/history inspection from hardware control focus. Restore Codex ID/member matching, reset stale filter scroll positions and provide an explicit clear action.
+
+- Setup, connection selection and QR pairing flows recover more clearly from
+  offline or incomplete connection attempts.
+- Swift APME startup preserves partially known costs and avoids repeating the
+  legacy cost backfill on every database open.
+- Device renderers complete background-work count presentation using shared
+  generated rules. iDotMatrix shows waiting, working, background and live totals.
+- Dot remains excluded from both App Store targets.
+
+## 2026-10-13 — npm 1.9.1
+
+- Normalize Swift Codex hook IDs and observed Node IDs in both directions when serving session history.
+
+- Complete background-work propagation to physical session keys, ESP32, Pixoo,
+  Timebox and iDotMatrix without combining tasks with the child-agent census.
+- iDotMatrix reports live background tasks beside waiting, working and live
+  sessions. Unknown values stay unknown; explicit zero clears completed work.
+
+## 2026-10-13 — ESP32 1.9.1
+
+- Pin TC001 to the official ESP32 toolchain used by the prior release so a local pioarduino installation cannot silently change its compiler/framework.
+
+- Complete bounded background-work movement on LCD panels and stable task counts
+  and state on e-ink panels.
+- TC001 alternates usage percentages with time remaining until reset, retaining
+  the provider mark and usage rail. Window labels `5H` and `7D` no longer stand
+  in for reset countdowns.
+
+## 2026-10-13 — Stream Deck 1.8.1
+
+- Complete session-key background-work indicators and retain counts across
+  partial state updates without carrying them into another session.
+- Preserve the development installation when validating Marketplace packages.
+
+## 2026-10-13 — Ulanzi 1.8.1
+
+- Complete session-key background-work indicators and refresh keys when the
+  background state changes.
+- Expire stale Dot companion state instead of retaining outdated display data.
+- Existing keypad support is unchanged; Dial encoders are not supported.
+
+## 2026-10-13 — Android 1.10.0
 
 - Background work now reaches Android, ESP32, Pixoo, Timebox, iDotMatrix and
   physical session keys. LCD aquariums show bounded movement around the owning

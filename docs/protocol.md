@@ -26,6 +26,31 @@ This document describes **what** the daemon and its clients say to each other. B
 
 ---
 
+## Dashboard inspection and control focus
+
+Dashboard inspection is local to the screen. Tapping a creature or a session
+row selects its timeline and visual highlight on that dashboard only; tapping it
+again or clearing the filter restores all events. A `state_update.focusedSessionId`
+from another client must not overwrite that inspection. Reconnecting to the same
+host retains inspection; it is not persisted as a device preference.
+
+`focus_session` and `focusedSessionId` remain the daemon control/relay target for
+legacy hardware and explicit control actions. Stream Deck and Ulanzi detail views
+keep their own navigation state; entering detail may request the relay, while
+BACK exits that device's detail view. Neither action selects or clears a dashboard
+history filter. Answers continue to name their session/question; a local history
+selection must not authorize or redirect an answer.
+
+The menu-bar Control Tower session row selects a control target, not dashboard
+history; its help text states that scope.
+
+A folded Codex row's timeline includes its `foldedSessionIds` after canonical ID
+normalization (`observed:<agent>:<ID>`, Swift `codex:<ID>`, or bare `<ID>`),
+plus its representative ID. Matching a project name is allowed
+only for legacy entries without an ID, never as a way to merge distinct live
+sessions. A filter switch resets the list to the newest matching event, including
+when the row count is unchanged. An empty result is shown explicitly.
+
 ## Architecture Diagram
 
 ```

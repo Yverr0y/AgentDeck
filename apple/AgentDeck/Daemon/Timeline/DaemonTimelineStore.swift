@@ -303,7 +303,7 @@ actor DaemonTimelineStore {
         // were unreachable from every device talking to the Swift daemon.
         let raw = ObservedAgentRules.rawSessionId(sessionId)
         let matched = entries.filter {
-            ($0.sessionId == sessionId || $0.sessionId == raw) && (since == nil || $0.ts > since!)
+            ($0.sessionId.map { ObservedAgentRules.rawSessionId($0) } == raw) && (since == nil || $0.ts > since!)
         }
         // `limit` applies to the chat/tool stream; task hierarchy rows ride
         // along in full so a task_start older than the last `limit` rows

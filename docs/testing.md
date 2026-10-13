@@ -61,8 +61,13 @@ It is safe beside a live daemon (outside 9120–9139, so the singleton guard nev
 After building and launching the signed, sandboxed macOS app, run:
 
 ```bash
-node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app
+node scripts/verify-swift-codex-live.mjs --port PORT --pid PID --app /path/AgentDeck.app --allow-visible-fixtures
 ```
+
+**This replay creates three visible `agentdeck-live-*` sessions and leaves labeled
+timeline entries.** Use a dedicated test app/data store whenever possible. The
+explicit `--allow-visible-fixtures` flag is required before any network request;
+do not run it silently against the user’s daily dashboard.
 
 Use the registry-resolved serving port and the PID of that exact app. The runner
 refuses Node daemons, PID changes, a different app path, and unsigned or

@@ -1,6 +1,6 @@
 // SessionJumpRow.swift — Compact session row used in the menu bar
 // ControlTower panel. Tapping the row issues a `focus_session`
-// command so the dashboard terrarium centers this session.
+// command to select the control relay; dashboard inspection is independent.
 
 #if os(macOS)
 import SwiftUI
@@ -68,6 +68,7 @@ struct SessionJumpRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help("Use this session as the control target")
         .background(
             RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
                 .fill(DesignTokens.Tide.s50.opacity(0.04))

@@ -49,12 +49,13 @@ class AquariumPreviewActivity : Activity() {
 }
 
 @Composable
-fun AquariumBackground(modifier: Modifier = Modifier, state: dev.agentdeck.terrarium.TerrariumState? = null, focusedId: String? = null, viewingMode: Boolean = false, onUnavailable: () -> Unit = {}) {
+fun AquariumBackground(modifier: Modifier = Modifier, state: dev.agentdeck.terrarium.TerrariumState? = null, focusedId: String? = null, viewingMode: Boolean = false, onUnavailable: () -> Unit = {}, onHitTestReady: (((Float, Float) -> String?)?) -> Unit = {}) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val surface = remember(context) { AquariumSurface(context) }
     AndroidView(factory = { surface }, modifier = modifier, update = { it.viewingMode = viewingMode; if (!it.available || (state != null && !it.sync(state, focusedId))) onUnavailable() })
     DisposableEffect(owner, surface) {
+        onHitTestReady(surface::hitSession)
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> surface.resume()
@@ -64,11 +65,12 @@ fun AquariumBackground(modifier: Modifier = Modifier, state: dev.agentdeck.terra
         }
         owner.lifecycle.addObserver(observer)
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) surface.resume()
-        onDispose { owner.lifecycle.removeObserver(observer); surface.dispose() }
+        onDispose { onHitTestReady(null); owner.lifecycle.removeObserver(observer); surface.dispose() }
     }
 }
 
 class AquariumSurface(context: Context) : FrameLayout(context), Choreographer.FrameCallback {
+    fun hitSession(x: Float, y: Float): String? = residents?.hitSession(x, y)
     var available = false
         private set
     var viewingMode = false

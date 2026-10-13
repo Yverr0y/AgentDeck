@@ -30,6 +30,20 @@ not spend a code against whichever host appeared first. Disconnected, connected
 without sessions and receiving activity have distinct readiness copy. Android is
 a companion: agent authorization remains on the computer running the agents.
 
+## Session inspection
+
+LCD and e-ink history selection is local to the current screen. On LCD, tapping
+the same session again clears the filter; both history headers expose a clear action.
+Native 3D creature taps use the rendered silhouette bounds, picking the nearest
+visible creature when bounds overlap. Empty water retains the viewing-mode toggle.
+Session-list taps provide the same inspection route, including on e-ink.
+On e-ink, inspection opens a scrollable reading view; clear returns to the board.
+It includes unanswered turns marked IN PROGRESS, interrupted turns, and abandoned
+task summaries with their outcome labels. The normal DONE zone remains limited
+to finished work.
+Hardware relay focus does not retarget this history. The full contract is in
+[protocol.md](protocol.md#dashboard-inspection-and-control-focus).
+
 ## Background work
 
 Background tasks remain attached to their session and are separate from child
@@ -146,7 +160,7 @@ TIMELINE
 - Landscape: 상단 row 는 Sessions(약 36%) | Terrarium(약 64%), 하단은 text Timeline(약 36%). Timeline 은 macOS/iOS/Android tablet 과 같은 task/event text projection 이며 vertical lane / chart timeline 을 쓰지 않는다.
 - Portrait: Chrome 아래 `Sessions / Terrarium / Timeline` 3단 full-width stack. Terrarium 은 세로로 길게 늘리지 않고 항상 가로 수조 장면으로 유지한다.
 - **Limits corner card**: 수조 모서리에 Claude, Codex, GLM/MCP 사용량과 구독 정보를 함께 표시한다. Claude stale 값은 숨기고, Codex/GLM stale 값은 마지막 수치에 `!`를 붙인다. 공급자 아이콘과 GLM 문자 라벨을 유지하며, 게이지만 가변 폭으로 줄여 퍼센트가 잘리지 않게 한다. 사용량·stale·구독 변경은 정지 화면에서도 refresh key에 포함된다. MODELS/DEVICES/Topology는 Settings/diagnostic 경로로 둔다.
-- **Settings parity**: tablet/iOS 와 같은 Connection / Mac integrations(read-only) / Display panels / Display & sleep / About 의미를 유지한다. 세션 focus 와 option 응답은 tablet 과 동일하게 bridge 명령을 보낸다.
+- **Settings parity**: tablet/iOS 와 같은 Connection / Mac integrations(read-only) / Display panels / Display & sleep / About 의미를 유지한다. 기록 탐색은 화면별 로컬 선택이며, option 응답만 명시적인 세션 제어 명령을 보낸다.
 - **Attention parity**: 어떤 세션이든 `awaiting_*` 상태가 되면 chrome 아래 full-width `ATTENTION` strip 을 별도 `FULL_ONCE` zone 으로 띄운다. focused session 이면 실제 question/options/cursor 를 표시하고, 다른 session 이면 iOS/tablet 과 동일하게 focus 후 `select_option` 을 보내며 parser 가 옵션을 못 준 경우 `Yes/No/Always` fallback 을 제공한다.
 - **Orientation**: portrait/landscape 둘 다 지원한다. rotate control 은 `Settings button` 표시 여부와 독립적으로 남겨 화면 전환을 잃지 않게 하고, Pantone/RK3566 처럼 `requestedOrientation` 을 무시하는 기기는 `USER_ROTATION` fallback 을 함께 적용한다. `Auto` 는 `ACCELEROMETER_ROTATION` 을 다시 켜 system rotation 을 복원한다. 기본값은 e-ink landscape 고정, 일반 tablet 은 Auto 다.
 - 수조: Compose `clip(RoundedCornerShape)` 둥근 모서리 (내부 테두리 없음), 수면 파도, 해초, 자갈, 거품 — 수족관 느낌
@@ -166,7 +180,7 @@ TIMELINE
 
 - 전체 화면: 컬러 수족관 배경 (최대 60fps 목표, 발열·절전 시 30fps 목표), 빈 물 영역 탭으로 HUD 숨김/복원
 - 반투명 HUD 패널로 iOS Dashboard 와 동일한 정보 오버레이
-- 좌측: AgentDeck 로고 + primary/sibling session list. Row tap 은 `focus_session` 을 보낸다.
+- 좌측: AgentDeck 로고 + primary/sibling session list. Row tap 은 해당 화면의 타임라인만 필터링하며, 다른 기기의 제어 대상을 바꾸지 않는다.
 - 우측: topology rail — upstream providers → AgentDeck hub → downstream devices (`moduleHealth`: Stream Deck, D200H, Pixoo, ESP32, Android/e-ink)
 - 상단 중앙: awaiting session Attention theater. 응답 전에 해당 session 을 focus 하고 `select_option` 을 보낸다.
 - 하단: Timeline strip (이벤트 로그)

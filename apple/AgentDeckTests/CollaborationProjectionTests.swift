@@ -465,7 +465,10 @@ final class CollaborationFeedTests: XCTestCase {
         let feed = CollaborationFeed(load: { url in url.lastPathComponent == "tasks" ? pageData : detailData },
                                      pause: { throw CancellationError() })
         await feed.observe(sessionId: "s1", port: 1)
+        let inspection = DashboardInspection()
+        inspection.select("s1", state: holder.state)
         let view = CollaborationPanel(maxHeight: 1000, port: 1, feed: feed, inspectedID: "s1")
+            .environmentObject(inspection)
             .environmentObject(holder).frame(width: 390, height: 1000).environment(\.colorScheme, .dark)
         // Mounting the panel starts its own async observation. Wait for that
         // refresh rather than assuming a CI runner finishes it within 100 ms.

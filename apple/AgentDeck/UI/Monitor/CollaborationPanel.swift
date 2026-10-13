@@ -127,6 +127,7 @@ final class CollaborationFeed: ObservableObject {
 }
 
 struct CollaborationPanel: View {
+    @EnvironmentObject private var inspection: DashboardInspection
     @EnvironmentObject private var stateHolder: AgentStateHolder
     @StateObject private var feed: CollaborationFeed
     @State private var inspectedID: String?
@@ -278,8 +279,8 @@ struct CollaborationPanel: View {
         .background(DesignTokens.Ink.s900.opacity(0.94), in: RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(DesignTokens.Ink.s500.opacity(0.6)))
         .foregroundStyle(DesignTokens.Tide.s50)
-        .onAppear { inspectedID = stateHolder.state.focusedSessionId }
-        .onChange(of: stateHolder.state.focusedSessionId) { _, id in
+        .onAppear { inspectedID = inspection.sessionId }
+        .onChange(of: inspection.sessionId) { _, id in
             if inspectedID != id { navigationHistory = []; inspectedID = id }
         }
         .onChange(of: inspectedID) { _, _ in selectedTaskID = nil; showsLiveDetails = false }
@@ -325,7 +326,7 @@ struct CollaborationPanel: View {
         guard inspectedID != id, stateHolder.state.siblingSessions.contains(where: { $0.id == id }) else { return }
         if remember, let current = inspectedID, current != id { navigationHistory.append(current) }
         inspectedID = id
-        stateHolder.sendCommand(.focusSession(sessionId: id))
+        inspection.select(id, state: stateHolder.state)
     }
 
     private func sessionHeader(_ session: SessionInfo) -> some View {

@@ -84,6 +84,7 @@ import dev.agentdeck.terrarium.renderer.einkColorEnabled
 import dev.agentdeck.terrarium.toTerrariumState
 import dev.agentdeck.ui.eink.EinkAnimatedRefreshZone
 import dev.agentdeck.ui.eink.EinkRefreshZone
+import dev.agentdeck.state.matchesTimelineFilter
 import dev.agentdeck.ui.eink.Zone
 import dev.agentdeck.data.DashboardOrientation
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,7 +98,14 @@ fun EinkMonitorScreen(
 ) {
     val state by stateHolder.state.collectAsState()
     val connectionStatus by connection.status.collectAsState()
-    val timelineEntries by TimelineStore.instance.entries.collectAsState()
+    val allTimelineEntries by TimelineStore.instance.entries.collectAsState()
+    var inspection by remember { mutableStateOf<dev.agentdeck.state.TimelineSessionFilter?>(null) }
+    val inspectSession: (String) -> Unit = { id ->
+        inspection = if (inspection?.sessionId == id) null else dev.agentdeck.state.timelineInspectionFilter(id, state)
+    }
+    val timelineEntries = remember(allTimelineEntries, inspection) {
+        inspection?.let { filter -> allTimelineEntries.filter { it.matchesTimelineFilter(filter) } } ?: allTimelineEntries
+    }
     var showSettings by remember { mutableStateOf(false) }
 
     val configuration = LocalConfiguration.current
@@ -251,7 +259,9 @@ fun EinkMonitorScreen(
                     state = state,
                     timelineEntries = if (showTimeline) timelineEntries else emptyList(),
                     landscape = true,
-                    onFocusSession = { connection.sendFocusSession(it) },
+                    onFocusSession = inspectSession,
+                    inspectionLabel = inspection?.label,
+                    onClearInspection = { inspection = null },
                     usage = buildEinkUsageGroups(state),
                     sleepSnapshotMode = sleepSnapshotMode,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -273,6 +283,9 @@ fun EinkMonitorScreen(
             EinkPortraitLayout(
                 state = state,
                 timelineEntries = timelineEntries,
+                onInspectSession = inspectSession,
+                inspectionLabel = inspection?.label,
+                onClearInspection = { inspection = null },
                 connection = connection,
                 displayPrefs = displayPrefs,
                 sleepSnapshotMode = sleepSnapshotMode,
@@ -871,6 +884,9 @@ private fun EinkReconnectingScreen(
 
 @Composable
 private fun EinkPortraitLayout(
+    onInspectSession: (String) -> Unit,
+    inspectionLabel: String?,
+    onClearInspection: () -> Unit,
     state: dev.agentdeck.state.DashboardState,
     timelineEntries: List<dev.agentdeck.state.TimelineEntry>,
     connection: BridgeConnection,
@@ -940,7 +956,9 @@ private fun EinkPortraitLayout(
             state = state,
             timelineEntries = if (showTimeline) timelineEntries else emptyList(),
             landscape = false,
-            onFocusSession = { connection.sendFocusSession(it) },
+            onFocusSession = onInspectSession,
+            inspectionLabel = inspectionLabel,
+            onClearInspection = onClearInspection,
             usage = buildEinkUsageGroups(state),
             sleepSnapshotMode = sleepSnapshotMode,
             modifier = Modifier.weight(1f).fillMaxWidth(),

@@ -15,7 +15,7 @@ validators: [bash apple/scripts/verify-appstore-archive.sh]
 
 # AgentDeck Dashboard — App Review Notes
 
-**Release status** (App Store Connect, 2026-10-12): iOS and macOS `1.8.0` are Ready for Distribution. `1.9.0` is the next candidate; build upload and review submission are recorded separately in [RELEASING.md](../RELEASING.md).
+**Release status** (App Store Connect, 2026-10-13): iOS and macOS `1.9.0` / `7901` are Ready for Distribution. `1.9.1` is the patch candidate; build upload and review submission are recorded separately in [RELEASING.md](../RELEASING.md).
 
 _Paste the relevant sections into App Store Connect's "Notes" field when submitting `apple-v<version>`._
 
@@ -429,8 +429,8 @@ long-form sections above are for the Resolution Center reply, where length is no
 ```text
 NO ACCOUNT REQUIRED. A paired Mac is optional for reviewing the offline Device Previews.
 
-NEW IN 1.9.0
-Skippable appearance/connection setup, clearer pairing recovery, orbiting companions for background work received from the paired Mac, and session/timeline reliability improvements.
+NEW IN 1.9.1
+This patch refines the existing setup and pairing recovery flows, completes background-work display consistency, and keeps dashboard history inspection separate from device control targets. It introduces no new account, permissions or cloud service.
 
 VERIFY ON A CLEAN IPAD OR IPHONE
 1. Choose an aquarium appearance and continue to connection setup.
@@ -457,8 +457,8 @@ Contact: admin@foundby.kr
 ```text
 NO ACCOUNT REQUIRED. Review on a clean Mac with only AgentDeck installed; no external process or terminal setup is required for these instructions.
 
-NEW IN 1.9.0
-Skippable first-use setup, improved connection recovery, background-task companions orbiting agent creatures, and session/timeline reliability fixes. Dot is entirely excluded from this macOS/iOS submission, including setup, authentication, hosting, cloud connections and companion rendering. No hidden or remote switch enables it.
+NEW IN 1.9.1
+This patch refines existing setup and connection recovery, completes background-work count presentation on device renderers, preserves partially known evaluation costs during startup, and repairs per-creature history inspection without changing other devices’ control targets. Dot is entirely excluded from this macOS/iOS submission, including setup, authentication, hosting, cloud connections and companion rendering. No hidden or remote switch enables it.
 
 WHAT IT DOES
 The sandboxed Swift daemon monitors local coding-agent sessions, ingests user-enabled hooks, serves the dashboard, pairs companions and evaluates turns. Users start agents independently. Optional Hermes rows from an existing relay are read-only; the app offers no relay installer.

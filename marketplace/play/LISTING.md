@@ -8,6 +8,38 @@ created after 2023-11-13 does not apply — production is reachable directly.
 The APK on GitHub Releases stays; Play is an additional channel, not a
 replacement. Play uses store-managed updates; the sideload APK retains wireless updates.
 
+## 1.10.1 internal — 2026-10-13
+
+Internal testing **28 (1.10.1)** is available to internal testers, published
+October 13 at **11:42 KST**. All three [release-note languages](1.10.1/release-notes.json)
+were verified before release. Supported-device coverage is unchanged; the
+native-debug-symbol warning remains non-blocking. Production remains 1.10.0.
+
+The clean source at `d98ee6eb` passed the
+[full pre-release check](../../verification/receipts/2026-10-13-d98ee6e.json)
+in 16m05s, including isolated npm package acceptance, Android tests and Apple
+Store/Dot configurations. Signed Crema acceptance passed Codex/Claude history,
+filter clear/back, empty history and independent Mac/Crema inspection.
+Lenovo installed **1.10.1/code 28 through Google Play** in place, retaining
+its connection and 3D view. The pulled base APK carries the Google signing
+certificate (`cefed158…`); Codex roster selection displays six matching rows
+and detail. Direct 3D tap acceptance remains **unverified**: the Mac mirror
+sent Android ACTION_UP at `(0,1008)` regardless of the requested creature
+position. A separate `dev.agentdeck.qa` build confirmed identical raw Activity
+and Compose coordinates, so this observation does not establish an app hit-test
+fault. Production promotion awaits a reliable physical touch check.
+
+AAB SHA-256: `702886c2fdbeee6b2cfaa83ccf0ddf55bb2ddaa88aef90fcd5f4c06d4bfd6ac0`.
+No production rollout or public GitHub 1.10.1 release is claimed here.
+
+## 1.10.0 public — production readback (2026-10-13)
+
+Play Console release overview now confirms **27 (1.10.0)** available in
+production with full rollout across **178 countries/regions**, updated at
+**08:13 KST** on October 13. Internal testing became available at 07:44 KST.
+This supersedes the review-pending production state recorded below; the next
+1.10.1/code 28 candidate has not been uploaded at this readback.
+
 ## 1.10.0 submitted — 2026-10-13
 
 Internal testing **27 (1.10.0)** is active and **available to internal testers**,

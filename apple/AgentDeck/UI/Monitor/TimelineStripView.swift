@@ -55,6 +55,7 @@ struct TimelineStripView: View {
     }
 
     @EnvironmentObject private var stateHolder: AgentStateHolder
+    @EnvironmentObject private var inspection: DashboardInspection
 
     @State private var focusedIndex: Int = -1
     /// Compact-mode tap-to-expand. -1 = none expanded.
@@ -104,25 +105,7 @@ struct TimelineStripView: View {
     private var timelineVersion: Int { stateHolder.timelineVersion }
 
     private var timelineFilter: TimelineSessionFilter? {
-        guard let sessionId = stateHolder.state.focusedSessionId else { return nil }
-        if let primaryId = stateHolder.state.sessionId, primaryId == sessionId {
-            return TimelineSessionFilter(
-                sessionId: sessionId,
-                projectName: stateHolder.state.projectName,
-                agentType: stateHolder.state.agentType
-            )
-        }
-        if let session = stateHolder.state.siblingSessions.first(where: { $0.id == sessionId }) {
-            return TimelineSessionFilter(
-                sessionId: sessionId,
-                projectName: session.projectName,
-                agentType: session.agentType
-            )
-        }
-        if sessionId == "openclaw-gateway" {
-            return TimelineSessionFilter(sessionId: sessionId, projectName: "OpenClaw", agentType: "openclaw")
-        }
-        return TimelineSessionFilter(sessionId: sessionId, projectName: nil, agentType: nil)
+        inspection.filter
     }
 
     private var timelineFilterKey: String {
@@ -211,6 +194,12 @@ struct TimelineStripView: View {
                     .foregroundStyle(TerrariumHUD.tetraNeon.opacity(0.82))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Button { inspection.select(nil, state: stateHolder.state) } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .help("Show all sessions on this dashboard")
+                .accessibilityLabel("Clear timeline filter")
             }
             Spacer(minLength: 0)
         }
@@ -288,7 +277,17 @@ struct TimelineStripView: View {
                         )
                     }
                 }
+                // A filter change creates a new scroll view. Its initial layout
+                // must anchor the newest row before ScrollViewReader can resolve
+                // lazy row IDs; an immediate scrollTo alone can be dropped.
+                .defaultScrollAnchor(grouped.isEmpty ? .top : .bottom)
                 .coordinateSpace(.named(Self.scrollSpace))
+                .id(timelineFilterKey)
+                .onChange(of: timelineFilterKey, initial: true) {
+                    stickToBottom = true
+                    stickyLayoutCount = -1
+                    if !grouped.isEmpty { proxy.scrollTo(grouped.count - 1, anchor: .bottom) }
+                }
                 // Keyed on timelineVersion, not grouped.count: a chat_response
                 // folding into an existing group, an ×count collapse, or a
                 // task_end upsert all change a row's content — and its height —
@@ -2042,6 +2041,7 @@ struct TimelineSessionFilter: Equatable {
     let sessionId: String
     let projectName: String?
     let agentType: String?
+    var memberSessionIds: [String] = []
 
     var label: String {
         if let projectName, !projectName.isEmpty {
@@ -2065,8 +2065,8 @@ struct TimelineSessionFilter: Equatable {
 extension TimelineEntry {
     func matchesTimelineFilter(_ filter: TimelineSessionFilter) -> Bool {
         let entrySessionId = canonicalTimelineSessionId(sessionId)
-        let focusedSessionId = canonicalTimelineSessionId(filter.sessionId)
-        if entrySessionId != nil, entrySessionId == focusedSessionId {
+        let selectedIds = ([filter.sessionId] + filter.memberSessionIds).compactMap(canonicalTimelineSessionId)
+        if let entrySessionId, selectedIds.contains(entrySessionId) {
             return true
         }
 
@@ -2716,5 +2716,27 @@ private struct TimelineTextSelection: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if enabled { content.textSelection(.enabled) }
         else { content.textSelection(.disabled) }
+    }
+}
+
+/// Owned by one MonitorScreen, never by the daemon or the shared connection.
+/// Reading a session must not retarget controls on another device.
+@MainActor
+final class DashboardInspection: ObservableObject {
+    @Published private(set) var filter: TimelineSessionFilter?
+    var sessionId: String? { filter?.sessionId }
+
+    func select(_ id: String?, state: DashboardState) {
+        guard let id else { filter = nil; return }
+        let row = state.siblingSessions.first { $0.id == id || ($0.foldedSessionIds ?? []).contains(id) }
+        filter = TimelineSessionFilter(
+            sessionId: row?.id ?? id,
+            projectName: row?.projectName ?? (state.sessionId == id ? state.projectName : nil),
+            agentType: row?.agentType ?? (state.sessionId == id ? state.agentType : nil),
+            memberSessionIds: row?.foldedSessionIds ?? [])
+    }
+
+    func toggle(_ id: String, state: DashboardState) {
+        select(sessionId == id ? nil : id, state: state)
     }
 }
