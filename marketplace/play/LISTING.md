@@ -20,7 +20,14 @@ The clean source at `d98ee6eb` passed the
 in 16m05s, including isolated npm package acceptance, Android tests and Apple
 Store/Dot configurations. Signed Crema acceptance passed Codex/Claude history,
 filter clear/back, empty history and independent Mac/Crema inspection.
-Play-signed 1.10.1 acceptance on Lenovo is still pending.
+Lenovo installed **1.10.1/code 28 through Google Play** in place, retaining
+its connection and 3D view. The pulled base APK carries the Google signing
+certificate (`cefed158…`); Codex roster selection displays six matching rows
+and detail. Direct 3D tap acceptance remains **unverified**: the Mac mirror
+sent Android ACTION_UP at `(0,1008)` regardless of the requested creature
+position. A separate `dev.agentdeck.qa` build confirmed identical raw Activity
+and Compose coordinates, so this observation does not establish an app hit-test
+fault. Production promotion awaits a reliable physical touch check.
 
 AAB SHA-256: `702886c2fdbeee6b2cfaa83ccf0ddf55bb2ddaa88aef90fcd5f4c06d4bfd6ac0`.
 No production rollout or public GitHub 1.10.1 release is claimed here.
