@@ -1,0 +1,24 @@
+name: AgentDeckAcceptance
+options:
+  bundleIdPrefix: bound.serendipity
+settings:
+  base:
+    DEVELOPMENT_TEAM: QF36NDHYHD
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: YES
+    IPHONEOS_DEPLOYMENT_TARGET: '17.0'
+targets:
+  Acceptance:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: bound.serendipity.agentdeck.acceptance
+schemes:
+  Acceptance:
+    build:
+      targets:
+        Acceptance: [test]
+    test:
+      targets: [Acceptance]
