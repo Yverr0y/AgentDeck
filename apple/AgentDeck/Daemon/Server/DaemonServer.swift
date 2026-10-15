@@ -2339,7 +2339,12 @@ final class DaemonServer {
                 // Route to gateway or session bridge
                 if let gw = self.gatewayAdapter {
                     await gw.sendRPC(method: "chat.send", params: ["message": text])
-                    _ = self.stateMachine.transition(trigger: "user_prompt_submit", source: .hook)
+                    // From IDLE only, as Node does: since #545 the table also
+                    // accepts a prompt from DISCONNECTED, and a Gateway prompt
+                    // sent while its link is down has no Stop coming to end it.
+                    if self.stateMachine.state == .idle {
+                        _ = self.stateMachine.transition(trigger: "user_prompt_submit", source: .hook)
+                    }
                     self.broadcastStateUpdate()
                 } else {
                     self.forwardCommandToSession(AgentCommand.sendPrompt(text: text).dictionary)
@@ -5109,7 +5114,11 @@ final class DaemonServer {
             case "send_prompt":
                 let text = (cmd["text"] as? String) ?? ""
                 Task { await gw.sendRPC(method: "chat.send", params: ["message": text]) }
-                _ = stateMachine.transition(trigger: "user_prompt_submit", source: .hook); broadcastStateUpdate()
+                // IDLE only — see `voiceSendPrompt`.
+                if stateMachine.state == .idle {
+                    _ = stateMachine.transition(trigger: "user_prompt_submit", source: .hook)
+                }
+                broadcastStateUpdate()
             case "escape": Task { await gw.sendRPC(method: "chat.abort", params: [:]) }
                 _ = stateMachine.transition(trigger: "interrupt", source: .user); broadcastStateUpdate()
             default: break
@@ -6175,7 +6184,9 @@ final class DaemonServer {
             // chat_end. Tool-only turns fall through to empty chat_end.
             appendClaudeCodeChatEnd(json: json, sessionId: sessionId)
         case "session_end":
-            _ = stateMachine.transition(trigger: "session_end", source: .hook)
+            if Self.hubDisconnectsOnSessionEnd(endedSessionId: sessionId, liveSessionIds: hubLiveSessionIds) {
+                _ = stateMachine.transition(trigger: "session_end", source: .hook)
+            }
             if let sessionId {
                 let expiredEntry = pushedSessionsById[sessionId]
                 let isCodex = expiredEntry.map { Self.isCodexSession(sessionId: sessionId, entry: $0) } ?? false
@@ -6212,6 +6223,13 @@ final class DaemonServer {
         case "tool_start":
             stateMachine.currentTool = json["tool_name"] as? String
             stateMachine.toolInput = json["tool_input"] as? String
+            // A tool START proves a turn is running (the table's `tool_activity`
+            // rows; Node `recoverProcessingFromToolActivity('start')`): it
+            // reopens a hub another session's end dropped, and recovers a
+            // dropped prompt. Awaiting states keep their own exits.
+            if stateMachine.state == .idle || stateMachine.state == .disconnected {
+                _ = stateMachine.transition(trigger: "tool_activity", source: .hook)
+            }
             if let sessionId,
                let ask = Self.askUserQuestionGroups(from: json),
                pushedSessionsById[sessionId] != nil {
@@ -6410,7 +6428,9 @@ final class DaemonServer {
         case "opencode_session_end":
             // The current observer plugin never posts this (session teardown
             // is TTL-evicted) — accepted for forward-compatibility.
-            _ = stateMachine.transition(trigger: "session_end", source: .hook)
+            if Self.hubDisconnectsOnSessionEnd(endedSessionId: sessionId, liveSessionIds: hubLiveSessionIds) {
+                _ = stateMachine.transition(trigger: "session_end", source: .hook)
+            }
             if let sessionId {
                 if openCodeTurnAnchors.hasOpenTurn(sid: sessionId) {
                     appendOpenCodeChatEnd(json: json, sessionId: sessionId, interrupted: true)
@@ -7027,6 +7047,7 @@ final class DaemonServer {
                 DaemonLogger.shared.debug("Hook", "Evicted stale session \(sid) (no session entry)")
             }
         }
+        settleHubIfRosterEmpty()
         broadcastSessionsList()
         broadcastStateUpdate()
     }
@@ -7436,6 +7457,127 @@ final class DaemonServer {
     /// dispatch in `handleHookEvent` (event prefix == "codex_"). The
     /// underlying predicate is pure (no actor state), so the helper is
     /// `nonisolated` and callable from the test runner's default context.
+    /// Rows that hold the shared hub machine open: hook-observed sessions only.
+    /// A managed bridge's pushed row (`session_push_register`) has its own
+    /// machine and never drives this one, so counting it kept the hub IDLE
+    /// after the last observed session ended. Node counts the same set
+    /// (`HubStateDriverTracker`, hook sessions that drove the machine).
+    private var hubLiveSessionIds: [String] { Self.hubLiveSessionIds(pushedSessionsById) }
+
+    nonisolated static func hubLiveSessionIds(_ rows: [String: DaemonSessionEntry]) -> [String] {
+        rows.compactMap { $0.value.controlMode == "observed" ? $0.key : nil }
+    }
+
+    /// The roster lost its last observed session WITHOUT a SessionEnd — the
+    /// stale-hook reaper or a refresh prune removed it. A crashed session never
+    /// sends one, and with #545's gate a clean SessionEnd from a sibling no
+    /// longer drops the hub while that crashed row is still listed, so without
+    /// this the hub sat IDLE over an empty roster until the next session.
+    /// The Gateway keeps its own claim on the hub while it is connected.
+    private func settleHubIfRosterEmpty() {
+        guard Self.hubSettlesOnRosterLoss(
+            state: stateMachine.state,
+            gatewayDriving: hubDriver == .gateway,
+            gatewayConnected: cachedGatewayConnected,
+            liveSessionCount: hubLiveSessionIds.count
+        ) else { return }
+        _ = stateMachine.transition(trigger: "session_end", source: .hook)
+    }
+
+    nonisolated static func hubSettlesOnRosterLoss(
+        state: AgentState, gatewayDriving: Bool, gatewayConnected: Bool, liveSessionCount: Int
+    ) -> Bool {
+        state != .disconnected && !gatewayDriving && !gatewayConnected && liveSessionCount == 0
+    }
+
+    /// The Gateway went away. It is one of the hub's drivers, not all of them:
+    /// with hook sessions still listed, dropping to DISCONNECTED repeated #545
+    /// on every Gateway link flap. Then only a turn the GATEWAY was driving is
+    /// closed (back to idle); a hook session's turn is left alone.
+    private func releaseHubForGatewayLoss(gatewayDrove: Bool) {
+        guard let trigger = Self.hubTriggerOnGatewayLoss(
+            liveSessionCount: hubLiveSessionIds.count, gatewayDrove: gatewayDrove
+        ) else { return }
+        _ = stateMachine.transition(trigger: trigger, source: .hook)
+    }
+
+    nonisolated static func hubTriggerOnGatewayLoss(liveSessionCount: Int, gatewayDrove: Bool) -> String? {
+        if liveSessionCount == 0 { return "session_end" }
+        return gatewayDrove ? "stop" : nil
+    }
+
+    /// Does this `session_end` take the daemon's ONE shared state machine to
+    /// DISCONNECTED? Only when the session that ended was the last one.
+    ///
+    /// The table's `session_end` row is a wildcard drop written for a bridge
+    /// that owns exactly one session; this daemon multiplexes every observed
+    /// session into one machine. A short background `claude` (a menu-bar usage
+    /// probe running `claude /usage` every few minutes, a `claude -p` script)
+    /// ending used to take the hub to DISCONNECTED under every session still
+    /// working (#545). A crashed session sends no SessionEnd, but its row is
+    /// reaped by `evictStaleHookSessions`, so it cannot hold the hub open
+    /// forever. Node mirror: `HubStateDriverTracker.hasOtherLiveHookSession`.
+    nonisolated static func hubDisconnectsOnSessionEnd<S: Sequence>(
+        endedSessionId: String?,
+        liveSessionIds: S
+    ) -> Bool where S.Element == String {
+        !liveSessionIds.contains { $0 != endedSessionId }
+    }
+
+    /// The roster a `refreshSessions` pass may publish, and the pushed rows it
+    /// may prune — reconciled against what hooks did WHILE the pass was
+    /// suspended.
+    ///
+    /// The pass snapshots `pushedSessionsById`, then awaits the registry and
+    /// the `/health` probes, and hooks keep landing on this actor meanwhile.
+    /// It used to write the snapshot back and prune by the CURRENT keys, so a
+    /// row a hook created during the wait — a running session resurrected by
+    /// its first prompt after an app restart — was pruned as "stale" the
+    /// moment it appeared and the deck showed NO SESSION (#545); a row that
+    /// ended meanwhile came back for one pass; and a state a hook had just set
+    /// was reverted on the wire to the snapshot's.
+    ///
+    /// - registry rows: the refreshed entry, always;
+    /// - pushed rows this pass probed (another port): the probe's answer,
+    ///   kept while it carries a state — unless the row ended meanwhile;
+    /// - pushed rows it did not probe (hook rows on this daemon's own port):
+    ///   the live entry, which is strictly newer than the snapshot;
+    /// - anything else the pass observed (Kiro): kept while it has a state.
+    /// Only a row the pass saw can be pruned.
+    nonisolated static func reconcileRefreshedSessions(
+        refreshed: [DaemonSessionEntry],
+        registryIds: Set<String>,
+        snapshotPushedIds: Set<String>,
+        probedIds: Set<String>,
+        livePushed: [String: DaemonSessionEntry]
+    ) -> (sessions: [DaemonSessionEntry], prune: [String]) {
+        var sessions: [DaemonSessionEntry] = []
+        var seen = Set<String>()
+        var prune: [String] = []
+        for entry in refreshed where seen.insert(entry.id).inserted {
+            if registryIds.contains(entry.id) {
+                sessions.append(entry)
+            } else if snapshotPushedIds.contains(entry.id) || livePushed[entry.id] != nil {
+                guard let live = livePushed[entry.id] else { continue }  // ended meanwhile
+                if probedIds.contains(entry.id) {
+                    if entry.state != nil { sessions.append(entry) } else { prune.append(entry.id) }
+                } else if live.state != nil {
+                    sessions.append(live)
+                } else {
+                    prune.append(entry.id)
+                }
+            } else if entry.state != nil {
+                sessions.append(entry)
+            }
+        }
+        // Created while the pass was suspended: newer than anything it saw.
+        for (id, live) in livePushed
+        where !seen.contains(id) && !registryIds.contains(id) && live.state != nil {
+            sessions.append(live)
+        }
+        return (sessions, prune)
+    }
+
     nonisolated static func shouldSynthesizeUnknownHookSessionForTest(event: String) -> Bool {
         shouldSynthesizeUnknownHookSession(event: event, isCodexEvent: event.hasPrefix("codex_"))
     }
@@ -8857,7 +8999,7 @@ final class DaemonServer {
                         }
                         DaemonLogger.shared.info("OpenClaw Gateway disconnected")
                         await self?.logStream.stop()
-                        _ = self?.stateMachine.transition(trigger: "session_end", source: .hook)
+                        self?.releaseHubForGatewayLoss(gatewayDrove: self?.hubDriver == .gateway)
                         self?.gatewaySessionState = "idle"
                         if self?.hubDriver == .gateway { self?.hubDriver = .none }
                         self?.gatewayCurrentTool = nil
@@ -8915,13 +9057,15 @@ final class DaemonServer {
         cachedGatewayAuthStatus = cachedGatewayAvailable ? "gateway_reachable" : "gateway_not_found"
         cachedGatewayAuthRequestId = nil
         cachedGatewayAuthMessage = nil
+        // Read before `gatewaySessionState`'s didSet claims the driver slot.
+        let gatewayDrove = hubDriver == .gateway
         gatewaySessionState = "idle"
         if hubDriver == .gateway { hubDriver = .none }
         gatewayCurrentTool = nil
         gatewayPendingApproval = nil
         // Note: gatewayModelName is intentionally preserved across brief disconnects
         // so the model row doesn't flash empty on reconnect.
-        _ = stateMachine.transition(trigger: "session_end", source: .hook)
+        releaseHubForGatewayLoss(gatewayDrove: gatewayDrove)
         apmeCollectorGateway?.handleHook(event: "session_end", data: [
             "session_id": "openclaw-gateway",
         ])
@@ -9460,6 +9604,9 @@ final class DaemonServer {
         for (_, pushed) in pushedSessionsById where !knownIds.contains(pushed.id) {
             merged.append(pushed)
         }
+        // What this pass saw. Everything below the next `await` is decided
+        // against these, while hooks keep changing `pushedSessionsById`.
+        let snapshotPushedIds = Set(pushedSessionsById.keys).subtracting(knownIds)
 
         // Desktop Codex used to have a process observer here
         // (LocalCodexAppObserver). It guarded on "Codex.app/Contents/Resources"
@@ -9529,23 +9676,25 @@ final class DaemonServer {
         // Prune pushed sessions whose /health probe failed repeatedly — the
         // bridge is gone. `enrichSessionsWithState` leaves `state = nil` when
         // the probe errors; we catch those and drop the local push entry.
-        let livePushedIds = Set(pinnedEnriched.filter { $0.state != nil }.map { $0.id })
-        let stalePushed = pushedSessionsById.keys.filter { id in
-            registryEntries.contains(where: { $0.id == id }) == false
-                && livePushedIds.contains(id) == false
-        }
-        for id in stalePushed {
+        //
+        // Decided against the CURRENT rows, not the snapshot: hooks ran while
+        // this pass was suspended in the awaits above (#545).
+        let selfPort = Int(self.port)
+        let reconciled = Self.reconcileRefreshedSessions(
+            refreshed: pinnedEnriched,
+            registryIds: knownIds,
+            snapshotPushedIds: snapshotPushedIds,
+            probedIds: Set(merged.filter { $0.port > 0 && $0.port != selfPort }.map(\.id)),
+            livePushed: pushedSessionsById.mapValues { sessionOrderStore.apply(to: $0) }
+        )
+        for id in reconciled.prune {
             DaemonLogger.shared.debug("Daemon", "Pruning stale pushed session \(id)")
             pushedSessionsById.removeValue(forKey: id)
             codexProcessingTouchedAtBySession.removeValue(forKey: id)
         }
+        if !reconciled.prune.isEmpty { settleHubIfRosterEmpty() }
 
-        cachedSessions = DashboardDataRules.sortSessions(pinnedEnriched.filter { entry in
-            // Keep filesystem entries unconditionally; drop pushed entries
-            // whose probe failed (already pruned above, double-gate for safety).
-            if registryEntries.contains(where: { $0.id == entry.id }) { return true }
-            return livePushedIds.contains(entry.id)
-        })
+        cachedSessions = DashboardDataRules.sortSessions(reconciled.sessions)
         broadcastSessionsList()
     }
 
