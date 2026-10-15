@@ -211,9 +211,22 @@ struct MonitorScreen: View {
         #endif
     }
 
+    private func communicationLabelInsets(size: CGSize) -> EdgeInsets {
+        #if os(macOS)
+        guard !hudHidden, size.width > size.height else { return EdgeInsets() }
+        let edge = DashboardHUDLayout.edgePadding
+        let left = preferences.showSessionList ? edge + DashboardHUDLayout.sessionPanelWidth(availableWidth: size.width) : 0
+        let right = collaborationEnabled || preferences.showTankStatus || preferences.showDeviceDiagnostic
+            ? edge + min(size.width*0.32, DashboardHUDLayout.rightPanelWidth(collaboration: collaborationEnabled)) : 0
+        return EdgeInsets(top: 60, leading: left, bottom: preferences.showTimeline ? size.height*MonitorLayout.sandFraction : 0, trailing: right)
+        #else
+        return EdgeInsets()
+        #endif
+    }
+
     @available(iOS 18.0, macOS 15.0, *)
-    private var livingAquariumScene: LivingAquariumScene {
-        var scene = LivingAquariumScene(viewingMode: hudHidden, terrariumState: terrariumState, communications: waterCommunications,
+    private func livingAquariumScene(labelInsets: EdgeInsets) -> LivingAquariumScene {
+        var scene = LivingAquariumScene(viewingMode: hudHidden, terrariumState: terrariumState, communications: waterCommunications, communicationLabelInsets: labelInsets,
                                         onCreatureTapped: handleCreatureTap, onBackgroundTapped: backgroundTapHandler)
         #if AGENTDECK_DOT_PREVIEW
         scene.dotSnapshot = stateHolder.state.dot
@@ -229,7 +242,7 @@ struct MonitorScreen: View {
                     let top = featuredAwaitingSession == nil ? 0 : attentionHeight + 24
                     ZStack(alignment: .top) {
                         TerrariumColors.deepSea
-                        livingAquariumScene
+                        livingAquariumScene(labelInsets: communicationLabelInsets(size: geometry.size))
                             .frame(height: max(1, geometry.size.height - top))
                             .padding(.top, top)
                         // Keep the habitat continuous behind the timeline, as on macOS.
@@ -249,14 +262,16 @@ struct MonitorScreen: View {
                 .ignoresSafeArea()
             }
         } else {
-            TerrariumView(
-                terrariumState: terrariumState,
-                communications: waterCommunications,
-                showsCommunicationLabels: !hudHidden,
-                onCreatureTapped: handleCreatureTap,
-                onBackgroundTapped: backgroundTapHandler
-            )
-            .ignoresSafeArea()
+            GeometryReader { geometry in
+                TerrariumView(
+                    terrariumState: terrariumState,
+                    communications: waterCommunications,
+                    showsCommunicationLabels: !hudHidden,
+                    communicationLabelInsets: communicationLabelInsets(size: geometry.size),
+                    onCreatureTapped: handleCreatureTap,
+                    onBackgroundTapped: backgroundTapHandler
+                )
+            }.ignoresSafeArea()
         }
     }
 

@@ -73,6 +73,8 @@ enum DashboardHUDLayout {
         return max(0, visibleRegion - edgePadding - timelineClearance)
     }
 
+    static func rightPanelWidth(collaboration: Bool) -> CGFloat { collaboration ? 390 : 300 }
+
     static func sessionPanelWidth(availableWidth: CGFloat) -> CGFloat {
         min(max(220, availableWidth * 0.25), 280)
     }
@@ -256,7 +258,7 @@ struct MonitorHUD: View {
 
     private var rightRailWidth: CGFloat {
         #if os(macOS)
-        collaborationEnabled ? 390 : 300
+        DashboardHUDLayout.rightPanelWidth(collaboration: collaborationEnabled)
         #else
         300
         #endif

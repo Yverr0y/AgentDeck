@@ -30,6 +30,7 @@ struct LivingAquariumScene: View {
     var viewingMode = false
     var terrariumState = TerrariumState()
     var communications = AquariumCommunications.empty
+    var communicationLabelInsets = EdgeInsets()
     #if AGENTDECK_DOT_PREVIEW
     var dotSnapshot: DotSurfaceSnapshot?
     #endif
@@ -127,7 +128,7 @@ struct LivingAquariumScene: View {
                     residents.sync(terrariumState, aspect: Float(geometry.size.width / max(1, geometry.size.height)))
                 }
                 .overlay {
-                    AquariumCommunicationOverlay(communications: communications, labels: !viewingMode) { id in
+                    AquariumCommunicationOverlay(communications: communications, labels: !viewingMode, labelInsets: communicationLabelInsets) { id in
                         residents.communicationPosition(id, aspect: Float(geometry.size.width / max(1, geometry.size.height)))
                     }
                 }
@@ -141,14 +142,14 @@ struct LivingAquariumScene: View {
                 .overlay {
                     if let failure = assets.failure {
                         TerrariumView(terrariumState: terrariumState, includeHabitat: false,
-                                      communications: communications, showsCommunicationLabels: !viewingMode,
+                                      communications: communications, showsCommunicationLabels: !viewingMode, communicationLabelInsets: communicationLabelInsets,
                                       onCreatureTapped: onCreatureTapped, onBackgroundTapped: onBackgroundTapped)
                         Text(failure).padding().background(.regularMaterial)
                     }
                 }
             } else {
                 TerrariumView(terrariumState: terrariumState, communications: communications,
-                              showsCommunicationLabels: !viewingMode, onCreatureTapped: onCreatureTapped, onBackgroundTapped: onBackgroundTapped)
+                              showsCommunicationLabels: !viewingMode, communicationLabelInsets: communicationLabelInsets, onCreatureTapped: onCreatureTapped, onBackgroundTapped: onBackgroundTapped)
                     .overlay { if let failure = assets.failure { Text(failure).padding().background(.regularMaterial) } }
             }
         }

@@ -7,6 +7,7 @@ struct TerrariumView: View {
     var includeHabitat: Bool = true
     var communications = AquariumCommunications.empty
     var showsCommunicationLabels = true
+    var communicationLabelInsets = EdgeInsets()
 
     /// Optional tap handler: receives the session ID of the tapped creature.
     /// Works on macOS (click) and iOS/iPadOS (touch) — both use the same
@@ -34,7 +35,7 @@ struct TerrariumView: View {
                 renderer.update(dt: dt, state: terrariumState)
                 renderer.draw(context: &context, size: size, includeHabitat: includeHabitat,
                               communications: communications, communicationDate: timeline.date,
-                              communicationMotion: !reduceMotion, communicationLabels: showsCommunicationLabels)
+                              communicationMotion: !reduceMotion, communicationLabels: showsCommunicationLabels, communicationLabelInsets: communicationLabelInsets)
 
             }
         }

@@ -24,6 +24,23 @@ final class CommunicationGraphTests: XCTestCase {
         XCTAssertTrue(network.links.isEmpty)
     }
 
+    func testReplyBadgesAvoidTheNodesThatHidThemInTheLiveNineNodeGraph() {
+        let width: CGFloat = 760, height: CGFloat = 390, nodeWidth: CGFloat = 130
+        let points = (0..<9).map { index in
+            let angle = Double(index)/9 * .pi*2 - .pi/2
+            return CGPoint(x: width/2+cos(angle)*(width/2-nodeWidth/2-8), y: height/2+sin(angle)*(height/2-38))
+        }
+        var occupied = points.map { CGRect(x: $0.x-nodeWidth/2, y: $0.y-32, width: nodeWidth, height: 64) }
+        let bounds = CGRect(x: 4, y: 4, width: width-8, height: height-8)
+        for (from, to) in [(6, 2), (6, 8), (4, 2), (5, 2)] {
+            let center = CGPoint(x: (points[from].x+points[to].x)/2, y: (points[from].y+points[to].y)/2)
+            let rect = CommunicationLabelLayout.place(preferred: center, size: CGSize(width: 72, height: 24), bounds: bounds, avoiding: occupied)
+            XCTAssertTrue(bounds.contains(rect))
+            XCTAssertFalse(occupied.contains { $0.intersects(rect) }, "A reply timer must remain visible above the graph geometry")
+            occupied.append(rect)
+        }
+    }
+
     func testBothHookDirectionsProduceOneConversationAndRemindersKeepOriginalAge() throws {
         let value = try snapshot("""
         [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b","peerName":"Reviewer"},

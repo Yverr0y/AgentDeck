@@ -57,9 +57,11 @@ struct AquariumCommunications {
 /// Both renderers use this painter: camera movement cannot detach a 3D link.
 enum AquariumCommunicationDrawing {
     static func draw(context: inout GraphicsContext, size: CGSize, communications: AquariumCommunications,
-                     date: Date, reduceMotion: Bool, labels: Bool,
+                     date: Date, reduceMotion: Bool, labels: Bool, traces: Bool = true,
+                     labelInsets: EdgeInsets = EdgeInsets(), avoiding: [CGRect] = [],
                      pose: (String) -> SIMD2<Float>?) {
         let now = communications.clock(date)
+        var labelRects = avoiding
         for current in communications.currents {
             guard let from = pose(current.senderID), let to = pose(current.recipientID),
                   (0...1).contains(from.x), (0...1).contains(from.y),
@@ -75,27 +77,29 @@ enum AquariumCommunicationDrawing {
                 return CGPoint(x: u*u*a.x + 2*u*t*control.x + t*t*b.x,
                                y: u*u*a.y + 2*u*t*control.y + t*t*b.y)
             }
-            var path = Path(); path.move(to: point(0.08))
-            for step in 1...32 { path.addLine(to: point(0.08 + Double(step) / 32 * 0.84)) }
-            context.stroke(path, with: .color(DesignTokens.UI.cyan.opacity(0.10)), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-            context.stroke(path, with: .color(DesignTokens.UI.cyan.opacity(communications.fresh ? 0.48 : 0.23)),
-                           style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 6]))
-            let recent = now >= current.observedAt && now - current.observedAt < Double(CollaborationPresentation.aquariumRecentMessageMs)
-            let flows = communications.fresh && recent && !reduceMotion && !current.crossed
-            let phase = flows ? date.timeIntervalSince1970 / Double(CollaborationPresentation.aquariumBubbleTravelSeconds) : 0
-            for index in 0..<CollaborationPresentation.aquariumBubbleCount {
-                let fraction = (phase + Double(index) / Double(CollaborationPresentation.aquariumBubbleCount)).truncatingRemainder(dividingBy: 1)
-                let p = point(0.12 + fraction * 0.76)
-                let radius = recent ? 2.5 : 1.5
-                context.stroke(Path(ellipseIn: CGRect(x: p.x-radius, y: p.y-radius, width: radius*2, height: radius*2)),
-                               with: .color(DesignTokens.UI.cyan.opacity(0.7)), lineWidth: 1)
-            }
-            if !current.crossed {
-                let tip = point(0.88), tail = point(0.84)
-                let angle = atan2(tip.y-tail.y, tip.x-tail.x)
-                var fin = Path(); fin.move(to: CGPoint(x: tip.x-6*cos(angle-0.55), y: tip.y-6*sin(angle-0.55)))
-                fin.addLine(to: tip); fin.addLine(to: CGPoint(x: tip.x-6*cos(angle+0.55), y: tip.y-6*sin(angle+0.55)))
-                context.stroke(fin, with: .color(DesignTokens.UI.cyan.opacity(0.8)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+            if traces {
+                var path = Path(); path.move(to: point(0.08))
+                for step in 1...32 { path.addLine(to: point(0.08 + Double(step) / 32 * 0.84)) }
+                context.stroke(path, with: .color(DesignTokens.UI.cyan.opacity(0.10)), style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                context.stroke(path, with: .color(DesignTokens.UI.cyan.opacity(communications.fresh ? 0.48 : 0.23)),
+                               style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 6]))
+                let recent = now >= current.observedAt && now - current.observedAt < Double(CollaborationPresentation.aquariumRecentMessageMs)
+                let flows = communications.fresh && recent && !reduceMotion && !current.crossed
+                let phase = flows ? date.timeIntervalSince1970 / Double(CollaborationPresentation.aquariumBubbleTravelSeconds) : 0
+                for index in 0..<CollaborationPresentation.aquariumBubbleCount {
+                    let fraction = (phase + Double(index) / Double(CollaborationPresentation.aquariumBubbleCount)).truncatingRemainder(dividingBy: 1)
+                    let p = point(0.12 + fraction * 0.76)
+                    let radius = recent ? 2.5 : 1.5
+                    context.stroke(Path(ellipseIn: CGRect(x: p.x-radius, y: p.y-radius, width: radius*2, height: radius*2)),
+                                   with: .color(DesignTokens.UI.cyan.opacity(0.7)), lineWidth: 1)
+                }
+                if !current.crossed {
+                    let tip = point(0.88), tail = point(0.84)
+                    let angle = atan2(tip.y-tail.y, tip.x-tail.x)
+                    var fin = Path(); fin.move(to: CGPoint(x: tip.x-6*cos(angle-0.55), y: tip.y-6*sin(angle-0.55)))
+                    fin.addLine(to: tip); fin.addLine(to: CGPoint(x: tip.x-6*cos(angle+0.55), y: tip.y-6*sin(angle+0.55)))
+                    context.stroke(fin, with: .color(DesignTokens.UI.cyan.opacity(0.8)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                }
             }
             if labels {
                 let middle = point(0.5)
@@ -104,10 +108,14 @@ enum AquariumCommunicationDrawing {
                 let text = context.resolve(Text(names + "\n" + caption).font(.custom("IBMPlexSans", size: 10))
                     .foregroundColor(DesignTokens.Tide.s50))
                 let measured = text.measure(in: CGSize(width: 260, height: 40))
-                let center = CGPoint(x: min(max(middle.x, measured.width/2+8), size.width-measured.width/2-8), y: max(22, middle.y-14))
-                let box = CGRect(x: center.x-measured.width/2-6, y: center.y-measured.height/2-4, width: measured.width+12, height: measured.height+8)
+                let box = CommunicationLabelLayout.place(preferred: CGPoint(x: middle.x, y: middle.y-14),
+                    size: CGSize(width: measured.width+12, height: measured.height+8),
+                    bounds: CGRect(x: labelInsets.leading+8, y: labelInsets.top+8,
+                        width: max(1, size.width-labelInsets.leading-labelInsets.trailing-16),
+                        height: max(1, size.height-labelInsets.top-labelInsets.bottom-16)), avoiding: labelRects)
+                labelRects.append(box)
                 context.fill(Path(roundedRect: box, cornerRadius: 8), with: .color(DesignTokens.Ink.s900.opacity(0.86)))
-                context.draw(text, at: center)
+                context.draw(text, at: CGPoint(x: box.midX, y: box.midY))
             }
         }
     }
@@ -116,6 +124,7 @@ enum AquariumCommunicationDrawing {
 struct AquariumCommunicationOverlay: View {
     let communications: AquariumCommunications
     var labels = true
+    var labelInsets = EdgeInsets()
     let pose: (String) -> SIMD2<Float>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -123,7 +132,7 @@ struct AquariumCommunicationOverlay: View {
         TimelineView(.animation(minimumInterval: 1.0/30)) { timeline in
             Canvas { context, size in
                 AquariumCommunicationDrawing.draw(context: &context, size: size, communications: communications,
-                    date: timeline.date, reduceMotion: reduceMotion, labels: labels, pose: pose)
+                    date: timeline.date, reduceMotion: reduceMotion, labels: labels, labelInsets: labelInsets, pose: pose)
             }
         }
         .allowsHitTesting(false)

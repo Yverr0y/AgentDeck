@@ -145,6 +145,14 @@ struct CommunicationGraphView: View {
             return (node.id, CGPoint(x: width / 2 + cos(angle) * (width / 2 - nodeWidth / 2 - 8),
                                     y: height / 2 + sin(angle) * (height / 2 - 38)))
         })
+        var occupied = points.values.map { CGRect(x: $0.x-nodeWidth/2, y: $0.y-32, width: nodeWidth, height: 64) }
+        var badges: [String: CGRect] = [:]
+        for link in network.links {
+            guard let start = points[link.latestSender], let end = points[link.latestRecipient] else { continue }
+            let rect = CommunicationLabelLayout.place(preferred: CGPoint(x: (start.x+end.x)/2, y: (start.y+end.y)/2),
+                size: CGSize(width: 72, height: 24), bounds: CGRect(x: 4, y: 4, width: width-8, height: height-8), avoiding: occupied)
+            badges[link.id] = rect; occupied.append(rect)
+        }
         return ScrollView([.horizontal, .vertical]) {
             ZStack {
                 ForEach(network.links) { link in
@@ -164,6 +172,12 @@ struct CommunicationGraphView: View {
                             path.addLine(to: CGPoint(x: tip.x - dx / length * 9 - dy / length * 5, y: tip.y - dy / length * 9 + dx / length * 5))
                         }.stroke(DesignTokens.UI.cyan.opacity(selectedLink == nil || selectedLink == link.id ? 0.75 : 0.15),
                                  lineWidth: selectedLink == link.id ? 2 : 1)
+                        if let badge = badges[link.id] {
+                            Path { path in
+                                path.move(to: CGPoint(x: (start.x+end.x)/2, y: (start.y+end.y)/2))
+                                path.addLine(to: CGPoint(x: badge.midX, y: badge.midY))
+                            }.stroke(DesignTokens.UI.cyan.opacity(0.3), lineWidth: 0.5)
+                        }
                         Button {
                             selectedLink = selectedLink == link.id ? nil : link.id
                         } label: {
@@ -171,7 +185,8 @@ struct CommunicationGraphView: View {
                                 .font(.system(size: 10, design: .monospaced)).padding(4)
                                 .background(DesignTokens.Ink.s900, in: Capsule())
                         }.buttonStyle(.plain)
-                            .position(x: (start.x + end.x) / 2, y: (start.y + end.y) / 2)
+                            .position(x: badges[link.id]?.midX ?? 0, y: badges[link.id]?.midY ?? 0)
+                            .zIndex(2)
                             .help("Inspect conversation · dashed line: no reverse message observed")
                     }
                 }

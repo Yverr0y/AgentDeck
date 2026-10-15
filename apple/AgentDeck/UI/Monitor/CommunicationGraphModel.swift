@@ -1,5 +1,34 @@
 import Foundation
 
+/// Keep elapsed labels legible around nodes and other labels in both the graph
+/// and habitat. The candidate search is bounded, deterministic and screen-local.
+enum CommunicationLabelLayout {
+    static func place(preferred: CGPoint, size: CGSize, bounds: CGRect, avoiding occupied: [CGRect]) -> CGRect {
+        let dx = size.width + 8, dy = size.height + 6
+        var offsets: [CGPoint] = [.zero]
+        for ring in 1...4 {
+            let r = CGFloat(ring)
+            offsets += [CGPoint(x: 0, y: -dy*r), CGPoint(x: 0, y: dy*r),
+                        CGPoint(x: -dx*r, y: 0), CGPoint(x: dx*r, y: 0),
+                        CGPoint(x: -dx*r, y: -dy*r), CGPoint(x: dx*r, y: -dy*r),
+                        CGPoint(x: -dx*r, y: dy*r), CGPoint(x: dx*r, y: dy*r)]
+        }
+        var best = CGRect.zero, leastOverlap = CGFloat.infinity
+        for offset in offsets {
+            let rect = CGRect(x: min(max(bounds.minX, preferred.x+offset.x-size.width/2), max(bounds.minX, bounds.maxX-size.width)),
+                              y: min(max(bounds.minY, preferred.y+offset.y-size.height/2), max(bounds.minY, bounds.maxY-size.height)),
+                              width: size.width, height: size.height)
+            let overlap = occupied.reduce(CGFloat.zero) { total, other in
+                let intersection = rect.intersection(other.insetBy(dx: -3, dy: -3))
+                return total + (intersection.isNull ? 0 : intersection.width * intersection.height)
+            }
+            if overlap == 0 { return rect }
+            if overlap < leastOverlap { best = rect; leastOverlap = overlap }
+        }
+        return best
+    }
+}
+
 struct CommunicationSnapshot: Decodable, Sendable {
     let schema: String
     let capturedAt: Double
