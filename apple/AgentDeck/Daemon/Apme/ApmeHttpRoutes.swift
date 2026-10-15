@@ -41,6 +41,18 @@ enum ApmeHttpRoutes {
 
     /// Register all /apme/* routes on the given HTTP server.
     static func register(on httpServer: HTTPServer, store: ApmeStore) async {
+        await httpServer.get("/apme/communications") { request in
+            if let denied = Self.requireToken(request) { return denied }
+            let capturedAt = Int(Date().timeIntervalSince1970 * 1000)
+            let since = capturedAt - CollaborationPresentation.networkHistoryWindowMs
+            let limit = CollaborationPresentation.networkEventLimit
+            guard let events = try? store.listCommunicationEvents(since: since, limit: limit + 1) else {
+                return .json(["error": "Communication history unavailable"], status: 503)
+            }
+            return .json(["schema": "agentdeck-communications/v1", "capturedAt": capturedAt,
+                          "since": since, "truncated": events.count > limit,
+                          "events": Array(events.prefix(limit))])
+        }
         // Dashboard HTML — same self-contained SPA as Node.js bridge.
         // Fetches data from /apme/* JSON endpoints (relative URLs, so port-agnostic).
         await httpServer.get("/apme") { request in

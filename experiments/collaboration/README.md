@@ -102,6 +102,69 @@ preview alongside the aquarium and dashboard-type setting. Runtime navigation to
 a peer and back was verified. This does not resolve the separate crowded-aquarium
 release follow-up.
 
+## Communication graph and terrarium review — 2026-10-15
+
+The macOS Collaboration rail now has a session-wide communication graph before
+task selection. Expand it for the full graph and conversation list; select a
+node or conversation endpoint to inspect that session without changing the
+agent control target. All roster sessions appear, including isolated sessions.
+Observed peers outside the roster remain historical nodes; unresolved names
+remain separate until unique, explicit peer evidence resolves them. Matching
+projects never create links.
+
+Both daemons serve authenticated `GET /apme/communications`, a relation-only
+snapshot of the last 24 hours, capped at the latest 2,000 message observations.
+It uses the existing `(kind, ts)` index and does not load tool trajectories or
+issue one request per session. Bounds, excerpt size, refresh interval and the
+simultaneous-message uncertainty window are defined in
+`shared/src/collaboration-presentation.ts` and generated into Swift. The graph
+refreshes every five seconds; displayed elapsed times update every second.
+Failed or disconnected reads retain visibly frozen history. A changed daemon
+port clears the previous snapshot. Older endpoints leave the roster and task
+history usable, and capped history is labelled partial.
+
+An arrow describes the latest observed message direction. A dashed connection
+and “No reply observed” timer describe the current one-way burst; reminders and
+the receiver's observation of the same message do not restart that timer.
+A reverse message starts a new directional observation, not a completed request.
+Opposite messages within two seconds are labelled crossed, with no reply-order
+claim. There is no request ID, reply correlation or acknowledgement in the
+collected relation records: an informational notice may require no response.
+Elapsed times are observations within available history, not confirmed response
+SLAs. The UI uses cyan for communication, reserving amber for human attention.
+
+### Terrarium feasibility and recommended scope
+
+Feasible on both native renderers, with different attachment points:
+
+| Surface | Existing anchor | Proposed integration |
+|---|---|---|
+| 2D Canvas | `TerrariumRenderer.residentPose(_:)` provides each visible session's current centre and radius | Draw a thin directional curve after updating creatures and before drawing labels; attach to the actual moving centre, never a second estimated layout. |
+| 3D RealityKit | `AquariumResidents.residents` maps session identity to `Entity`; `LivingAquariumScene` already steps residents and camera in scene updates | Attach a lightweight connection entity between visible residents, or project their world positions through the active camera into a HUD overlay. Track camera motion and parent transforms. |
+
+Use the same `CommunicationNetwork` projection rather than another message
+tracker. Move the feed's ownership above the rail only when implementing the
+overlay, so switching between Habitat and Collaboration does not open duplicate
+pollers. Gate it with a user-visible communication overlay toggle. Start with
+connections incident to the inspected session: an always-on graph over every
+swimming creature would obscure the existing labels, worker broods, CI companions
+and approval cues. Keep full topology and historical/unknown peers in the graph.
+Hidden or background residents must not gain invented screen positions; the
+existing foreground limit means some real peers are deliberately off stage.
+
+Show the timer beside the inspected creature or in its detail rail, with a
+static arrow/dash cue on the link. Avoid a permanent numeric label on every
+connection. Any optional message-travel effect must be bounded, stop when the
+view is hidden, and respect Reduce Motion; elapsed age alone must not make the
+aquarium pulse or mark a session as needing human approval. Preserve species,
+work state, foreground ordering and control focus. New shared geometry or
+timing rules must enter the existing cross-platform SSOT before mirroring.
+
+The terrarium changes above are a reviewed implementation proposal, not part of
+this graph change. Renderer and foreground/camera integration still need visual
+checks with crowded scenes, off-stage peers, reduced motion and both dashboard
+types before enabling that overlay.
+
 ## IPS10 scope
 
 Only `BOARD_IPS10` changes. Work cards are identity-ordered and equal-sized, with

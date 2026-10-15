@@ -2,6 +2,11 @@
 enum CollaborationPresentation {
     static let heading = "Collaboration"
     static let scope = "Live session census"
+    static let networkHistoryWindowMs = 86400000
+    static let networkEventLimit = 2000
+    static let networkRefreshSeconds = 5
+    static let networkDetailCharacters = 140
+    static let networkSimultaneousWindowMs = 2000
     static let labels = ["Subagents active","Done this wave","Spawned running","Jobs waited on"]
     static let symbols = ["circle.dotted","checkmark.circle","arrow.up.right.circle","hourglass"]
     static func phase(_ attention: Bool, _ working: Bool, _ children: Int, _ spawned: Int, _ jobs: Int) -> Int {

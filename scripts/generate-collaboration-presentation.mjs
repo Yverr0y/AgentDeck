@@ -20,6 +20,7 @@ export function emitSwift(p, phaseSource) {
  return `${header}enum CollaborationPresentation {
     static let heading = "${p.heading}"
     static let scope = "${p.scope}"
+${Object.entries(p.network).map(([key,value])=>`    static let network${key[0].toUpperCase()+key.slice(1)} = ${value}`).join('\n')}
     static let labels = [${p.metrics.map(m=>JSON.stringify(m.label)).join(',')}]
     static let symbols = [${p.metrics.map(m=>JSON.stringify(m.symbol)).join(',')}]
     static func phase(_ attention: Bool, _ working: Bool, _ children: Int, _ spawned: Int, _ jobs: Int) -> Int {

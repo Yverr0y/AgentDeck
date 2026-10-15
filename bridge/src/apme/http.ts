@@ -18,7 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type { ApmeModule } from './index.js';
 import { loadApmeConfig } from './settings.js';
 import { apmeDashboardHtml } from './dashboard-html.js';
-import { agentCoordinationSummary, deriveTaskTitle, foldActionCounts, EVAL_SCHEMA_VERSION } from '@agentdeck/shared';
+import { agentCoordinationSummary, deriveTaskTitle, foldActionCounts, EVAL_SCHEMA_VERSION, COLLABORATION_PRESENTATION } from '@agentdeck/shared';
 import { readNotGradeable } from './task-gradeability.js';
 import type { ApmeTaskView } from '@agentdeck/shared';
 import { activitySnapshotForStore } from './activity-history.js';
@@ -42,6 +42,22 @@ export async function handleApmeRequest(
   const path = url.pathname;
 
   try {
+    if (method === 'GET' && path === '/apme/communications') {
+      if (!apme.store.enabled) {
+        sendJson(res, 503, { error: 'Communication history unavailable' });
+        return true;
+      }
+      const policy = COLLABORATION_PRESENTATION.network;
+      const capturedAt = Date.now();
+      const since = capturedAt - policy.historyWindowMs;
+      const events = apme.store.listCommunicationEvents(since, policy.eventLimit + 1);
+      sendJson(res, 200, { schema: 'agentdeck-communications/v1', capturedAt, since,
+        truncated: events.length > policy.eventLimit,
+        events: events.slice(0, policy.eventLimit).map(e => ({ ...e,
+          detail: typeof e.detail === 'string' ? [...e.detail].slice(0, policy.detailCharacters).join('') : null,
+        })) });
+      return true;
+    }
     // ── Dashboard HTML ─────────────────────────────────────────────────────
     if (method === 'GET' && (path === '/apme' || path === '/apme/')) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });

@@ -1052,6 +1052,40 @@ final class ApmeStore: @unchecked Sendable {
         return result
     }
 
+    /// Bounded relation-only history; uses the existing (kind, ts) index.
+    enum CommunicationReadError: Error { case unavailable, queryFailed }
+
+    func listCommunicationEvents(since: Int, limit: Int) throws -> [[String: Any]] {
+        guard let db else { throw CommunicationReadError.unavailable }
+        var stmt: OpaquePointer?
+        let sql = """
+            SELECT se.*, r.session_id FROM sample_events se
+            JOIN runs r ON r.id = se.run_id
+            WHERE se.kind = 'relation' AND se.ts >= ?
+              AND json_extract(se.payload, '$.relation') = 'messaged'
+            ORDER BY se.ts DESC, se.id DESC LIMIT ?
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw CommunicationReadError.queryFailed }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_int64(stmt, 1, Int64(since))
+        sqlite3_bind_int(stmt, 2, Int32(limit))
+        var result: [[String: Any]] = []
+        var step = sqlite3_step(stmt)
+        while step == SQLITE_ROW {
+            let row = rowToDict(stmt)
+            var event = Self.sampleEventRowToDict(row)
+            event["id"] = String(row["id"] as? Int ?? 0)
+            event["sessionId"] = row["session_id"]
+            if let detail = event["detail"] as? String {
+                event["detail"] = String(detail.unicodeScalars.prefix(CollaborationPresentation.networkDetailCharacters))
+            }
+            result.append(event)
+            step = sqlite3_step(stmt)
+        }
+        guard step == SQLITE_DONE else { throw CommunicationReadError.queryFailed }
+        return result
+    }
+
     /// Find a tool event still pending for (task, turn, toolName), to resolve it.
     func findPendingToolEvent(taskId: String, turnIndex: Int, toolName: String) -> [String: Any]? {
         guard let db else { return nil }

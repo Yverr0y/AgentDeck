@@ -130,6 +130,7 @@ struct CollaborationPanel: View {
     @EnvironmentObject private var inspection: DashboardInspection
     @EnvironmentObject private var stateHolder: AgentStateHolder
     @StateObject private var feed: CollaborationFeed
+    @StateObject private var communications = CommunicationFeed()
     @State private var inspectedID: String?
     @State private var selectedTaskID: String?
     @State private var showsLiveDetails = false
@@ -177,12 +178,14 @@ struct CollaborationPanel: View {
                     TopologyRail(maxHeight: 560).frame(width: 330).padding(12)
                 }
             }
-            Text("Find who needs you and follow delegated work")
+            Text("See conversations, reply gaps and delegated work")
                 .font(.caption).foregroundStyle(DesignTokens.Ink.s300)
             Divider().overlay(DesignTokens.Ink.s500)
             feedStatus
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    CommunicationGraphView(feed: communications, roster: stateHolder.state.siblingSessions,
+                        selectedID: inspectedID, inspect: { inspect($0) }, retry: { refreshID = UUID() })
                     if let selected {
                         if let previous = navigationHistory.last(where: { id in stateHolder.state.siblingSessions.contains { $0.id == id } }) {
                             Button {
@@ -287,6 +290,9 @@ struct CollaborationPanel: View {
         .task(id: observationKey) {
             await feed.observe(sessionId: selected?.id ?? "", port: port,
                 connected: stateHolder.state.bridgeConnected, taskId: selectedTaskID)
+        }
+        .task(id: "\(port)|\(stateHolder.state.bridgeConnected)|\(refreshID)") {
+            await communications.observe(port: port, connected: stateHolder.state.bridgeConnected)
         }
     }
 

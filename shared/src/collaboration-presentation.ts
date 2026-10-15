@@ -3,6 +3,15 @@
 export const COLLABORATION_PRESENTATION = {
   heading: 'Collaboration',
   scope: 'Live session census',
+  network: {
+    historyWindowMs: 86_400_000,
+    eventLimit: 2_000,
+    refreshSeconds: 5,
+    detailCharacters: 140,
+    // Opposite-direction messages this close may cross in flight. Do not
+    // claim one answered the other or start a reply timer for either.
+    simultaneousWindowMs: 2_000,
+  },
   metrics: [
     { field: 'childrenActive', label: 'Subagents active', symbol: 'circle.dotted', source: 'subagents' },
     { field: 'childrenCompleted', label: 'Done this wave', symbol: 'checkmark.circle', source: 'subagents' },

@@ -79,6 +79,53 @@ describe('APME HTTP routes', () => {
     }
   });
 
+  it('serves bounded cross-task communications without tool payloads or unrelated relations', async () => {
+    const now = Date.now();
+    for (const sid of ['sender', 'receiver']) {
+      apme!.collector.openRun({ sessionId: sid, agentType: 'claude-code' });
+      apme!.collector.ingestHook(sid, 'UserPromptSubmit', { prompt: 'private prompt omitted from graph' });
+      apme!.collector.ingestHook(sid, 'PostToolUse', { tool_name: 'Read', tool_input: { private: 'tool payload' } });
+      for (const [relation, ts, key] of [
+        ['messaged', now - 1_000, 'recent'], ['messaged', now - 90_000_000, 'old'],
+        ['waiting_on', now - 500, 'job'],
+      ] as const) {
+        apme!.collector.noteRelation(sid, { relation, direction: sid === 'sender' ? 'out' : 'in',
+          phase: 'closed', peerSessionId: sid === 'sender' ? 'receiver' : 'sender',
+          peerName: 'peer', evidence: 'test', detail: 'x'.repeat(300), ts, key });
+      }
+    }
+    const response = await fetch(`${base}/apme/communications`);
+    expect(response.status).toBe(200);
+    const value = await response.json();
+    expect(value.schema).toBe('agentdeck-communications/v1');
+    expect(value.truncated).toBe(false);
+    expect(value.events).toHaveLength(2);
+    expect(new Set(value.events.map((e: { sessionId: string }) => e.sessionId))).toEqual(new Set(['sender', 'receiver']));
+    expect(value.capturedAt - value.since).toBe(86_400_000);
+    for (const event of value.events) {
+      expect(event.relation).toBe('messaged');
+      expect(event.detail).toHaveLength(140);
+      expect(event.input).toBeUndefined();
+      expect(event.text).toBeUndefined();
+      expect(typeof event.id).toBe('string');
+    }
+  });
+
+  it('marks a capped communications feed partial and keeps the newest observations', async () => {
+    apme!.collector.openRun({ sessionId: 'busy', agentType: 'claude-code' });
+    apme!.collector.ingestHook('busy', 'UserPromptSubmit', { prompt: 'many messages' });
+    const now = Date.now();
+    for (let i = 0; i < 2001; i++) {
+      apme!.collector.noteRelation('busy', { relation: 'messaged', direction: 'out', phase: 'closed',
+        peerSessionId: 'peer', evidence: 'test', ts: now - i, key: String(i) });
+    }
+    const value = await (await fetch(`${base}/apme/communications`)).json();
+    expect(value.truncated).toBe(true);
+    expect(value.events).toHaveLength(2000);
+    expect(value.events[0].ts).toBe(now);
+    expect(value.events.at(-1).ts).toBe(now - 1999);
+  });
+
   it('GET /apme/runs lists recent runs with evals and overall score', async () => {
     const runId = apme.collector.openRun({
       sessionId: 's1', agentType: 'claude-code', projectName: 'p', projectPath: '/tmp/p',

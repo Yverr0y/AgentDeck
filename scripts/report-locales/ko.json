@@ -330,6 +330,7 @@
   "protocol parsing, timeline store and state logic behave as specified on the JVM": "JVM에서 프로토콜 파싱·타임라인 저장소·상태 논리가 명세대로 동작합니다.",
   "Compose UI on a device or e-ink panel (there are no instrumented tests)": "실제 기기나 전자잉크 화면의 Compose UI. 기기 실행 테스트는 없습니다.",
   "the macOS app and its in-process Swift daemon build and pass XCTest": "macOS 앱과 앱 내 Swift 데몬을 빌드하고 XCTest를 통과합니다.",
+  "communication graphs keep unrelated sessions isolated, resolve only explicit peer identity, retain one-way burst ages, and distinguish crossed messages and unavailable history; native graph rendering uses synthetic sessions": "통신 그래프는 무관한 세션을 연결하지 않고 명시적인 상대 식별 정보만 사용합니다. 단방향 메시지의 경과 시간을 유지하며 교차 메시지와 이력 조회 불가를 구분합니다. 네이티브 그래프 렌더링에는 합성 세션을 사용합니다.",
   "explicit daemon data-directory overrides avoid legacy user-data migration and own only their temporary paths": "명시한 데몬 데이터 경로가 기존 사용자 데이터 마이그레이션을 피하고 임시 경로만 소유합니다.",
   "native CI wait intent, lifecycle and foreground accounting replay shared CI fixtures through CiWaitRulesTests": "CiWaitRulesTests에서 공통 CI 입력으로 네이티브 CI 대기 의도·수명주기·전경 집계를 재생합니다.",
   "background task snapshots reach creature accents, stay bounded, freeze under Reduce Motion and clear on completion or approval": "백그라운드 작업 스냅샷이 크리처 효과에 전달되고, 개수 제한과 동작 줄이기를 지키며 완료·승인 대기 시 사라집니다.",
