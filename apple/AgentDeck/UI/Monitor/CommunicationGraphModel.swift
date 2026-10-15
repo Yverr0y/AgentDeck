@@ -46,6 +46,8 @@ struct CommunicationObservation: Decodable, Sendable {
     let peerSessionId: String?
     let peerName: String?
     let detail: String?
+    let messageIntent: String?
+    let messageFingerprint: String?
 }
 
 struct CommunicationNode: Identifiable, Equatable {
@@ -57,6 +59,14 @@ struct CommunicationNode: Identifiable, Equatable {
     var unresolved = false
 }
 
+struct CommunicationWait: Equatable {
+    let sender: String
+    let recipient: String
+    let since: Double
+    let fingerprint: String
+    var requestCount = 1
+}
+
 struct CommunicationLink: Identifiable, Equatable {
     let id: String
     let first: String
@@ -65,8 +75,17 @@ struct CommunicationLink: Identifiable, Equatable {
     var latestRecipient: String
     var lastObservedAt: Double
     var detail: String?
-    /// Start of the current one-way burst, not the most recent reminder.
-    var noReplySince: Double?
+    var messageIntent: String
+    var waits: [CommunicationWait]
+    var noReplySince: Double? { waits.first?.since }
+    var status: String {
+        if !waits.isEmpty { return "Reply requested · awaiting explicit response" }
+        switch messageIntent {
+        case "notification": return "Notification · no reply requested"
+        case "response": return "Explicit reply observed"
+        default: return "Reply requirement unknown"
+        }
+    }
     var crossed = false
 }
 
@@ -97,7 +116,7 @@ struct CommunicationNetwork {
             nodes[id] = CommunicationNode(id: id, name: labels[id] ?? String(id.prefix(8)),
                 project: session.projectName, rosterID: session.id, state: session.state)
         }
-        var observations: [String: [(sender: String, recipient: String, ts: Double, detail: String?)]] = [:]
+        var observations: [String: [(sender: String, recipient: String, ts: Double, detail: String?, intent: String, fingerprint: String?, direction: String)]] = [:]
         for event in events {
             let owner = raw(event.sessionId)
             let explicit = event.peerSessionId.flatMap { $0.isEmpty ? nil : raw($0) }
@@ -114,7 +133,7 @@ struct CommunicationNetwork {
             let sender = event.direction == "out" ? owner : peer
             let recipient = event.direction == "out" ? peer : owner
             let key = [sender, recipient].sorted().joined(separator: "|")
-            observations[key, default: []].append((sender, recipient, event.ts, event.detail))
+            observations[key, default: []].append((sender, recipient, event.ts, event.detail, event.messageIntent ?? "unknown", event.messageFingerprint, event.direction))
         }
         let links = observations.map { key, messages -> CommunicationLink in
             let latest = messages.last!
@@ -122,18 +141,41 @@ struct CommunicationNetwork {
             let crossed = opposite.map {
                 latest.ts - $0.ts <= Double(CollaborationPresentation.networkSimultaneousWindowMs)
             } ?? false
-            // Two hooks may describe one message. Keeping a burst's first
-            // timestamp prevents delivery echoes/reminders from resetting it.
-            let start = messages.first { $0.sender == latest.sender && $0.ts > (opposite?.ts ?? -1) }?.ts ?? latest.ts
+            // Prefer the sender hook when both sides observed identical content.
+            // A delayed inbox echo must not reopen a request already answered.
+            let outbound = Set(messages.filter { $0.direction == "out" && $0.fingerprint != nil }
+                .map { "\($0.sender)|\($0.fingerprint!)" })
+            var pending: [CommunicationWait] = []
+            for message in messages {
+                if message.direction == "in", let fingerprint = message.fingerprint,
+                   outbound.contains("\(message.sender)|\(fingerprint)") { continue }
+                if message.intent == "request" {
+                    let fingerprint = message.fingerprint ?? message.ts.description
+                    if !pending.contains(where: { $0.sender == message.sender && $0.fingerprint == fingerprint }) {
+                        pending.append(CommunicationWait(sender: message.sender, recipient: message.recipient,
+                            since: message.ts, fingerprint: fingerprint))
+                    }
+                } else if message.intent == "response" {
+                    let candidates = pending.filter { $0.recipient == message.sender }
+                    // No correlation id is supplied by Claude. Only a single,
+                    // strictly earlier request can be settled by explicit reply text.
+                    if candidates.count == 1, let request = candidates.first,
+                       message.ts - request.since > Double(CollaborationPresentation.networkSimultaneousWindowMs) {
+                        pending.removeAll { $0 == request }
+                    }
+                }
+            }
             let endpoints = [latest.sender, latest.recipient].sorted()
             return CommunicationLink(id: key, first: endpoints[0], second: endpoints[1],
                 latestSender: latest.sender, latestRecipient: latest.recipient,
-                lastObservedAt: latest.ts, detail: messages.last {
-                    $0.sender == latest.sender && $0.ts >= start && $0.detail?.isEmpty == false
-                }?.detail,
-                noReplySince: crossed ? nil : start, crossed: crossed)
+                lastObservedAt: latest.ts, detail: latest.detail,
+                messageIntent: latest.intent, waits: Dictionary(grouping: pending, by: \.sender).values.map { requests in
+                    var wait = requests.min { $0.since < $1.since }!
+                    wait.requestCount = requests.count
+                    return wait
+                }.sorted { $0.since == $1.since ? $0.sender < $1.sender : $0.since < $1.since }, crossed: crossed)
         }.sorted {
-            // Oldest unreciprocated conversation first, stable identity as tie-break.
+            // Oldest explicit request first, stable identity as tie-break.
             let a = $0.noReplySince ?? Double.greatestFiniteMagnitude
             let b = $1.noReplySince ?? Double.greatestFiniteMagnitude
             return a == b ? $0.id < $1.id : a < b

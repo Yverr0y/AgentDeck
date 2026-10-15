@@ -101,9 +101,9 @@ struct CommunicationGraphView: View {
                     }
                 }
             }
-            Text("Dashed: no reply observed. Not every message needs a reply.")
+            Text("Dashed: explicit reply request pending. Notifications have no timer.")
                 .font(.caption2).foregroundStyle(DesignTokens.Ink.s300)
-                .help("Arrows show the latest observed message direction. Time starts at the first message in a one-way burst, within available history. A reverse message does not prove a request was resolved.")
+                .help("Arrows show the latest message. Timers require explicit reply-request wording in the complete message. Notifications do not answer requests. Legacy or unclear intent has no timer; reply matching can remain unknown.")
         }
         .padding(12)
         .background(DesignTokens.Ink.s800.opacity(0.65), in: RoundedRectangle(cornerRadius: 12))
@@ -181,13 +181,13 @@ struct CommunicationGraphView: View {
                         Button {
                             selectedLink = selectedLink == link.id ? nil : link.id
                         } label: {
-                            Text(link.noReplySince.map { elapsed($0, now: now) } ?? "↔")
+                            Text(link.noReplySince.map { elapsed($0, now: now) } ?? (link.crossed ? "↔" : "·"))
                                 .font(.system(size: 10, design: .monospaced)).padding(4)
                                 .background(DesignTokens.Ink.s900, in: Capsule())
                         }.buttonStyle(.plain)
                             .position(x: badges[link.id]?.midX ?? 0, y: badges[link.id]?.midY ?? 0)
                             .zIndex(2)
-                            .help("Inspect conversation · dashed line: no reverse message observed")
+                            .help("Inspect conversation · dashed line: reply requested")
                     }
                 }
                 ForEach(network.nodes) { node in
@@ -230,12 +230,15 @@ struct CommunicationGraphView: View {
             HStack {
                 Text("\(sender?.name ?? "Unknown") → \(recipient?.name ?? "Unknown")").font(.caption.bold())
                 Spacer()
-                if let since = link.noReplySince {
-                    Text(elapsed(since, now: now)).font(.system(.caption, design: .monospaced))
-                }
             }
-            Text(link.crossed ? "Messages crossed · response relationship unknown" : "No reply observed")
+            Text(link.status)
                 .font(.caption).foregroundStyle(DesignTokens.UI.cyan)
+            ForEach(Array(link.waits.enumerated()), id: \.offset) { _, wait in
+                let waiting = network.nodes.first { $0.id == wait.sender }?.name ?? "Unknown"
+                let answering = network.nodes.first { $0.id == wait.recipient }?.name ?? "Unknown"
+                Text("\(waiting) waits for \(answering) · \(elapsed(wait.since, now: now)) · \(wait.requestCount) request(s)")
+                    .font(.system(.caption, design: .monospaced)).foregroundStyle(DesignTokens.UI.cyan)
+            }
             if recipient?.rosterID == nil {
                 Text(recipient?.unresolved == true ? "Recipient identity unresolved" : "Recipient not in roster · current state unknown")
                     .font(.caption2).foregroundStyle(DesignTokens.Ink.s300)

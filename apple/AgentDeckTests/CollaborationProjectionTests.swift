@@ -199,6 +199,20 @@ final class CoordinationEvidenceParserTests: XCTestCase {
 /// suite replays — so both daemons decide the same thing from the same
 /// evidence (process ancestry, background jobs, envelopes, SendMessage).
 final class CoordinationEvidenceVectorTests: XCTestCase {
+    func testMessageIntentUsesCompleteBodyAndMatchesNodeVectors() throws {
+        let cases = try XCTUnwrap(try vectors()["messageIntentVectors"] as? [[String: String]])
+        for item in cases {
+            let body = try XCTUnwrap(item["body"])
+            XCTAssertEqual(CollaborationPresentation.messageIntent(body), item["expected"], String(body.prefix(60)))
+            let envelope = "<cross-session-message from-name=\"peer\">\n\(body)\n</cross-session-message>"
+            let received = try XCTUnwrap(ApmeCollector.parseCrossSessionEnvelope(envelope))
+            XCTAssertEqual(CollaborationPresentation.messageIntent(received.fullBody), item["expected"])
+            XCTAssertEqual(CollaborationPresentation.messageFingerprint(received.fullBody), CollaborationPresentation.messageFingerprint(body))
+        }
+        XCTAssertEqual(CollaborationPresentation.messageIntent(nil), "unknown")
+        XCTAssertEqual(CollaborationPresentation.messageFingerprint(" hello  세계 🐙 "), "7518d6f74ec40e6e")
+    }
+
     private func vectors() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

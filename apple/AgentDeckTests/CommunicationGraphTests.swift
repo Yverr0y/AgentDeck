@@ -41,28 +41,57 @@ final class CommunicationGraphTests: XCTestCase {
         }
     }
 
-    func testBothHookDirectionsProduceOneConversationAndRemindersKeepOriginalAge() throws {
-        let value = try snapshot("""
-        [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b","peerName":"Reviewer"},
-         {"id":"2","sessionId":"b","ts":10010,"relation":"messaged","direction":"in","peerSessionId":"a","peerName":"Builder"},
-         {"id":"3","sessionId":"a","ts":20000,"relation":"messaged","direction":"out","peerSessionId":"b"}]
-        """)
-        let network = CommunicationNetwork.project(snapshot: value, roster: try roster())
-        XCTAssertEqual(network.links.count, 1)
-        XCTAssertEqual(network.links[0].latestSender, "a")
-        XCTAssertEqual(network.links[0].latestRecipient, "b")
-        XCTAssertEqual(network.links[0].noReplySince, 10000)
-        XCTAssertEqual(network.nodes.first { $0.id == "a" }?.name, "Builder")
+    private func link(_ messages: [(String, Int, String?, String?)]) throws -> CommunicationLink {
+        let rows = messages.enumerated().map { index, message -> [String: Any] in
+            var event: [String: Any] = ["id": String(index), "sessionId": message.0, "ts": message.1,
+                "relation": "messaged", "direction": "out", "peerSessionId": message.0 == "a" ? "b" : "a"]
+            event["messageIntent"] = message.2
+            event["messageFingerprint"] = message.3
+            return event
+        }
+        let json = String(data: try JSONSerialization.data(withJSONObject: rows), encoding: .utf8)!
+        return try XCTUnwrap(CommunicationNetwork.project(snapshot: try snapshot(json), roster: try roster()).links.first)
     }
 
-    func testReverseMessageEndsEarlierBurstAndStartsASeparateObservation() throws {
+    func testNotificationsResponsesAndLegacyUnknownNeverStartTimers() throws {
+        for intent in [nil, "notification", "response", "unknown", "future"] as [String?] {
+            let value = try link([("a", 10000, intent, nil)])
+            XCTAssertNil(value.noReplySince)
+            XCTAssertTrue(value.waits.isEmpty)
+        }
+    }
+
+    func testNotificationsAndRemindersRetainTheRequestTimeAndWaitingDirection() throws {
+        let value = try link([("a", 10000, "request", "aaa"), ("a", 15000, "request", "aaa"),
+                              ("a", 20000, "notification", "bbb"), ("b", 30000, "notification", "ccc")])
+        XCTAssertEqual(value.latestSender, "b")
+        XCTAssertEqual(value.noReplySince, 10000)
+        XCTAssertEqual(value.waits.first?.sender, "a")
+        XCTAssertEqual(value.waits.first?.recipient, "b")
+        XCTAssertEqual(value.waits.first?.requestCount, 1)
+    }
+
+    func testExplicitResponseSettlesOnlyOneUnambiguousEarlierRequest() throws {
+        XCTAssertNil(try link([("a", 10000, "request", "aaa"), ("b", 20000, "response", "bbb")]).noReplySince)
+        let ambiguous = try link([("a", 10000, "request", "aaa"), ("a", 15000, "request", "bbb"), ("b", 20000, "response", "ccc")])
+        XCTAssertEqual(ambiguous.noReplySince, 10000)
+        XCTAssertEqual(ambiguous.waits.first?.requestCount, 2)
+        XCTAssertEqual(try link([("a", 10000, "request", "aaa"), ("b", 11000, "response", "bbb")]).noReplySince, 10000)
+    }
+
+    func testCrossedRequestsRetainBothWaitingDirections() throws {
+        let value = try link([("a", 10000, "request", "aaa"), ("b", 10000, "request", "bbb")])
+        XCTAssertEqual(value.waits.count, 2)
+        XCTAssertEqual(Set(value.waits.map(\.recipient)), ["a", "b"])
+    }
+
+    func testDelayedReceiverEchoCannotReopenAnAnsweredRequest() throws {
         let value = try snapshot("""
-        [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b"},
-         {"id":"2","sessionId":"b","ts":20000,"relation":"messaged","direction":"out","peerSessionId":"a"}]
+        [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b","messageIntent":"request","messageFingerprint":"abc"},
+         {"id":"2","sessionId":"b","ts":20000,"relation":"messaged","direction":"out","peerSessionId":"a","messageIntent":"response","messageFingerprint":"def"},
+         {"id":"3","sessionId":"b","ts":30000,"relation":"messaged","direction":"in","peerSessionId":"a","messageIntent":"request","messageFingerprint":"abc"}]
         """)
-        let link = try XCTUnwrap(CommunicationNetwork.project(snapshot: value, roster: try roster()).links.first)
-        XCTAssertEqual(link.latestSender, "b")
-        XCTAssertEqual(link.noReplySince, 20000, "A reverse message is not proof a request was resolved")
+        XCTAssertNil(CommunicationNetwork.project(snapshot: value, roster: try roster()).links.first?.noReplySince)
     }
 
     func testCrossedOrEqualTimestampMessagesNeverInventReplyOrderOrCrash() throws {
@@ -107,7 +136,7 @@ final class CommunicationGraphTests: XCTestCase {
 
     func testHabitatRequiresTwoVisibleIdentitiesAndFiltersInspectedCreature() throws {
         let value = try snapshot("""
-        [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b"},
+        [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b","messageIntent":"request"},
          {"id":"2","sessionId":"a","ts":20000,"relation":"messaged","direction":"out","peerName":"unknown"}]
         """)
         let ids: Set<String> = ["observed:claude:a", "b", "unrelated"]
@@ -121,8 +150,8 @@ final class CommunicationGraphTests: XCTestCase {
         let live = try habitat(ids)
         let frozen = AquariumCommunications(currents: live.currents, capturedAt: 100000, fresh: false, truncated: false)
         let later = Date(timeIntervalSince1970: 160)
-        XCTAssertEqual(live.currents[0].caption(now: live.clock(later)), "2m 30s · no reply observed")
-        XCTAssertEqual(frozen.currents[0].caption(now: frozen.clock(later)), "1m 30s · no reply observed")
+        XCTAssertEqual(live.currents[0].caption(now: live.clock(later)), "Awaiting b · 2m 30s")
+        XCTAssertEqual(frozen.currents[0].caption(now: frozen.clock(later)), "Awaiting b · 1m 30s")
     }
 
     @MainActor
@@ -184,8 +213,8 @@ final class CommunicationFeedTests: XCTestCase {
         let now = Int(Date().timeIntervalSince1970 * 1000)
         let payload = Data("""
         {"schema":"agentdeck-communications/v1","capturedAt":\(now),"since":\(now-86400000),"truncated":false,"events":[
-        {"id":"1","sessionId":"a","ts":\(now-180000),"relation":"messaged","direction":"out","peerSessionId":"b","peerName":"reviewer","detail":"Please check the session identity changes"},
-        {"id":"2","sessionId":"b","ts":\(now-179990),"relation":"messaged","direction":"in","peerSessionId":"a","peerName":"builder"},
+        {"id":"1","sessionId":"a","ts":\(now-180000),"relation":"messaged","direction":"out","peerSessionId":"b","peerName":"reviewer","messageIntent":"request","messageFingerprint":"abc","detail":"Please reply with the session identity findings"},
+        {"id":"2","sessionId":"b","ts":\(now-179990),"relation":"messaged","direction":"in","peerSessionId":"a","peerName":"builder","messageIntent":"request","messageFingerprint":"abc"},
         {"id":"3","sessionId":"c","ts":\(now-45000),"relation":"messaged","direction":"out","peerName":"external-peer","detail":"Waiting for the test fixture"}]}
         """.utf8)
         let feed = CommunicationFeed(load: { _ in payload }, pause: { throw CancellationError() })
@@ -227,11 +256,12 @@ final class CommunicationPersistenceTests: XCTestCase {
             collector.handleHook(event: "UserPromptSubmit", data: ["session_id": session, "prompt": "private prompt"])
             for (key, relation, ts) in [("old", "messaged", 1), ("recent", "messaged", 10000), ("job", "waiting_on", 20000)] {
                 XCTAssertTrue(collector.noteRelation(sessionId: session, relation: relation, direction: "out", phase: "closed",
-                    peerSessionId: "peer", peerName: "Peer", evidence: "test", detail: String(repeating: "x", count: 300), ts: ts, key: key))
+                    peerSessionId: "peer", peerName: "Peer", evidence: "test", detail: String(repeating: "x", count: 300), ts: ts, key: key, messageIntent: "request", messageFingerprint: "abc"))
             }
         }
         let rows = try store.listCommunicationEvents(since: 100, limit: 10)
         XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.allSatisfy { $0["messageIntent"] as? String == "request" && $0["messageFingerprint"] as? String == "abc" })
         XCTAssertEqual(Set(rows.compactMap { $0["sessionId"] as? String }), ["a", "b"])
         XCTAssertTrue(rows.allSatisfy { ($0["detail"] as? String)?.count == 140 && $0["input"] == nil && $0["text"] == nil })
         XCTAssertEqual(try store.listCommunicationEvents(since: 100, limit: 1).count, 1)

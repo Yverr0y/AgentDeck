@@ -156,6 +156,10 @@ export interface RelationEvent extends TrajectoryEventBase {
   /** Which observation produced this row (`process_ancestry`, `bash_claude_p`,
    *  `send_message_tool`, `cross_session_message`, `background_process`). */
   evidence: string;
+  /** Conservative evidence from the complete message, absent on legacy rows. */
+  messageIntent?: 'request' | 'notification' | 'response' | 'unknown' | null;
+  /** Hash of normalized complete content, for sender/receiver echo dedup only. */
+  messageFingerprint?: string | null;
   /** Short free text: the message summary, the process command, … */
   detail?: string | null;
 }

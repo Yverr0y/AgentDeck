@@ -1316,6 +1316,8 @@ export class ApmeCollector {
     peerName?: string | null;
     evidence: string;
     detail?: string | null;
+    messageIntent?: import("@agentdeck/shared").CommunicationIntent;
+    messageFingerprint?: string | null;
     ts?: number;
     /** Identity the dedup key is built on — the peer pid / session / message
      *  hash — so a re-scan does not append the same open relation twice. */
@@ -1338,6 +1340,8 @@ export class ApmeCollector {
         ...(event.peerName ? { peerName: event.peerName } : {}),
         evidence: event.evidence,
         ...(event.detail ? { detail: event.detail } : {}),
+        ...(event.messageIntent ? { messageIntent: event.messageIntent } : {}),
+        ...(event.messageFingerprint ? { messageFingerprint: event.messageFingerprint } : {}),
       },
     });
     return true;

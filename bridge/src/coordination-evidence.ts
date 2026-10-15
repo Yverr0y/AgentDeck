@@ -30,6 +30,8 @@
  * resolved carries only the name/pid the evidence itself had.
  */
 
+import { communicationIntent, communicationFingerprint, type CommunicationIntent } from '@agentdeck/shared';
+
 export interface RelationObservation {
   sessionId: string;
   relation: 'spawned' | 'messaged' | 'waiting_on';
@@ -39,6 +41,8 @@ export interface RelationObservation {
   peerName?: string | null;
   evidence: string;
   detail?: string | null;
+  messageIntent?: CommunicationIntent;
+  messageFingerprint?: string | null;
   ts: number;
   key: string;
 }
@@ -74,6 +78,8 @@ export interface CrossSessionEnvelope {
   fromMode: string | null;
   /** The message body after the harness preamble, capped. */
   body: string;
+  messageIntent: CommunicationIntent;
+  messageFingerprint: string | null;
 }
 
 const ENVELOPE_RE = /<cross-session-message\b([^>]*)>/;
@@ -110,9 +116,12 @@ export function parseCrossSessionEnvelope(prompt: string): CrossSessionEnvelope 
   // The harness preamble ("This came from another Claude session — …") ends
   // at the first blank line; the body is what the peer actually wrote.
   const blank = after.search(/\n\s*\n/);
-  const body = blank >= 0 ? after.slice(blank) : after;
+  const body = /^\s*This came from another Claude session/.test(after) && blank >= 0 ? after.slice(blank) : after;
   const closing = body.indexOf('</cross-session-message>');
+  const fullBody = closing >= 0 ? body.slice(0, closing) : body;
   return {
+    messageIntent: communicationIntent(fullBody),
+    messageFingerprint: communicationFingerprint(fullBody),
     fromPid: pidFromUds(a.from),
     fromName: a['from-name']?.trim() || null,
     fromMode: a['from-mode']?.trim() || null,
@@ -124,6 +133,8 @@ export interface SendMessageTarget {
   peerName: string | null;
   peerPid: number | null;
   summary: string | null;
+  messageIntent: CommunicationIntent;
+  messageFingerprint: string | null;
 }
 
 /** The `to` of a Claude Code `SendMessage` tool call: either a session name
@@ -137,7 +148,9 @@ export function parseSendMessageInput(input: unknown): SendMessageTarget | null 
   const summary = typeof summaryRaw.summary === 'string' && summaryRaw.summary.trim()
     ? clip(summaryRaw.summary)
     : (typeof summaryRaw.message === 'string' && summaryRaw.message.trim() ? clip(summaryRaw.message, 96) : null);
-  return { peerName: pid ? null : to.trim(), peerPid: pid, summary };
+  return { peerName: pid ? null : to.trim(), peerPid: pid, summary,
+    messageIntent: communicationIntent(summaryRaw.message),
+    messageFingerprint: communicationFingerprint(summaryRaw.message) };
 }
 
 /** A Bash command that launches a headless agent worker. Only the spellings
@@ -311,6 +324,7 @@ export class CoordinationTracker {
       peerName: env.fromName,
       evidence: 'cross_session_message',
       detail: env.body || null,
+      messageIntent: env.messageIntent, messageFingerprint: env.messageFingerprint,
       ts,
       key: `${env.fromPid ?? env.fromName ?? 'peer'}:${ts}`,
     };
@@ -339,6 +353,7 @@ export class CoordinationTracker {
         peerName,
         evidence: 'send_message_tool',
         detail: target.summary,
+        messageIntent: target.messageIntent, messageFingerprint: target.messageFingerprint,
         ts,
         key: `${target.peerPid ?? target.peerName ?? 'peer'}:${ts}`,
       };

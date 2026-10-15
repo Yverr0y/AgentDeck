@@ -123,15 +123,23 @@ Failed or disconnected reads retain visibly frozen history. A changed daemon
 port clears the previous snapshot. Older endpoints leave the roster and task
 history usable, and capped history is labelled partial.
 
-An arrow describes the latest observed message direction. A dashed connection
-and “No reply observed” timer describe the current one-way burst; reminders and
-the receiver's observation of the same message do not restart that timer.
-A reverse message starts a new directional observation, not a completed request.
-Opposite messages within two seconds are labelled crossed, with no reply-order
-claim. There is no request ID, reply correlation or acknowledgement in the
-collected relation records: an informational notice may require no response.
-Elapsed times are observations within available history, not confirmed response
-SLAs. The UI uses cyan for communication, reserving amber for human attention.
+An arrow describes the latest observed message direction. Only explicit reply-request
+wording in the complete message starts a dashed connection and elapsed wait.
+Notifications, explicit replies and unknown intent never start timers; legacy
+records have unknown intent because their clipped summaries cannot establish it.
+The shared classifier strips quoted/code examples, gives explicit no-reply wording
+precedence, and declines oversized bodies. Both daemons persist the intent and a
+bounded normalized-content fingerprint alongside the relation, without exposing
+the full body. Shared coordination vectors gate Node and generated Swift behavior.
+
+Notifications do not settle requests or reset their start time. Sender/receiver
+content echoes are deduplicated; reminders retain the first request's time.
+Each direction retains its own pending requests even when the latest message
+travels the other way. An explicit reply can settle one earlier request, with a
+two-second crossing guard. Multiple distinct requests remain unmatched because
+Claude supplies no reply-correlation ID. Labels identify who is awaiting whom;
+elapsed time is bounded by available history and is not a confirmed response SLA.
+Cyan denotes communication, reserving amber for human attention.
 
 ### Habitat currents — implemented 2026-10-15
 
@@ -151,8 +159,9 @@ Selection filters currents to the inspected session. Without selection, at most
 eight recent visible relationships appear. The expanded Collaboration graph
 retains the full observed topology, including absent and unresolved peers.
 
-Small labels identify direction and the same “no reply observed” age as the
-graph. These describe one-way observations, not a pending request or approval.
+Small labels identify the latest message direction and the same explicit-request
+waits as the graph, including the session whose reply is awaited. Notifications
+and unknown intent show their status without an elapsed timer.
 Viewing mode removes the labels; cyan never becomes an amber attention signal.
 The common current count, bubble count, travel duration and recent-message window
 are generated from `shared/src/collaboration-presentation.ts`.

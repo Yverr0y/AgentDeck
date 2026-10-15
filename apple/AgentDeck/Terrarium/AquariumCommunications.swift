@@ -11,15 +11,20 @@ struct AquariumCommunications {
         let senderName: String
         let recipientName: String
         let observedAt: Double
-        let noReplySince: Double?
+        let waits: [CommunicationWait]
+        let status: String
+        let waitingNames: [String]
+        var noReplySince: Double? { waits.first?.since }
         let crossed: Bool
 
         func caption(now: Double) -> String {
-            guard let since = noReplySince else { return "Crossed messages" }
-            let seconds = max(0, Int((now - since) / 1_000))
-            let age = seconds >= 3600 ? "\(seconds / 3600)h \(seconds % 3600 / 60)m"
-                : seconds >= 60 ? "\(seconds / 60)m \(seconds % 60)s" : "\(seconds)s"
-            return "\(age) · no reply observed"
+            guard !waits.isEmpty else { return status }
+            return zip(waits, waitingNames).map { wait, name in
+                let seconds = max(0, Int((now - wait.since) / 1_000))
+                let age = seconds >= 3600 ? "\(seconds / 3600)h \(seconds % 3600 / 60)m"
+                    : seconds >= 60 ? "\(seconds / 60)m \(seconds % 60)s" : "\(seconds)s"
+                return "Awaiting \(name.prefix(14)) · \(age)"
+            }.joined(separator: " / ")
         }
     }
 
@@ -46,7 +51,8 @@ struct AquariumCommunications {
                   focusedID == nil || focusedID == from || focusedID == to else { return nil }
             return Current(id: link.id, senderID: from, recipientID: to,
                            senderName: sender.name, recipientName: recipient.name,
-                           observedAt: link.lastObservedAt, noReplySince: link.noReplySince, crossed: link.crossed)
+                           observedAt: link.lastObservedAt, waits: link.waits, status: link.status,
+                           waitingNames: link.waits.map { wait in network.nodes.first { $0.id == wait.recipient }?.name ?? "Unknown" }, crossed: link.crossed)
         }
         return Self(currents: Array(currents.prefix(CollaborationPresentation.aquariumLinkLimit)),
                     capturedAt: snapshot?.capturedAt ?? 0, fresh: fresh, truncated: snapshot?.truncated ?? false)

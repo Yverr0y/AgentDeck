@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { communicationIntent, communicationFingerprint } from '@agentdeck/shared';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
@@ -26,7 +27,7 @@ Not mine either — this session never ran a collaboration-lens daemon on 9120.
 describe('parseCrossSessionEnvelope', () => {
   it('reads the sender pid, name and body off a real envelope', () => {
     const env = parseCrossSessionEnvelope(ENVELOPE);
-    expect(env).toEqual({
+    expect(env).toMatchObject({
       fromPid: 4240,
       fromName: 'agentdeck-06',
       fromMode: 'prompting',
@@ -42,9 +43,9 @@ describe('parseCrossSessionEnvelope', () => {
 describe('parseSendMessageInput', () => {
   it('splits a uds address into a pid and keeps a name as a name', () => {
     expect(parseSendMessageInput({ to: 'uds:/tmp/cc-socks/4240.sock', summary: 'Not the owner of port 9120', message: 'x' }))
-      .toEqual({ peerName: null, peerPid: 4240, summary: 'Not the owner of port 9120' });
+      .toMatchObject({ peerName: null, peerPid: 4240, summary: 'Not the owner of port 9120' });
     expect(parseSendMessageInput({ to: 'epoch-of-tech-8c', message: 'b112 완료했습니다' }))
-      .toEqual({ peerName: 'epoch-of-tech-8c', peerPid: null, summary: 'b112 완료했습니다' });
+      .toMatchObject({ peerName: 'epoch-of-tech-8c', peerPid: null, summary: 'b112 완료했습니다' });
     expect(parseSendMessageInput({ message: 'no target' })).toBeNull();
   });
 });
@@ -176,7 +177,11 @@ describe('shared coordination-evidence vectors', () => {
     }
   });
   it('sendMessage', () => {
-    for (const v of VECTORS.sendMessage) expect(parseSendMessageInput(v.input), v.name).toEqual(v.expect);
+    for (const v of VECTORS.sendMessage) {
+      const parsed = parseSendMessageInput(v.input);
+      if (v.expect === null) expect(parsed, v.name).toBeNull();
+      else expect(parsed, v.name).toMatchObject(v.expect);
+    }
   });
   it('spawn and agent commands', () => {
     for (const v of VECTORS.spawnCommands) expect(isAgentSpawnCommand(v.command), v.command).toBe(v.expect);
@@ -232,5 +237,25 @@ describe('shared coordination-evidence vectors', () => {
     expect(tracker.mergePeers([{ sessionId: 's1', pid: 999 }])).toEqual([{ sessionId: 's1', pid: 999 }]);
     tracker.forget('s1');
     expect(tracker.mergePeers([])).toEqual([]);
+  });
+});
+
+describe('message intent evidence', () => {
+  for (const vector of VECTORS.messageIntentVectors) {
+    it(`classifies ${vector.expected}: ${vector.body.slice(0, 60)}`, () => {
+      expect(communicationIntent(vector.body)).toBe(vector.expected);
+      const sent = parseSendMessageInput({ to: 'peer', message: vector.body, summary: 'Please reply' });
+      expect(sent?.messageIntent).toBe(vector.expected);
+      const received = parseCrossSessionEnvelope(`<cross-session-message from-name="peer">
+${vector.body}
+</cross-session-message>`);
+      expect(received?.messageIntent).toBe(vector.expected);
+      expect(received?.messageFingerprint).toBe(sent?.messageFingerprint);
+    });
+  }
+  it('never interprets a summary or an oversized body as a reply request', () => {
+    expect(parseSendMessageInput({ to: 'peer', summary: 'Please reply' })?.messageIntent).toBe('unknown');
+    expect(communicationFingerprint(' hello  세계 🐙 ')).toBe(communicationFingerprint('hello 세계 🐙'));
+    expect(communicationFingerprint('hello 세계 🐙')).toBe('7518d6f74ec40e6e');
   });
 });
