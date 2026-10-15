@@ -2,6 +2,7 @@ import XCTest
 @testable import AgentDeck
 #if os(macOS)
 import SwiftUI
+import RealityKit
 
 final class CommunicationGraphTests: XCTestCase {
     private func snapshot(_ events: String) throws -> CommunicationSnapshot {
@@ -85,6 +86,48 @@ final class CommunicationGraphTests: XCTestCase {
          {"id":"3","sessionId":"a","ts":100001,"relation":"messaged","direction":"out","peerSessionId":"b"}]
         """)
         XCTAssertTrue(CommunicationNetwork.project(snapshot: value, roster: try roster()).links.isEmpty)
+    }
+
+    func testHabitatRequiresTwoVisibleIdentitiesAndFiltersInspectedCreature() throws {
+        let value = try snapshot("""
+        [{"id":"1","sessionId":"a","ts":10000,"relation":"messaged","direction":"out","peerSessionId":"b"},
+         {"id":"2","sessionId":"a","ts":20000,"relation":"messaged","direction":"out","peerName":"unknown"}]
+        """)
+        let ids: Set<String> = ["observed:claude:a", "b", "unrelated"]
+        func habitat(_ visible: Set<String>, _ focus: String? = nil) throws -> AquariumCommunications {
+            .project(snapshot: value, roster: try roster(), visibleIDs: visible, focusedID: focus, fresh: true)
+        }
+        XCTAssertEqual(try habitat(ids).currents.map(\.senderID), ["observed:claude:a"])
+        XCTAssertTrue(try habitat(["observed:claude:a"]).currents.isEmpty, "Off-stage peers have no invented position")
+        XCTAssertTrue(try habitat(ids, "unrelated").currents.isEmpty)
+        XCTAssertEqual(try habitat(ids, "b").currents.count, 1)
+        let live = try habitat(ids)
+        let frozen = AquariumCommunications(currents: live.currents, capturedAt: 100000, fresh: false, truncated: false)
+        let later = Date(timeIntervalSince1970: 160)
+        XCTAssertEqual(live.currents[0].caption(now: live.clock(later)), "2m 30s · no reply observed")
+        XCTAssertEqual(frozen.currents[0].caption(now: frozen.clock(later)), "1m 30s · no reply observed")
+    }
+
+    @MainActor
+    func test3DCurrentAnchorsFollowResidentParentAndCameraAndDisappearOnRemoval() async throws {
+        let scene = AquariumResidents()
+        scene.loadTemplates(try await Entity(contentsOf: XCTUnwrap(Bundle.main.url(forResource: "3d-residents", withExtension: "usdz"))))
+        var state = TerrariumState()
+        state.creatures = [.init(id: "a", projectName: "A", modelName: nil, state: .working, homeX: 0.5, homeY: 0.5, scale: 1)]
+        scene.sync(state, aspect: 1.6)
+        let camera = PerspectiveCamera()
+        camera.look(at: [0, 2, 0], from: [0, 2, 14], relativeTo: nil)
+        scene.camera = camera
+        let first = try XCTUnwrap(scene.communicationPosition("a", aspect: 1.6))
+        scene.root.position.x += 1
+        let moved = try XCTUnwrap(scene.communicationPosition("a", aspect: 1.6))
+        XCTAssertGreaterThan(moved.x, first.x)
+        camera.position.x += 1
+        XCTAssertEqual(try XCTUnwrap(scene.communicationPosition("a", aspect: 1.6)).x, first.x, accuracy: 0.001)
+        state.creatures = []
+        scene.sync(state, aspect: 1.6)
+        XCTAssertNil(scene.communicationPosition("a", aspect: 1.6))
+        XCTAssertNil(scene.communicationPosition("missing", aspect: 1.6))
     }
 }
 

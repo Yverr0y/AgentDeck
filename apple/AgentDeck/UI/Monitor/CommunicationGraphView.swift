@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 final class CommunicationFeed: ObservableObject {
+    @Published var refreshID = UUID()
     @Published var snapshot: CommunicationSnapshot?
     @Published var state: CollaborationReadState = .loading
     private var generation = UUID()

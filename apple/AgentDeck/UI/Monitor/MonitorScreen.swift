@@ -16,6 +16,7 @@ struct MonitorScreen: View {
     #if os(macOS)
     @EnvironmentObject private var daemonService: DaemonService
     @Environment(\.openWindow) private var openWindow
+    @StateObject private var communications = CommunicationFeed()
     @AppStorage("dashboardCollaborationEnabled") private var collaborationEnabled = false
     #endif
 
@@ -100,6 +101,10 @@ struct MonitorScreen: View {
                 updateTerrariumState: updateTerrariumState
             ))
             #if os(macOS)
+            .environmentObject(communications)
+            .task(id: "\(communicationPort)|\(stateHolder.state.bridgeConnected)|\(communications.refreshID)") {
+                await communications.observe(port: communicationPort, connected: stateHolder.state.bridgeConnected)
+            }
             .modifier(KeyboardShortcutsModifier(stateHolder: stateHolder))
             #if AGENTDECK_DOT_PREVIEW
             .sheet(isPresented: $showDotSetup) {
@@ -186,9 +191,29 @@ struct MonitorScreen: View {
 
     // MARK: - Sub-views
 
+    #if os(macOS)
+    private var communicationPort: Int {
+        #if DEBUG
+        if let pinned = stateHolder.captureFeedPort { return pinned }
+        #endif
+        return Int(daemonService.port)
+    }
+    #endif
+
+    private var waterCommunications: AquariumCommunications {
+        #if os(macOS)
+        return .project(snapshot: communications.snapshot, roster: stateHolder.state.siblingSessions,
+                        visibleIDs: Set(AquariumResident.foreground(AquariumResident.project(terrariumState),
+                            focusedID: terrariumState.focusedSessionId).map(\.id)),
+                        focusedID: inspection.sessionId, fresh: communications.state == .ready)
+        #else
+        return .empty
+        #endif
+    }
+
     @available(iOS 18.0, macOS 15.0, *)
     private var livingAquariumScene: LivingAquariumScene {
-        var scene = LivingAquariumScene(viewingMode: hudHidden, terrariumState: terrariumState,
+        var scene = LivingAquariumScene(viewingMode: hudHidden, terrariumState: terrariumState, communications: waterCommunications,
                                         onCreatureTapped: handleCreatureTap, onBackgroundTapped: backgroundTapHandler)
         #if AGENTDECK_DOT_PREVIEW
         scene.dotSnapshot = stateHolder.state.dot
@@ -226,6 +251,8 @@ struct MonitorScreen: View {
         } else {
             TerrariumView(
                 terrariumState: terrariumState,
+                communications: waterCommunications,
+                showsCommunicationLabels: !hudHidden,
                 onCreatureTapped: handleCreatureTap,
                 onBackgroundTapped: backgroundTapHandler
             )

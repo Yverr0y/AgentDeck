@@ -313,7 +313,9 @@ final class TerrariumRenderer {
 
     // MARK: - Draw (layer order matching Android ColorRenderer)
 
-    func draw(context: inout GraphicsContext, size: CGSize, includeHabitat: Bool = true) {
+    func draw(context: inout GraphicsContext, size: CGSize, includeHabitat: Bool = true,
+              communications: AquariumCommunications = .empty, communicationDate: Date = Date(),
+              communicationMotion: Bool = true, communicationLabels: Bool = true) {
         if size.height > 0 { canvasAspect = Float(size.width / size.height) }
         if includeHabitat {
             // Layer 1: Deep-sea 3-color gradient background
@@ -343,6 +345,10 @@ final class TerrariumRenderer {
             // Layer 6.5: Back-layer fish (behind creatures for 3D depth)
             tetra.drawBackLayer(context: &context, size: size)
         }
+
+        AquariumCommunicationDrawing.draw(context: &context, size: size, communications: communications,
+            date: communicationDate, reduceMotion: !communicationMotion, labels: communicationLabels,
+            pose: { self.residentPose($0)?.center })
 
         // Layer 6.7: Focus halo (drawn behind every creature so the sprite
         // sits cleanly inside the glow). Driven by stateHolder's focused

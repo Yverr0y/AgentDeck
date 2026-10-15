@@ -130,6 +130,7 @@ struct MonitorHUD: View {
     @State private var compactPage: CompactDashboardHUDPage = .sessions
     #if os(macOS)
     @EnvironmentObject private var daemonService: DaemonService
+    @EnvironmentObject private var communications: CommunicationFeed
     @AppStorage("dashboardCollaborationEnabled") private var collaborationEnabled = false
     @State private var weather: DashboardWeatherSnapshot?
     @State private var weatherDeckSig: String?
@@ -277,7 +278,7 @@ struct MonitorHUD: View {
     private func dashboardRightRail(maxHeight: CGFloat) -> some View {
         #if os(macOS)
         if collaborationEnabled {
-            CollaborationPanel(maxHeight: maxHeight, port: collaborationPort)
+            CollaborationPanel(maxHeight: maxHeight, port: collaborationPort, communications: communications)
         } else {
             TopologyRail(maxHeight: maxHeight)
         }

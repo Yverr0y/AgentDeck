@@ -133,37 +133,29 @@ collected relation records: an informational notice may require no response.
 Elapsed times are observations within available history, not confirmed response
 SLAs. The UI uses cyan for communication, reserving amber for human attention.
 
-### Terrarium feasibility and recommended scope
+### Habitat currents — implemented 2026-10-15
 
-Feasible on both native renderers, with different attachment points:
+The macOS Dashboard now owns one communication feed above both right rails.
+Switching Habitat/Collaboration keeps the same snapshot and polling loop.
+Both native renderers use the same bounded current painter and network identity
+projection. Cyan curves join actual visible residents; recent messages carry
+small bubbles towards the latest recipient for at most 30 seconds. Older
+relationships remain quiet, directional traces. Reduce Motion and stale reads
+stop bubble travel; failed reads freeze ages and label the retained history stale.
 
-| Surface | Existing anchor | Proposed integration |
-|---|---|---|
-| 2D Canvas | `TerrariumRenderer.residentPose(_:)` provides each visible session's current centre and radius | Draw a thin directional curve after updating creatures and before drawing labels; attach to the actual moving centre, never a second estimated layout. |
-| 3D RealityKit | `AquariumResidents.residents` maps session identity to `Entity`; `LivingAquariumScene` already steps residents and camera in scene updates | Attach a lightweight connection entity between visible residents, or project their world positions through the active camera into a HUD overlay. Track camera motion and parent transforms. |
+2D anchors come from `TerrariumRenderer.residentPose(_:)` after creature updates.
+3D anchors project each resident's current world position through the active
+RealityKit camera every frame, including parent transforms. Missing, off-stage,
+unresolved and off-camera peers do not acquire synthetic habitat positions.
+Selection filters currents to the inspected session. Without selection, at most
+eight recent visible relationships appear. The expanded Collaboration graph
+retains the full observed topology, including absent and unresolved peers.
 
-Use the same `CommunicationNetwork` projection rather than another message
-tracker. Move the feed's ownership above the rail only when implementing the
-overlay, so switching between Habitat and Collaboration does not open duplicate
-pollers. Gate it with a user-visible communication overlay toggle. Start with
-connections incident to the inspected session: an always-on graph over every
-swimming creature would obscure the existing labels, worker broods, CI companions
-and approval cues. Keep full topology and historical/unknown peers in the graph.
-Hidden or background residents must not gain invented screen positions; the
-existing foreground limit means some real peers are deliberately off stage.
-
-Show the timer beside the inspected creature or in its detail rail, with a
-static arrow/dash cue on the link. Avoid a permanent numeric label on every
-connection. Any optional message-travel effect must be bounded, stop when the
-view is hidden, and respect Reduce Motion; elapsed age alone must not make the
-aquarium pulse or mark a session as needing human approval. Preserve species,
-work state, foreground ordering and control focus. New shared geometry or
-timing rules must enter the existing cross-platform SSOT before mirroring.
-
-The terrarium changes above are a reviewed implementation proposal, not part of
-this graph change. Renderer and foreground/camera integration still need visual
-checks with crowded scenes, off-stage peers, reduced motion and both dashboard
-types before enabling that overlay.
+Small labels identify direction and the same “no reply observed” age as the
+graph. These describe one-way observations, not a pending request or approval.
+Viewing mode removes the labels; cyan never becomes an amber attention signal.
+The common current count, bubble count, travel duration and recent-message window
+are generated from `shared/src/collaboration-presentation.ts`.
 
 ## IPS10 scope
 

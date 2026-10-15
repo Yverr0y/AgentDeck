@@ -130,7 +130,7 @@ struct CollaborationPanel: View {
     @EnvironmentObject private var inspection: DashboardInspection
     @EnvironmentObject private var stateHolder: AgentStateHolder
     @StateObject private var feed: CollaborationFeed
-    @StateObject private var communications = CommunicationFeed()
+    @ObservedObject private var communications: CommunicationFeed
     @State private var inspectedID: String?
     @State private var selectedTaskID: String?
     @State private var showsLiveDetails = false
@@ -140,9 +140,10 @@ struct CollaborationPanel: View {
     let maxHeight: CGFloat
     let port: Int
 
-    init(maxHeight: CGFloat, port: Int, feed: CollaborationFeed = CollaborationFeed(), inspectedID: String? = nil) {
+    init(maxHeight: CGFloat, port: Int, feed: CollaborationFeed = CollaborationFeed(), communications: CommunicationFeed = CommunicationFeed(), inspectedID: String? = nil) {
         self.maxHeight = maxHeight
         self.port = port
+        self.communications = communications
         _feed = StateObject(wrappedValue: feed)
         _inspectedID = State(initialValue: inspectedID)
     }
@@ -185,7 +186,7 @@ struct CollaborationPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     CommunicationGraphView(feed: communications, roster: stateHolder.state.siblingSessions,
-                        selectedID: inspectedID, inspect: { inspect($0) }, retry: { refreshID = UUID() })
+                        selectedID: inspectedID, inspect: { inspect($0) }, retry: { communications.refreshID = UUID() })
                     if let selected {
                         if let previous = navigationHistory.last(where: { id in stateHolder.state.siblingSessions.contains { $0.id == id } }) {
                             Button {
@@ -290,9 +291,6 @@ struct CollaborationPanel: View {
         .task(id: observationKey) {
             await feed.observe(sessionId: selected?.id ?? "", port: port,
                 connected: stateHolder.state.bridgeConnected, taskId: selectedTaskID)
-        }
-        .task(id: "\(port)|\(stateHolder.state.bridgeConnected)|\(refreshID)") {
-            await communications.observe(port: port, connected: stateHolder.state.bridgeConnected)
         }
     }
 

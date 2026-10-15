@@ -12,6 +12,13 @@ export const COLLABORATION_PRESENTATION = {
     // claim one answered the other or start a reply timer for either.
     simultaneousWindowMs: 2_000,
   },
+  aquarium: {
+    // A quiet, bounded overlay; only genuinely visible endpoints can anchor it.
+    linkLimit: 8,
+    recentMessageMs: 30_000,
+    bubbleTravelSeconds: 6,
+    bubbleCount: 3,
+  },
   metrics: [
     { field: 'childrenActive', label: 'Subagents active', symbol: 'circle.dotted', source: 'subagents' },
     { field: 'childrenCompleted', label: 'Done this wave', symbol: 'checkmark.circle', source: 'subagents' },

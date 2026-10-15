@@ -5,6 +5,8 @@ import SwiftUI
 struct TerrariumView: View {
     let terrariumState: TerrariumState
     var includeHabitat: Bool = true
+    var communications = AquariumCommunications.empty
+    var showsCommunicationLabels = true
 
     /// Optional tap handler: receives the session ID of the tapped creature.
     /// Works on macOS (click) and iOS/iPadOS (touch) — both use the same
@@ -30,7 +32,9 @@ struct TerrariumView: View {
                 renderer.animateHermes = !reduceMotion
                 renderer.animateCompanions = !reduceMotion
                 renderer.update(dt: dt, state: terrariumState)
-                renderer.draw(context: &context, size: size, includeHabitat: includeHabitat)
+                renderer.draw(context: &context, size: size, includeHabitat: includeHabitat,
+                              communications: communications, communicationDate: timeline.date,
+                              communicationMotion: !reduceMotion, communicationLabels: showsCommunicationLabels)
 
             }
         }
