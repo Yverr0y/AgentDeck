@@ -79,7 +79,14 @@ struct CommunicationLink: Identifiable, Equatable {
     var waits: [CommunicationWait]
     var noReplySince: Double? { waits.first?.since }
     var status: String {
-        if !waits.isEmpty { return "Reply requested · awaiting explicit response" }
+        if !waits.isEmpty {
+            switch messageIntent {
+            case "notification": return "Notification · earlier reply request pending"
+            case "response": return "Reply observed · request match unconfirmed"
+            case "request": return "Reply requested · awaiting explicit response"
+            default: return "Latest intent unknown · earlier request pending"
+            }
+        }
         switch messageIntent {
         case "notification": return "Notification · no reply requested"
         case "response": return "Explicit reply observed"

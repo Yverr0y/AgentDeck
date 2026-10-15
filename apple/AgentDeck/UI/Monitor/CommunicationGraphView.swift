@@ -236,7 +236,7 @@ struct CommunicationGraphView: View {
             ForEach(Array(link.waits.enumerated()), id: \.offset) { _, wait in
                 let waiting = network.nodes.first { $0.id == wait.sender }?.name ?? "Unknown"
                 let answering = network.nodes.first { $0.id == wait.recipient }?.name ?? "Unknown"
-                Text("\(waiting) waits for \(answering) · \(elapsed(wait.since, now: now)) · \(wait.requestCount) request(s)")
+                Text("\(waiting) waits for \(answering) · \(elapsed(wait.since, now: now)) · \(wait.requestCount) \(wait.requestCount == 1 ? "request" : "requests")")
                     .font(.system(.caption, design: .monospaced)).foregroundStyle(DesignTokens.UI.cyan)
             }
             if recipient?.rosterID == nil {

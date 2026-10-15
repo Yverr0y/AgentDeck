@@ -69,6 +69,7 @@ final class CommunicationGraphTests: XCTestCase {
         XCTAssertEqual(value.waits.first?.sender, "a")
         XCTAssertEqual(value.waits.first?.recipient, "b")
         XCTAssertEqual(value.waits.first?.requestCount, 1)
+        XCTAssertEqual(value.status, "Notification · earlier reply request pending")
     }
 
     func testExplicitResponseSettlesOnlyOneUnambiguousEarlierRequest() throws {

@@ -259,3 +259,12 @@ ${vector.body}
     expect(communicationFingerprint('hello 세계 🐙')).toBe('7518d6f74ec40e6e');
   });
 });
+
+it('bounds intent matching time for a complete message filled with whitespace', () => {
+  const start = performance.now();
+  expect(communicationIntent('답변' + ' '.repeat(15_990) + 'x')).toBe('unknown');
+  expect(performance.now() - start).toBeLessThan(500);
+  expect(communicationFingerprint('\uFEFFhello\u2003world\uFEFF')).toBe(communicationFingerprint('hello world'));
+  expect(communicationFingerprint('hello\u0085world')).not.toBe(communicationFingerprint('hello world'));
+  expect(communicationIntent('Please reply. 응답이 필요 없습니다.')).toBe('notification');
+});

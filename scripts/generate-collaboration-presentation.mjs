@@ -25,18 +25,22 @@ ${Object.entries(p.network).map(([key,value])=>`    static let network${key[0].t
 ${Object.entries(p.aquarium).map(([key,value])=>`    static let aquarium${key[0].toUpperCase()+key.slice(1)} = ${value}`).join('\n')}
     static let labels = [${p.metrics.map(m=>JSON.stringify(m.label)).join(',')}]
     static let symbols = [${p.metrics.map(m=>JSON.stringify(m.symbol)).join(',')}]
+    static func normalizedMessageText(_ body: String) -> String {
+        body.replacingOccurrences(of: #"${p.messageIntent.whitespace}+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " "))
+    }
     static func messageIntent(_ body: String?) -> String {
         guard let body, body.unicodeScalars.count <= ${p.messageIntent.maxCharacters} else { return "unknown" }
-        let text = body.replacingOccurrences(of: #"\`\`\`[\\s\\S]*?\`\`\`"#, with: "", options: .regularExpression)
+        let text = normalizedMessageText(body.replacingOccurrences(of: #"\`\`\`[\\s\\S]*?\`\`\`"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\`[^\`\\n]*\`"#, with: "", options: .regularExpression)
             .replacingOccurrences(of: #"\"[^\"\\n]*\"|“[^”\\n]*”|‘[^’\\n]*’"#, with: "", options: .regularExpression)
-            .components(separatedBy: "\\n").filter { $0.range(of: #"^\\s*>"#, options: .regularExpression) == nil }.joined(separator: "\\n")
+            .components(separatedBy: "\\n").filter { $0.range(of: #"^\\s*>"#, options: .regularExpression) == nil }.joined(separator: "\\n"))
 ${['noReply','request','response','notification'].map(key=>`        if text.range(of: #"${p.messageIntent[key]}"#, options: [.regularExpression, .caseInsensitive]) != nil { return "${key==='noReply'?'notification':key}" }`).join('\n')}
         return "unknown"
     }
     static func messageFingerprint(_ body: String?) -> String? {
         guard let body, body.unicodeScalars.count <= ${p.messageIntent.maxCharacters} else { return nil }
-        let flat = body.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        let flat = normalizedMessageText(body)
         var hash: UInt64 = 14695981039346656037
         for byte in flat.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
         return String(hash, radix: 16)

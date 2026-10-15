@@ -213,6 +213,15 @@ final class CoordinationEvidenceVectorTests: XCTestCase {
         XCTAssertEqual(CollaborationPresentation.messageFingerprint(" hello  세계 🐙 "), "7518d6f74ec40e6e")
     }
 
+    func testWhitespaceCannotStallDaemonIntentMatching() {
+        let start = Date()
+        XCTAssertEqual(CollaborationPresentation.messageIntent("답변" + String(repeating: " ", count: 15990) + "x"), "unknown")
+        XCTAssertLessThan(Date().timeIntervalSince(start), 0.5)
+        XCTAssertEqual(CollaborationPresentation.messageFingerprint("\u{FEFF}hello\u{2003}world\u{FEFF}"), CollaborationPresentation.messageFingerprint("hello world"))
+        XCTAssertNotEqual(CollaborationPresentation.messageFingerprint("hello\u{0085}world"), CollaborationPresentation.messageFingerprint("hello world"))
+        XCTAssertEqual(CollaborationPresentation.messageIntent("Please reply. 응답이 필요 없습니다."), "notification")
+    }
+
     private func vectors() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
