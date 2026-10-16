@@ -154,3 +154,27 @@ immediate real reopen takes 2,002 ms. The new opener admits that descriptor
 while 19 independent 100 ms heartbeats run, then closes it and releases its own
 lease. This explains why the 1.5-second limit rejected a working native-USB
 port. No firmware was written.
+
+The corrected `386ec5a7` passes clean [full verification](verification/receipts/2026-10-16-386ec5a.json)
+with 24 automatic passes and 5,915 Vitest cases; the same two skips and three
+unattested lab gates remain explicit. It is installed in the supervised daemon
+at port 9120, PID 62314, content build `b1524d53289f`, with the original network
+posture and device modules enabled. Native sources and the installed app's code
+library hash are unchanged from the earlier verified deployment.
+
+The final ten-minute observation has 299 successful health probes (median 6 ms,
+p95 20 ms, maximum 154 ms), 177 roster frames all containing ten sessions, and
+no health errors, observer WebSocket errors or unexpected closes. The installed
+app has established TCP connections to the selected 9120 daemon at both
+checkpoints; these snapshots do not certify one uninterrupted app WebSocket. This is bounded runtime
+evidence, not a guarantee about every later wake or hardware condition.
+
+Serial ports recover beyond the five-port short-deadline regression, but their
+write-confirmed connection count cycles between seven and eleven; five boards
+have fresh read-confirmed device information. The existing raw CDC path also
+accepts recent successful writes with cached board identity and recycles silent
+connections. Fresh reads from every CDC board are not certified by this run.
+The actual Collaboration/Default habitat timer checks were completed before the
+final Node-only serial correction; later GUI capture again reports the lock.
+The original 3D Preview preference is restored, with its scene-capture limitation
+kept separate from the verified Default creature relationships.
