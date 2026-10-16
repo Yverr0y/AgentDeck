@@ -78,6 +78,25 @@ final class HookInstallerStatuslineTests: XCTestCase {
                        HookInstaller.buildStatuslineRelayCommand(original: user))
     }
 
+    func testSettingsPolicyMirrorsTheCliInstallers() {
+        // `.on` installs the relay even with no status line configured.
+        let none: [String: Any] = ["hooks": [:]]
+        let on = HookInstaller.applyStatuslineRelay(none, policy: .on)
+        XCTAssertEqual((on["statusLine"] as? [String: Any])?["command"] as? String,
+                       HookInstaller.buildStatuslineRelayCommand(original: nil))
+        // `.auto` keeps a relay the user turned on earlier.
+        XCTAssertEqual((HookInstaller.applyStatuslineRelay(on, policy: .auto)["statusLine"] as? [String: Any])?["command"] as? String,
+                       HookInstaller.buildStatuslineRelayCommand(original: nil))
+        // `.off` removes ours and restores the user's command; a foreign slot is untouched.
+        XCTAssertNil(HookInstaller.applyStatuslineRelay(on, policy: .off)["statusLine"])
+        let wrapped = HookInstaller.applyStatuslineRelay(["statusLine": ["type": "command", "command": user, "padding": 2]], policy: .auto)
+        let restored = HookInstaller.applyStatuslineRelay(wrapped, policy: .off)["statusLine"] as? [String: Any]
+        XCTAssertEqual(restored?["command"] as? String, user)
+        XCTAssertEqual(restored?["padding"] as? Int, 2)
+        let foreign: [String: Any] = ["statusLine": ["type": "command", "command": user]]
+        XCTAssertEqual((HookInstaller.applyStatuslineRelay(foreign, policy: .off)["statusLine"] as? [String: Any])?["command"] as? String, user)
+    }
+
     func testRemoveRestoresTheUserCommandOrDropsARelayOnlySlot() {
         let wrapped = HookInstaller.applyStatuslineRelay(["statusLine": ["type": "command", "command": user, "padding": 1]])
         let restored = HookInstaller.removeStatuslineRelay(wrapped)["statusLine"] as? [String: Any]

@@ -6,7 +6,11 @@ import { createServer, type Server } from 'node:http';
 import { spawn } from 'node:child_process';
 import {
   STATUSLINE_RELAY_MARKER,
+  WINDOWS_STATUSLINE_SCRIPT,
   buildStatuslineRelayCommand,
+  buildStatuslineRelayCommandWin,
+  windowsStatuslineScriptPath,
+  ensureWindowsStatuslineScript,
   isAgentDeckStatuslineCommand,
   unwrapStatuslineCommand,
   applyStatuslineRelay,
@@ -158,11 +162,15 @@ describe('applyStatuslineRelay policy', () => {
     expect(noCommand.statusLine).toEqual({ type: 'command' });
   });
 
-  it('is POSIX-only for now', () => {
-    const settings: any = { statusLine: { type: 'command', command: USER_STATUSLINE } };
-    const result = applyStatuslineRelay(settings, 'on', 'win32');
-    expect(result.installed).toBe(false);
-    expect(settings.statusLine.command).toBe(USER_STATUSLINE);
+  it('picks the PowerShell-file form on win32 and the shell snippet elsewhere', () => {
+    const win: any = { statusLine: { type: 'command', command: USER_STATUSLINE } };
+    expect(applyStatuslineRelay(win, 'auto', 'win32', 'C:\\Users\\dev').installed).toBe(true);
+    expect(win.statusLine.command).toContain('agentdeck-statusline.ps1');
+    expect(win.statusLine.command).not.toContain(STATUSLINE_RELAY_MARKER);
+    const posix: any = { statusLine: { type: 'command', command: USER_STATUSLINE } };
+    expect(applyStatuslineRelay(posix, 'auto', 'linux').installed).toBe(true);
+    expect(posix.statusLine.command).toContain(STATUSLINE_RELAY_MARKER);
+    expect(posix.statusLine.command).not.toContain('agentdeck-statusline.ps1');
   });
 
   it('removeStatuslineRelay restores the user command verbatim and drops a relay-only slot', () => {
@@ -199,6 +207,118 @@ describe('applyStatuslineRelay policy', () => {
     expect(statuslinePolicyFromEnv({ AGENTDECK_STATUSLINE: 'ON' })).toBe('on');
     expect(statuslinePolicyFromEnv({ AGENTDECK_STATUSLINE: '0' })).toBe('off');
     expect(statuslinePolicyFromEnv({ AGENTDECK_STATUSLINE: 'maybe' })).toBe('auto');
+  });
+});
+
+describe('Windows relay (PowerShell file)', () => {
+  const home = 'C:\\Users\\dev';
+
+  it('invokes the script by path with the user command as base64 — nothing for sh to expand or quote', () => {
+    const cmd = buildStatuslineRelayCommandWin(USER_STATUSLINE, home);
+    expect(cmd.startsWith(`powershell -NoProfile -ExecutionPolicy Bypass -File "${windowsStatuslineScriptPath(home)}" -OriginalB64 `)).toBe(true);
+    expect(cmd).not.toContain('$');
+    expect(cmd).not.toContain("'");
+    expect(isAgentDeckStatuslineCommand(cmd)).toBe(true);
+    expect(unwrapStatuslineCommand(cmd)).toBe(USER_STATUSLINE);
+    const alone = buildStatuslineRelayCommandWin(null, home);
+    expect(alone).not.toContain('-OriginalB64');
+    expect(unwrapStatuslineCommand(alone)).toBe('');
+  });
+
+  it.each([
+    ['~/.claude/statusline.sh'],
+    ['input=$(cat)\nMODEL=$(echo "$input" | jq -r \'.model.display_name\')\necho "[$MODEL] 사용량 ✓"'],
+    ['  npx -y ccstatusline@latest  \n'],
+  ])('round-trips multi-line and non-ASCII commands through base64: %s', (original) => {
+    const cmd = buildStatuslineRelayCommandWin(original, home);
+    expect(unwrapStatuslineCommand(cmd)).toBe(original.trim());
+    expect(buildStatuslineRelayCommandWin(unwrapStatuslineCommand(cmd), home)).toBe(cmd);
+  });
+
+  it('applyStatuslineRelay on win32 wraps into the script form; refresh is a no-op; remove restores', () => {
+    const settings: any = { statusLine: { type: 'command', command: USER_STATUSLINE, padding: 0 } };
+    expect(applyStatuslineRelay(settings, 'auto', 'win32', home)).toEqual({ installed: true, wrapped: true });
+    expect(settings.statusLine.command).toBe(buildStatuslineRelayCommandWin(USER_STATUSLINE, home));
+    expect(settings.statusLine.padding).toBe(0);
+    expect(refreshStatuslineRelay(settings, 'win32', home)).toBe(false);
+    expect(removeStatuslineRelay(settings)).toBe(true);
+    expect(settings.statusLine).toEqual({ type: 'command', command: USER_STATUSLINE, padding: 0 });
+
+    const none: any = {};
+    expect(applyStatuslineRelay(none, 'auto', 'win32', home).installed).toBe(false);
+    expect(applyStatuslineRelay(none, 'on', 'win32', home)).toEqual({ installed: true, wrapped: false });
+    expect(none.statusLine.command).toBe(buildStatuslineRelayCommandWin(null, home));
+    expect(applyStatuslineRelay(none, 'off', 'win32', home).reason).toContain('removed');
+    expect(none.statusLine).toBeUndefined();
+  });
+
+  it('the script is bounded, UTF-8 in and out, validates its one parameter, and never fails the status line', () => {
+    expect(WINDOWS_STATUSLINE_SCRIPT).toContain("'/claude/statusline'");
+    expect(WINDOWS_STATUSLINE_SCRIPT).toContain('-TimeoutSec 1');
+    expect(WINDOWS_STATUSLINE_SCRIPT).toContain('-TimeoutSec 2');
+    expect(WINDOWS_STATUSLINE_SCRIPT).toContain("ValidatePattern('^[A-Za-z0-9+/=]*$')");
+    expect(WINDOWS_STATUSLINE_SCRIPT).toContain('[System.Text.Encoding]::UTF8');
+    expect(WINDOWS_STATUSLINE_SCRIPT).toContain("$script.Replace('\\', '/')");
+    expect(WINDOWS_STATUSLINE_SCRIPT.trim().endsWith('exit 0')).toBe(true);
+  });
+
+  it('setup.ts ships the identical script', () => {
+    const setup = readFileSync(join(process.cwd(), 'setup/src/setup.ts'), 'utf-8');
+    const hooks = readFileSync(join(process.cwd(), 'hooks/src/install.ts'), 'utf-8');
+    const body = (source: string) => /WINDOWS_STATUSLINE_SCRIPT = `([\s\S]*?)`;/.exec(source)?.[1];
+    expect(body(setup)).toBeDefined();
+    expect(body(setup)).toBe(body(hooks));
+  });
+});
+
+describe.skipIf(process.platform !== 'win32')('the Windows relay script, executed', () => {
+  let server: Server | null = null;
+  const homes: string[] = [];
+  afterEach(async () => {
+    for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
+    if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
+    server = null;
+  });
+
+  it('POSTs the stdin document to the daemon named by daemon.json and runs the wrapped command through Git Bash', async () => {
+    const received: Array<{ path: string; body: string }> = [];
+    server = createServer((req, res) => {
+      let body = '';
+      req.setEncoding('utf8');
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        received.push({ path: req.url ?? '', body });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(req.method === 'GET' ? '{"status":"ok"}' : '{"received":true}');
+      });
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', () => resolve()));
+    const port = (server.address() as { port: number }).port;
+
+    const home = tempHome(); homes.push(home);
+    mkdirSync(join(home, '.agentdeck'), { recursive: true });
+    writeFileSync(join(home, '.agentdeck', 'daemon.json'), JSON.stringify({ port }));
+    const script = ensureWindowsStatuslineScript(home);
+
+    const document = JSON.stringify({ session_id: 'win-probe', rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 } }, note: '한글 résumé' });
+    const original = `printf 'wrapped:%s' "$(cat | wc -c | tr -d ' ')"`;
+    const encoded = Buffer.from(original, 'utf-8').toString('base64');
+    const { stdout, code } = await new Promise<{ stdout: string; code: number | null }>((resolve, reject) => {
+      const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-OriginalB64', encoded], {
+        env: { ...process.env, USERPROFILE: home }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let out = '';
+      child.stdout.setEncoding('utf-8');
+      child.stdout.on('data', (chunk: string) => { out += chunk; });
+      child.on('error', reject);
+      child.on('close', (c) => resolve({ stdout: out, code: c }));
+      child.stdin.end(document);
+    });
+
+    expect(code).toBe(0);
+    expect(received.map((r) => r.path)).toEqual(['/health', '/claude/statusline']);
+    expect(received[1].body).toBe(document);
+    expect(stdout).toBe(`wrapped:${Buffer.byteLength(document)}`);
   });
 });
 

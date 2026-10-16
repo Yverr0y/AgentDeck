@@ -20,6 +20,16 @@ final class AppPreferences: ObservableObject, @unchecked Sendable {
         case declined
     }
 
+    /// Claude status-line relay policy, mirroring the CLI installers'
+    /// `StatuslinePolicy`: `auto` wraps a status line the user already has,
+    /// `on` installs the relay even without one (Claude Code then hides its
+    /// footer hints — the user's explicit choice), `off` removes it.
+    enum StatuslineRelayPolicy: String, Codable, CaseIterable {
+        case auto
+        case on
+        case off
+    }
+
     enum DashboardType: String, CaseIterable, Identifiable {
         case standard
         case aquarium3D = "aquarium3d"
@@ -251,6 +261,12 @@ final class AppPreferences: ObservableObject, @unchecked Sendable {
         didSet { defaults.set(hooksInstalled, forKey: Keys.hooksInstalled) }
     }
 
+    /// Settings → Claude Code → status-line relay. `HookInstaller` applies it
+    /// on every `installIfNeeded()`; `.auto` is the default.
+    @Published var statuslineRelayPolicy: StatuslineRelayPolicy {
+        didSet { defaults.set(statuslineRelayPolicy.rawValue, forKey: Keys.statuslineRelayPolicy) }
+    }
+
     /// Tri-state consent for editing `~/.codex/config.toml`. Mirrors the
     /// Claude `hookInstallConsent` pattern — `.unknown` on fresh install →
     /// `CodexConfigInstaller` no-ops until the user opts in via Settings.
@@ -365,6 +381,7 @@ final class AppPreferences: ObservableObject, @unchecked Sendable {
         self.displaySleepDimLevel = defaults.object(forKey: Keys.displaySleepDimLevel) as? Int ?? 10
         self.hookInstallConsent = HookInstallConsent(rawValue: defaults.string(forKey: Keys.hookInstallConsent) ?? "") ?? .unknown
         self.hooksInstalled = defaults.object(forKey: Keys.hooksInstalled) as? Bool ?? false
+        self.statuslineRelayPolicy = StatuslineRelayPolicy(rawValue: defaults.string(forKey: Keys.statuslineRelayPolicy) ?? "") ?? .auto
         self.codexConfigConsent = HookInstallConsent(rawValue: defaults.string(forKey: Keys.codexConfigConsent) ?? "") ?? .unknown
         self.codexConfigInstalled = defaults.object(forKey: Keys.codexConfigInstalled) as? Bool ?? false
         self.hasSeenDevicePreview = defaults.object(forKey: Keys.hasSeenDevicePreview) as? Bool ?? false
@@ -1002,6 +1019,7 @@ final class AppPreferences: ObservableObject, @unchecked Sendable {
         static let displaySleepDimLevel = "prefs.displaySleepDimLevel"
         static let hookInstallConsent = "prefs.hookInstallConsent"
         static let hooksInstalled = "prefs.hooksInstalled"
+        static let statuslineRelayPolicy = "prefs.statuslineRelayPolicy"
         static let claudeSettingsBookmark = "prefs.claudeSettingsBookmark"
         static let claudeSettingsPath = "prefs.claudeSettingsPath"
         static let codexConfigConsent = "prefs.codexConfigConsent"

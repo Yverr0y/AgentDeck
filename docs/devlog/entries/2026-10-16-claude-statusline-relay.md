@@ -38,7 +38,13 @@ each daemon the safe maximum it can have. Contract:
 - Swift: `POST /claude/statusline` on the in-process daemon; a reading becomes
   `cachedApiUsage` with `fetchedAt` at receipt, and a sibling relay or direct
   read that arrives while the status line is fresh only refreshes the scoped
-  caps instead of replacing the live numbers.
+  caps instead of replacing the live numbers. `/health.claudeUsage` names the
+  source for parity, and Settings → Claude Code carries the same Wrap /
+  Always / Off policy as the CLI.
+- Windows: `~/.agentdeck/agentdeck-statusline.ps1`, a PowerShell file beside
+  the hook script (same `$`-expansion reason); the user's own command rides as
+  base64 on the command line and runs through Git Bash with the same document
+  on its stdin. Exercised by the Windows CI job.
 
 **Measured.** Isolated probe first (worktree build, `--local --loopback -p 9200
 --port-window 9200-9209`, its own data dir, one WebSocket client connected): a
@@ -107,8 +113,7 @@ machine. A throwaway daemon beside the real one needs `--port-window 9200-9209`
 (the singleton guard sweeps the default window and concedes to the incumbent)
 and `--no-build` (newer test files read as stale sources and trigger a rebuild).
 
-**Left open.** Windows (the hook body is a PowerShell file for the `$`-expansion
-reason; the relay has no such file yet). A Settings toggle in the macOS app for
-the relay-only case. The Swift `/health` has no `claudeUsage` block yet. The
-status-line document also carries per-session `context_window.used_percentage`,
-`cost` and `prompt_cache`; nothing reads them yet.
+**Left open.** The status-line document also carries per-session
+`context_window.used_percentage`, `cost` and `prompt_cache`; nothing reads
+them yet. The Windows script's Git Bash hand-off is covered by CI, not by a
+desk here.

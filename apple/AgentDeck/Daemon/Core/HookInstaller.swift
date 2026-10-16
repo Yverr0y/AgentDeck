@@ -84,7 +84,7 @@ enum HookInstaller {
         let before = settingsJSON(settings)
 
         settings = applyHooks(settings)
-        settings = applyStatuslineRelay(settings)
+        settings = applyStatuslineRelay(settings, policy: AppPreferences.shared.statuslineRelayPolicy)
 
         let after = settingsJSON(settings)
         guard before != after else {
@@ -399,10 +399,16 @@ enum HookInstaller {
         return body
     }
 
-    /// The App Store app's policy is `auto` only: wrap a status line the user
-    /// already has (or refresh ours), never add one — a configured status line
-    /// hides Claude Code's footer hints, and that choice stays the user's.
-    static func applyStatuslineRelay(_ settings: [String: Any]) -> [String: Any] {
+    /// Same policy as the CLI installers (`StatuslinePolicy`): `.auto` wraps a
+    /// status line the user already has (or refreshes ours) and never adds one;
+    /// `.on` installs the relay even with no status line — Claude Code then
+    /// hides its footer hints, so it is the user's explicit choice in Settings;
+    /// `.off` removes an installed relay, restoring the user's own command.
+    static func applyStatuslineRelay(
+        _ settings: [String: Any],
+        policy: AppPreferences.StatuslineRelayPolicy = .auto
+    ) -> [String: Any] {
+        if policy == .off { return removeStatuslineRelay(settings) }
         var s = settings
         if let current = s["statusLine"], !(current is NSNull), !(current is [String: Any]) { return s }
         let dict = s["statusLine"] as? [String: Any] ?? [:]
@@ -410,7 +416,7 @@ enum HookInstaller {
         let ours = isAgentDeckStatuslineCommand(command)
         if !dict.isEmpty, !ours, !(command is String) { return s }
         let original = ours ? (unwrapStatuslineCommand(command) ?? "") : (command as? String ?? "")
-        if original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !ours { return s }
+        if original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !ours, policy != .on { return s }
         var next = dict
         next["type"] = "command"
         next["command"] = buildStatuslineRelayCommand(original: original)

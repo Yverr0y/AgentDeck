@@ -2318,6 +2318,31 @@ struct SettingsScreen: View {
                 .buttonStyle(.bordered)
                 .disabled(!preferences.hooksInstalled)
             }
+
+            // Claude status-line relay — the token-free source of the Claude
+            // usage gauge. Same three-way policy as the CLI installers; a
+            // change re-applies the hooks file under the existing consent.
+            if preferences.hooksInstalled {
+                Text("Claude usage via the status line")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.top, 4)
+                Picker("Status-line relay", selection: $preferences.statuslineRelayPolicy) {
+                    Text("Wrap mine").tag(AppPreferences.StatuslineRelayPolicy.auto)
+                    Text("Always").tag(AppPreferences.StatuslineRelayPolicy.on)
+                    Text("Off").tag(AppPreferences.StatuslineRelayPolicy.off)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 260)
+                .onChange(of: preferences.statuslineRelayPolicy) { _, _ in
+                    HookInstaller.installIfNeeded()
+                }
+                Text("Forwards Claude Code's own rate_limits to the daemon for the Claude usage gauge — no token involved. Wrap mine: only around a status line you already have. Always: installs one even without yours, which makes Claude Code hide its footer hints. Off: removes it and restores yours.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(TerrariumHUD.subtext)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

@@ -3281,6 +3281,8 @@ final class DaemonServer {
             }
             // Get judge backend status as Sendable value
             let judgeBackend = await DaemonActor.run { [weak self] in self?.cachedJudgeBackendStatus }
+            // Claude gauge source (status-line relay vs OAuth-family), Node parity.
+            let claudeUsage = await DaemonActor.run { [weak self] in self?.claudeUsageHealth() }
             var payload: [String: Any] = [
                 "status": "ok", "mode": "daemon", "port": daemonPort,
                 "pid": ProcessInfo.processInfo.processIdentifier,
@@ -3300,6 +3302,16 @@ final class DaemonServer {
             ]
             if let m = focus.model { payload["modelName"] = m }
             if let e = focus.effort { payload["effortLevel"] = e }
+            if let cu = claudeUsage {
+                payload["claudeUsage"] = [
+                    "source": cu.source ?? NSNull(),
+                    "statuslineReceivedAt": cu.receivedAtMs ?? NSNull(),
+                    "statuslineAge": cu.age,
+                    "statuslineSession": cu.session ?? NSNull(),
+                    "lastOAuthFetchAt": cu.lastOAuthFamilyMs ?? NSNull(),
+                    "statuslineLive": cu.live,
+                ] as [String: Any]
+            }
             // Add APME/MLX backend status for parity with CLI daemon
             if let jb = judgeBackend {
                 var judgeStatus: [String: Any] = [
@@ -10034,6 +10046,30 @@ final class DaemonServer {
             && ClaudeStatuslineRules.age(
                 receivedAtMs: claudeStatusline?.receivedAtMs,
                 nowMs: Date().timeIntervalSince1970 * 1000) == .fresh
+    }
+
+    /// `/health.claudeUsage`, Node parity (`BridgeCore.claudeUsageDiagnostics`):
+    /// which source feeds the Claude gauge and whether the status line is live.
+    /// A tuple of Sendable values so the nonisolated `/health` closure can
+    /// carry it across the actor hop.
+    func claudeUsageHealth() -> (source: String?, receivedAtMs: Int?, age: String, session: String?, lastOAuthFamilyMs: Int?, live: Bool) {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        let age: String
+        switch ClaudeStatuslineRules.age(receivedAtMs: claudeStatusline?.receivedAtMs, nowMs: nowMs) {
+        case .fresh: age = "fresh"
+        case .aged: age = "aged"
+        case .unknown: age = "unknown"
+        }
+        let lastOAuth: Int? = lastOAuthFamilyFetchTime == .distantPast
+            ? nil : Self.wireEpochMs(lastOAuthFamilyFetchTime.timeIntervalSince1970 * 1000)
+        return (
+            claudeUsageSource,
+            claudeStatusline.map { Self.wireEpochMs($0.receivedAtMs) },
+            age,
+            claudeStatusline?.sessionId,
+            lastOAuth,
+            claudeStatuslineIsLive
+        )
     }
 
     private func foldOAuthFamilyReading(_ reading: ApiUsageData, source: String) -> ApiUsageData {
