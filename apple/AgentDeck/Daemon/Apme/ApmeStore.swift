@@ -1277,6 +1277,8 @@ final class ApmeStore: @unchecked Sendable {
         case "relation":
             // Mirrors bridge/src/apme/store.ts sampleEventRowToTrajectory.
             out["relationId"] = p["relationId"]
+            if let intent = p["messageIntent"] as? String, ["request", "notification", "response", "unknown"].contains(intent) { out["messageIntent"] = intent }
+            if let fingerprint = p["messageFingerprint"] as? String, fingerprint.range(of: #"^[a-f0-9]{1,16}$"#, options: .regularExpression) != nil { out["messageFingerprint"] = fingerprint }
             let relation = p["relation"] as? String
             out["relation"] = (relation == "spawned" || relation == "messaged") ? relation! : "waiting_on"
             out["direction"] = (p["direction"] as? String) == "in" ? "in" : "out"

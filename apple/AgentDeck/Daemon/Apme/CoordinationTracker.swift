@@ -35,6 +35,8 @@ struct CoordinationRelation: Sendable, Equatable {
     let detail: String?
     let ts: Int
     let key: String
+    var messageIntent: String? = nil
+    var messageFingerprint: String? = nil
 }
 
 struct CoordinationSummaryValue: Sendable, Equatable {
@@ -221,7 +223,9 @@ final class CoordinationTracker {
             sessionId: sessionId, relation: "messaged", direction: "in", phase: "closed",
             peerSessionId: peerSessionId, peerName: env.fromName, evidence: "cross_session_message",
             detail: env.body.isEmpty ? nil : env.body, ts: ts,
-            key: "\(env.fromPid.map(String.init) ?? env.fromName ?? "peer"):\(ts)")
+            key: "\(env.fromPid.map(String.init) ?? env.fromName ?? "peer"):\(ts)",
+            messageIntent: CollaborationPresentation.messageIntent(env.fullBody),
+            messageFingerprint: CollaborationPresentation.messageFingerprint(env.fullBody))
     }
 
     func noteToolCall(sessionId: String, toolName: String?, toolInput: [String: Any]?) -> CoordinationRelation? {
@@ -239,7 +243,9 @@ final class CoordinationTracker {
                 sessionId: sessionId, relation: "messaged", direction: "out", phase: "closed",
                 peerSessionId: peerSessionId, peerName: peerName, evidence: "send_message_tool",
                 detail: target.summary, ts: ts,
-                key: "\(target.peerPid.map(String.init) ?? target.peerName ?? "peer"):\(ts)")
+                key: "\(target.peerPid.map(String.init) ?? target.peerName ?? "peer"):\(ts)",
+                messageIntent: CollaborationPresentation.messageIntent(toolInput?["message"] as? String),
+                messageFingerprint: CollaborationPresentation.messageFingerprint(toolInput?["message"] as? String))
         }
         if toolName == "Bash" {
             let command = toolInput?["command"] as? String

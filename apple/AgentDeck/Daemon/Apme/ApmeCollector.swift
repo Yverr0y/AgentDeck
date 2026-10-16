@@ -740,7 +740,7 @@ final class ApmeCollector {
     func noteRelation(
         sessionId: String, relation: String, direction: String, phase: String,
         peerSessionId: String?, peerName: String?, evidence: String, detail: String?,
-        ts: Int, key: String
+        ts: Int, key: String, messageIntent: String? = nil, messageFingerprint: String? = nil
     ) -> Bool {
         guard let task = sessionToTask[sessionId] else { return false }
         var payload: [String: Any] = [
@@ -749,6 +749,8 @@ final class ApmeCollector {
         if let peerSessionId, !peerSessionId.isEmpty { payload["peerSessionId"] = peerSessionId }
         if let peerName, !peerName.isEmpty { payload["peerName"] = peerName }
         if let detail, !detail.isEmpty { payload["detail"] = detail }
+        if let messageIntent { payload["messageIntent"] = messageIntent }
+        if let messageFingerprint { payload["messageFingerprint"] = messageFingerprint }
         let turnIndex = task.lastTurnIndex ?? task.firstTurnIndex ?? 0
         return appendSampleEvent(
             taskId: task.id, runId: task.runId, turnIndex: turnIndex,
@@ -759,7 +761,7 @@ final class ApmeCollector {
     /// live from 2.1.261: `<cross-session-message from="uds:/…/<pid>.sock"
     /// from-name="…" from-mode="…">` — the socket basename is the SENDER's pid.
     /// Mirrors bridge/src/coordination-evidence.ts `parseCrossSessionEnvelope`.
-    nonisolated static func parseCrossSessionEnvelope(_ prompt: String) -> (fromPid: Int?, fromName: String?, body: String)? {
+    nonisolated static func parseCrossSessionEnvelope(_ prompt: String) -> (fromPid: Int?, fromName: String?, body: String, fullBody: String)? {
         guard let open = prompt.range(of: "<cross-session-message"),
               let close = prompt[open.upperBound...].firstIndex(of: ">") else { return nil }
         let attrs = String(prompt[open.upperBound..<close])
@@ -774,12 +776,13 @@ final class ApmeCollector {
         if let from = attr("from"), let sock = from.split(separator: "/").last,
            sock.hasSuffix(".sock"), let n = Int(sock.dropLast(5)), n > 0 { pid = n }
         var body = String(prompt[prompt.index(after: close)...])
-        if let blank = body.range(of: "\n\\s*\n", options: .regularExpression) {
+        if body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("This came from another Claude session"),
+           let blank = body.range(of: "\n\\s*\n", options: .regularExpression) {
             body = String(body[blank.upperBound...])
         }
         if let closing = body.range(of: "</cross-session-message>") { body = String(body[..<closing.lowerBound]) }
         let flat = body.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        return (pid, attr("from-name"), String(flat.prefix(140)))
+        return (pid, attr("from-name"), String(flat.prefix(140)), body)
     }
 
     /// The `to` of a SendMessage tool call: a session name or a `uds:` path.

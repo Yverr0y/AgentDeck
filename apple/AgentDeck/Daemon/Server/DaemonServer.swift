@@ -5531,7 +5531,7 @@ final class DaemonServer {
         apmeCollector?.noteRelation(
             sessionId: r.sessionId, relation: r.relation, direction: r.direction, phase: r.phase,
             peerSessionId: r.peerSessionId, peerName: r.peerName, evidence: r.evidence, detail: r.detail,
-            ts: r.ts, key: r.key)
+            ts: r.ts, key: r.key, messageIntent: r.messageIntent, messageFingerprint: r.messageFingerprint)
     }
 
     /// The process table the last tick read; reused by `registerPid` so a hook

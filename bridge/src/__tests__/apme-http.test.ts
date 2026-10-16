@@ -91,7 +91,7 @@ describe('APME HTTP routes', () => {
       ] as const) {
         apme!.collector.noteRelation(sid, { relation, direction: sid === 'sender' ? 'out' : 'in',
           phase: 'closed', peerSessionId: sid === 'sender' ? 'receiver' : 'sender',
-          peerName: 'peer', evidence: 'test', detail: 'x'.repeat(300), ts, key });
+          peerName: 'peer', evidence: 'test', detail: 'x'.repeat(300), ts, key, messageIntent: 'request', messageFingerprint: 'abc' });
       }
     }
     const response = await fetch(`${base}/apme/communications`);
@@ -104,6 +104,8 @@ describe('APME HTTP routes', () => {
     expect(value.capturedAt - value.since).toBe(86_400_000);
     for (const event of value.events) {
       expect(event.relation).toBe('messaged');
+      expect(event.messageIntent).toBe('request');
+      expect(event.messageFingerprint).toBe('abc');
       expect(event.detail).toHaveLength(140);
       expect(event.input).toBeUndefined();
       expect(event.text).toBeUndefined();

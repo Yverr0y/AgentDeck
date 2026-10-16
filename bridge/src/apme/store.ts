@@ -2407,6 +2407,9 @@ function sampleEventRowToTrajectory(r: ApmeSampleEventRow): TrajectoryEvent | nu
         ...base,
         kind: 'relation',
         relationId: (p.relationId as string | null) ?? null,
+        messageIntent: ['request', 'notification', 'response', 'unknown'].includes(p.messageIntent as string)
+          ? p.messageIntent as import('@agentdeck/shared').CommunicationIntent : null,
+        messageFingerprint: typeof p.messageFingerprint === 'string' && /^[a-f0-9]{1,16}$/.test(p.messageFingerprint) ? p.messageFingerprint : null,
         relation: p.relation === 'spawned' || p.relation === 'messaged' ? p.relation : 'waiting_on',
         direction: p.direction === 'in' ? 'in' : 'out',
         phase: p.phase === 'closed' ? 'closed' : 'open',

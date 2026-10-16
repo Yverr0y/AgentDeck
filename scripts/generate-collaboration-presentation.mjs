@@ -17,13 +17,34 @@ inline int phase(bool attention, bool working, int children, int spawned, int jo
 }
 export function emitSwift(p, phaseSource) {
  const predicate=phaseSource.match(/return ([^;]+);/)[1];
- return `${header}enum CollaborationPresentation {
+ return `${header}import Foundation
+enum CollaborationPresentation {
     static let heading = "${p.heading}"
     static let scope = "${p.scope}"
 ${Object.entries(p.network).map(([key,value])=>`    static let network${key[0].toUpperCase()+key.slice(1)} = ${value}`).join('\n')}
 ${Object.entries(p.aquarium).map(([key,value])=>`    static let aquarium${key[0].toUpperCase()+key.slice(1)} = ${value}`).join('\n')}
     static let labels = [${p.metrics.map(m=>JSON.stringify(m.label)).join(',')}]
     static let symbols = [${p.metrics.map(m=>JSON.stringify(m.symbol)).join(',')}]
+    static func normalizedMessageText(_ body: String) -> String {
+        body.replacingOccurrences(of: #"${p.messageIntent.whitespace}+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " "))
+    }
+    static func messageIntent(_ body: String?) -> String {
+        guard let body, body.unicodeScalars.count <= ${p.messageIntent.maxCharacters} else { return "unknown" }
+        let text = normalizedMessageText(body.replacingOccurrences(of: #"\`\`\`[\\s\\S]*?\`\`\`"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\`[^\`\\n]*\`"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\"[^\"\\n]*\"|“[^”\\n]*”|‘[^’\\n]*’"#, with: "", options: .regularExpression)
+            .components(separatedBy: "\\n").filter { $0.range(of: #"^\\s*>"#, options: .regularExpression) == nil }.joined(separator: "\\n"))
+${['noReply','request','response','notification'].map(key=>`        if text.range(of: #"${p.messageIntent[key]}"#, options: [.regularExpression, .caseInsensitive]) != nil { return "${key==='noReply'?'notification':key}" }`).join('\n')}
+        return "unknown"
+    }
+    static func messageFingerprint(_ body: String?) -> String? {
+        guard let body, body.unicodeScalars.count <= ${p.messageIntent.maxCharacters} else { return nil }
+        let flat = normalizedMessageText(body)
+        var hash: UInt64 = 14695981039346656037
+        for byte in flat.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        return String(hash, radix: 16)
+    }
     static func phase(_ attention: Bool, _ working: Bool, _ children: Int, _ spawned: Int, _ jobs: Int) -> Int {
         return ${predicate}
     }
