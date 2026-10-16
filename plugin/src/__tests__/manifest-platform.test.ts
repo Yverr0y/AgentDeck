@@ -4,6 +4,11 @@ import { describe, expect, it } from 'vitest';
 interface PluginManifest {
   Version: string;
   OS: Array<{ Platform: string; MinimumVersion: string }>;
+  Profiles: Array<{
+    Name: string;
+    AutoInstall: boolean;
+    DontAutoSwitchWhenInstalled: boolean;
+  }>;
 }
 
 const manifest = JSON.parse(readFileSync(
@@ -32,5 +37,20 @@ describe('Stream Deck Marketplace platform contract', () => {
   it('mirrors the plugin package version as X.Y.Z.0', () => {
     expect(manifest.Version).toBe(`${pkg.version}.0`);
     expect(manifest.Version).toMatch(/^\d+\.\d+\.\d+\.0$/);
+  });
+});
+
+describe('bundled profile selection contract', () => {
+  it('installs every bundled profile without replacing the user-selected profile', () => {
+    expect(manifest.Profiles).toHaveLength(5);
+    for (const profile of manifest.Profiles) {
+      expect(profile.AutoInstall, profile.Name).toBe(true);
+      expect(profile.DontAutoSwitchWhenInstalled, profile.Name).toBe(true);
+    }
+  });
+
+  it('does not programmatically switch profiles after connecting', () => {
+    const pluginSource = readFileSync(new URL('../plugin.ts', import.meta.url), 'utf8');
+    expect(pluginSource).not.toMatch(/profiles\.switchToProfile\s*\(/);
   });
 });
