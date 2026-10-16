@@ -3318,6 +3318,7 @@ program
   .description('Test observed-answer injection into a terminal or app (tuning aid)')
   .option('--tty <tty>', 'Controlling terminal, e.g. ttys007')
   .option('--app <name>', 'Hosting app for GUI sessions, e.g. Claude / ChatGPT')
+  .option('--pid <pid>', 'Agent process id — lets the cmux rung find the surface it runs in')
   .option('--label <label>', 'Option label — app hosts press the matching button first')
   .option('-i, --index <n>', 'Zero-based option index (Down presses)', '0')
   .option('--text <text>', 'Type this text and submit it, instead of picking an option')
@@ -3325,18 +3326,20 @@ program
     if (!opts.tty && !opts.app) {
       console.error('Give --tty <ttysNNN> or --app <Name>. Find a session\'s tty with:');
       console.error("  ps -eo pid=,tty=,command= | grep -E ' claude| codex'");
+      console.error('Add --pid <pid> from the same line to reach a session running in cmux.');
       process.exit(1);
     }
     const { injectObservedSelection, injectObservedText } =
       await import('./observed-inject.js');
     const index = parseInt(opts.index, 10) || 0;
+    const pid = opts.pid ? parseInt(opts.pid, 10) || undefined : undefined;
     // --text exercises the dictation path (voice → prompt), which submits a
     // whole line; without it only the option-picking path was testable, and
     // "the text arrived but nothing was submitted" had no repro.
     const result = opts.text
-      ? await injectObservedText({ tty: opts.tty, appName: opts.app }, opts.text)
+      ? await injectObservedText({ tty: opts.tty, appName: opts.app, pid }, opts.text)
       : await injectObservedSelection(
-        { tty: opts.tty, appName: opts.app, label: opts.label }, index,
+        { tty: opts.tty, appName: opts.app, pid, label: opts.label }, index,
       );
     if (result.ok) {
       console.log(opts.text

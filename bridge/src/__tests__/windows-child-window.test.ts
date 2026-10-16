@@ -32,7 +32,7 @@ const SRC_ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 /** Binaries with no Windows counterpart: a spawn of these cannot draw a window. */
 const POSIX_ONLY = new Set([
-  'afplay', 'airport', 'chmod', 'codesign', 'defaults', 'ioreg', 'killall', 'launchctl',
+  'afplay', 'airport', 'chmod', 'cmux', 'codesign', 'defaults', 'ioreg', 'killall', 'launchctl',
   'lsof', 'networksetup', 'open', 'osascript', 'pgrep', 'plutil', 'pmset', 'ps', 'say',
   'screencapture', 'security', 'sqlite3', 'stty', 'sysctl', 'systemctl', 'tmux', 'tty',
   'uptime', 'vm_stat', 'which', 'xcodebuild',

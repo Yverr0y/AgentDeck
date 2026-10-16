@@ -10,17 +10,23 @@
  *   Terminal-hosted (`tty` known) — the session runs in a real terminal, so
  *   the answer is keystrokes into that terminal's own input:
  *     1. tmux — the pane whose `#{pane_tty}` matches gets `send-keys`.
- *     2. iTerm2 — the session whose `tty` matches gets `write text` (no focus
+ *     2. cmux — the agent process inherited `CMUX_SURFACE_ID` from the surface
+ *        it was started in; `cmux send` / `send-key` type into that surface
+ *        (no focus change). Read from the process's own environment, so the
+ *        match is exact rather than by tty. Once this rung knows the host is
+ *        cmux it never falls through: the AppleScript rungs below would only
+ *        raise Automation prompts for an app that does not own the tty.
+ *     3. iTerm2 — the session whose `tty` matches gets `write text` (no focus
  *        change; iTerm2 writes straight into the session).
- *     3. Terminal.app — has no write API, so: select the tab owning that tty
+ *     4. Terminal.app — has no write API, so: select the tab owning that tty
  *        (scriptable, no activation) and post keys to Terminal's pid.
  *
  *   App-hosted (`appName` known, no tty) — Claude.app / ChatGPT.app run the
  *   agent inside a native window, so the answer is that window's own control:
- *     4. Press the button whose title matches the chosen option's label
+ *     5. Press the button whose title matches the chosen option's label
  *        (AXPress — precise; works for native AppKit dialogs).
- *     5. Post keys to the app's pid (focus-free).
- *     6. Raise + keys + restore, only if the app ignores posted events.
+ *     6. Post keys to the app's pid (focus-free).
+ *     7. Raise + keys + restore, only if the app ignores posted events.
  *
  * Every rung is focus-free except the last: measured 2026-07-26, keys posted
  * with `CGEventPostToPid` reached a background Terminal tab while iTerm2
@@ -36,12 +42,14 @@
  *     button rung cannot see its controls — key posting is the working path
  *     for that host.
  *
- * Node-daemon only by design: every rung needs a subprocess (tmux/osascript),
- * which the App Store Swift daemon must never spawn. See
- * docs/appstore-feature-matrix.md.
+ * Node-daemon only by design: every rung needs a subprocess
+ * (tmux/cmux/osascript), which the App Store Swift daemon must never spawn.
+ * See docs/appstore-feature-matrix.md.
  */
 
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
+import { isAbsolute } from 'path';
 import { promisify } from 'util';
 import { debug } from './logger.js';
 
@@ -55,6 +63,9 @@ export interface InjectTarget {
   /** Visible label of the chosen option — lets app-hosted rungs press the
    *  matching native button instead of guessing at cursor movement. */
   label?: string;
+  /** The agent process itself. The cmux rung reads the surface that process
+   *  was started in from its environment, which a tty cannot tell apart. */
+  pid?: number;
 }
 
 /** Known bundle ids for GUI agent hosts — matched before localized names,
@@ -68,7 +79,7 @@ const APP_BUNDLE_IDS: Record<string, string[]> = {
 
 export interface InjectResult {
   ok: boolean;
-  via?: 'tmux' | 'iterm2' | 'terminal-app' | 'app-button' | 'app-keys' | 'app-keys-raised';
+  via?: 'tmux' | 'cmux' | 'iterm2' | 'terminal-app' | 'app-button' | 'app-keys' | 'app-keys-raised';
   reason?: string;
 }
 
@@ -141,6 +152,164 @@ async function injectViaTmux(tty: string, downs: number, submits = 1): Promise<T
   } catch {
     return sent > 0 ? 'partial' : false;
   }
+}
+
+/** The cmux surface an agent runs in, as the agent's own environment has it. */
+export interface CmuxSurface {
+  surfaceId: string;
+  /** The socket of the cmux instance that owns the surface. A tagged or debug
+   *  build listens on its own, which the CLI's default would not reach. */
+  socketPath?: string;
+}
+
+/** cmux surface ids are UUIDs. Anything else is not a cmux surface, and the
+ *  value goes on to `--surface`, where it must never read as a flag. */
+const CMUX_SURFACE_ID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
+
+/**
+ * Read the cmux surface out of `ps -E -o command=` output, which prints the
+ * process's argv and then its environment, space-separated.
+ *
+ * The LAST occurrence wins: the environment comes after argv, so a prompt
+ * argument that happens to contain `CMUX_SURFACE_ID=` cannot redirect typing
+ * to another surface. `CMUX_WORKSPACE_ID` is deliberately ignored — it records
+ * the workspace the surface was in at launch, a surface can be moved since,
+ * and cmux resolves a surface UUID on its own (measured on 0.65.1).
+ *
+ * A value containing a space cannot be told apart from the next entry, so the
+ * socket path is used only when it is absolute and exists; otherwise the CLI
+ * falls back to its own socket discovery.
+ */
+export function parseCmuxEnv(
+  psOutput: string,
+  pathExists: (path: string) => boolean = existsSync,
+): CmuxSurface | undefined {
+  const last = (name: string) =>
+    [...psOutput.matchAll(new RegExp(`(?:^|\\s)${name}=(\\S+)`, 'g'))].at(-1)?.[1];
+  const surfaceId = last('CMUX_SURFACE_ID');
+  if (!surfaceId || !CMUX_SURFACE_ID_RE.test(surfaceId)) return undefined;
+  const socket = last('CMUX_SOCKET_PATH');
+  const socketPath = socket && isAbsolute(socket) && pathExists(socket) ? socket : undefined;
+  return { surfaceId, socketPath };
+}
+
+/** The surface the agent process was started in, or undefined when it does
+ *  not run under cmux (or is gone, or is not this user's to read). */
+async function readCmuxSurface(pid: number): Promise<CmuxSurface | undefined> {
+  if (process.platform !== 'darwin' || !Number.isInteger(pid) || pid <= 1) return undefined;
+  try {
+    const { stdout } = await execFileAsync(
+      'ps', ['-E', '-ww', '-o', 'command=', '-p', String(pid)],
+      { encoding: 'utf8', timeout: 2_000 },
+    );
+    return parseCmuxEnv(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+/** `cmux` on PATH first. A LaunchAgent's PATH is frozen at `daemon install`,
+ *  so the copy inside the app bundle is the fallback. */
+const CMUX_BINS = ['cmux', '/Applications/cmux.app/Contents/Resources/bin/cmux'];
+
+type CmuxRun = { ok: true } | { ok: false; missing?: true; message: string };
+
+/** First line of a cmux error, without its `Error: ` prefix. */
+export function cmuxErrorMessage(output: string): string {
+  const line = output.split('\n').map((l) => l.trim()).find(Boolean) ?? 'unknown error';
+  return line.replace(/^Error:\s*/, '').slice(0, 240);
+}
+
+async function runCmux(args: string[], surface: CmuxSurface): Promise<CmuxRun> {
+  const env = surface.socketPath ? { ...process.env, CMUX_SOCKET_PATH: surface.socketPath } : process.env;
+  for (const bin of CMUX_BINS) {
+    try {
+      await execFileAsync(bin, args, { encoding: 'utf8', timeout: 3_000, env });
+      return { ok: true };
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException & { stderr?: string };
+      if (e.code === 'ENOENT') continue;
+      return { ok: false, message: cmuxErrorMessage(e.stderr || e.message) };
+    }
+  }
+  return { ok: false, missing: true, message: 'cmux CLI not found' };
+}
+
+/**
+ * Whether cmux refused the connection itself, as opposed to the command.
+ *
+ * Under the default Socket Control Mode ("cmux processes only") a process cmux
+ * did not start — a LaunchAgent daemon is one — is cut off before any reply,
+ * so `send` reports only `Broken pipe (errno 32)`. Measured on cmux 0.65.1.
+ */
+export function isCmuxSocketRefusal(message: string): boolean {
+  return /broken pipe|errno 32|access denied/i.test(message);
+}
+
+/** The delivery reason for a failed cmux call. On a socket refusal `ping` is
+ *  run on that branch alone, because it is answered with cmux's actual reason
+ *  where `send` only saw the pipe close. */
+async function cmuxFailureReason(run: Extract<CmuxRun, { ok: false }>, surface: CmuxSurface): Promise<string> {
+  if (run.missing) return 'cmux CLI not found';
+  if (!isCmuxSocketRefusal(run.message)) return `cmux: ${run.message}`;
+  const ping = await runCmux(['ping'], surface);
+  const why = ping.ok ? run.message : ping.message;
+  return `cmux socket refused (${why}); set Socket Control Mode to Automation mode in cmux Settings`;
+}
+
+/**
+ * Type a dictated line into the surface and submit it.
+ *
+ * Never `--force`: cmux refuses while the prompt holds text someone is typing
+ * or a question is open, and that refusal is the "nothing happens" this
+ * ladder promises. `--paste` because plain `send` turns a literal `\n` in the
+ * text into Enter (measured), which would submit a dictated line early. The
+ * Enter after it is not refused by the line just pasted (measured).
+ */
+async function injectTextViaCmux(surface: CmuxSurface, line: string): Promise<InjectResult> {
+  const typed = await runCmux(['send', '--paste', '--surface', surface.surfaceId, '--', line], surface);
+  if (!typed.ok) return { ok: false, reason: await cmuxFailureReason(typed, surface) };
+  await pause(250);
+  const submitted = await runCmux(['send-key', '--surface', surface.surfaceId, '--', 'Enter'], surface);
+  if (!submitted.ok) {
+    return { ok: false, reason: `text typed but not submitted: ${await cmuxFailureReason(submitted, surface)}` };
+  }
+  return { ok: true, via: 'cmux' };
+}
+
+/**
+ * Answer the on-screen picker with paced Down×n + Enter.
+ *
+ * `--force` here and only here: cmux refuses keys while a question or dialog
+ * is open (measured), and answering that dialog is what this path is for.
+ * A break after some keys landed is reported, never retried elsewhere, for the
+ * same reason as `TmuxOutcome`'s 'partial'.
+ */
+async function injectSelectionViaCmux(
+  surface: CmuxSurface,
+  downs: number,
+  submits: number,
+): Promise<InjectResult> {
+  const key = (name: string) =>
+    runCmux(['send-key', '--force', '--surface', surface.surfaceId, '--', name], surface);
+  let sent = 0;
+  const fail = async (run: Extract<CmuxRun, { ok: false }>): Promise<InjectResult> => {
+    const why = await cmuxFailureReason(run, surface);
+    return { ok: false, reason: sent > 0 ? `cmux injection broke partway: ${why}` : why };
+  };
+  for (let i = 0; i < downs; i++) {
+    const r = await key('Down');
+    if (!r.ok) return fail(r);
+    sent++;
+    await pause(KEY_PACE_MS);
+  }
+  for (let i = 0; i < submits; i++) {
+    await pause(SUBMIT_PACE_MS);
+    const r = await key('Enter');
+    if (!r.ok) return fail(r);
+    sent++;
+  }
+  return { ok: true, via: 'cmux' };
 }
 
 /**
@@ -388,6 +557,8 @@ export async function injectObservedSelection(
     if (viaTmux === 'partial') {
       return { ok: false, reason: `tmux injection broke partway for ${tty}` };
     }
+    const cmux = target.pid ? await readCmuxSurface(target.pid) : undefined;
+    if (cmux) return injectSelectionViaCmux(cmux, index, submits);
     if (await runOsa(buildItermSelectScript(tty, index, { enter: false }), 5_000) === 'ok') {
       for (let i = 0; i < submits; i++) {
         await pause(SUBMIT_PACE_MS);
@@ -460,6 +631,9 @@ export async function injectObservedText(
       return { ok: true, via: 'tmux' };
     }
   } catch { /* no tmux server — fall through */ }
+
+  const cmux = target.pid ? await readCmuxSurface(target.pid) : undefined;
+  if (cmux) return injectTextViaCmux(cmux, line);
 
   // iTerm2: type the line, pause, then submit with an explicit carriage return.
   //

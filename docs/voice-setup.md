@@ -81,6 +81,22 @@ The wake word system is **independent of the SFSpeech transcription path** — w
 
 ---
 
+## Delivering to a session in cmux
+
+The CLI daemon types a dictated prompt into a session running in [cmux](https://cmux.com) through the `cmux` CLI (#541). The macOS app cannot, because it never spawns subprocesses. The daemon finds the surface from `CMUX_SURFACE_ID` in the agent process's own environment, so no hook or setup change is needed. It never forces delivery: if the prompt already holds text you are typing, or a question or permission dialog is open, cmux refuses and the prompt is left as it was.
+
+**Set cmux's Socket Control Mode to Automation mode.** The default, "cmux processes only", accepts only processes started inside cmux. A daemon started by the LaunchAgent is not one of them, so every delivery fails with a log line such as:
+
+```
+voice: "…" -> observed:claude:… delivered=false (cmux socket refused (ERROR: Access denied - only processes started inside cmux can connect); set Socket Control Mode to Automation mode in cmux Settings)
+```
+
+Automation mode also accepts other apps running as the same Mac user, which is the boundary the daemon already works within. Change it in **cmux Settings**: `defaults write` does not reach a running cmux. We do not recommend "Full open access" (`allowAll`). It lets any local process drive your terminals, and the daemon does not need it.
+
+A daemon started with `agentdeck daemon start --foreground` inside a cmux terminal is a cmux process, so it can connect under the default mode as well.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -93,6 +109,8 @@ The wake word system is **independent of the SFSpeech transcription path** — w
 | Wrong language detected | Your first preferred language is not the one you speak, or its model is missing | Set `voice.locale` (see above), and enable Dictation for that language |
 | Voice cut off at 15 seconds | Hit `maxRecordingDuration` | Press the voice button again for a new turn. Voice commands are designed to be short |
 | Transcript correct but agent doesn't receive | Daemon/bridge not connected | Check the menu bar dashboard — Connection status must be "Connected" before voice sends work |
+| Daemon logs `delivered=false (cmux socket refused …)` | cmux's Socket Control Mode is "cmux processes only", which rejects a LaunchAgent daemon | Switch it to Automation mode in cmux Settings (see [Delivering to a session in cmux](#delivering-to-a-session-in-cmux)) |
+| Daemon logs `delivered=false (cmux: … holds text someone is typing …)` or `… waiting on a question or dialog …` | cmux refused to type over your draft or into an open dialog | Clear the prompt or answer the dialog, then dictate again. This refusal is deliberate |
 | Deck VOICE key does nothing; daemon logs `voice: host PTT failed: … request timed out` or `helper exited (SIGABRT)` | The CLI daemon's `agentdeck-fm-helper` was built without the embedded usage descriptions, so TCC killed it instead of prompting | Rebuild it: `cd bridge && node scripts/build-fm-helper.mjs` (verify with `codesign -dv assets/fm-helper/agentdeck-fm-helper` → `Info.plist entries=4`), restart the daemon, then grant the two **agentdeck-fm-helper** prompts |
 
 **Logs**: `DaemonVoiceAssistant` writes to the standard AgentDeck log. Search for `[Voice]` entries:
