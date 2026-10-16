@@ -1043,7 +1043,7 @@
     {
       "id": "devices",
       "name": "Devices & display surfaces",
-      "question": "Do ESP32, Pixoo, Timebox, iDotMatrix, ADB and mDNS paths discover, flash and render correctly?",
+      "question": "Do ESP32, Pixoo, Timebox, iDotMatrix, ADB and mDNS paths discover, flash and render correctly, including bounded serial opens and cleanup of late descriptors?",
       "icon": "▦",
       "match": [
         "bridge/src/__tests__/esp32-*.test.ts",

@@ -19,7 +19,7 @@ import { ips10RosterIndices } from './ips10-roster.js';
 
 import { exec, execFile } from 'child_process';
 import {
-  openSync,
+  open as openFile,
   close,
   read,
   write,
@@ -706,11 +706,54 @@ async function probePortOpenable(port: string): Promise<void> {
 }
 
 async function openFdWithProbe(port: string): Promise<number> {
-  // Isolate potentially wedged macOS CDC/serial open calls in a short-lived
-  // process. Promise.race around fs.open() in this daemon can leave late file
-  // descriptors owned by the daemon after timeout, permanently blocking polls.
+  // The probe protects against an already-wedged device; it cannot promise
+  // the following driver open will be fast. Keep that open off the event loop.
+  if (pendingSerialOpens.has(port)) throw new Error('serial open still pending');
   await probePortOpenable(port);
-  return openSync(port, fsConstants.O_RDWR | fsConstants.O_NOCTTY | fsConstants.O_NONBLOCK);
+  return openSerialFd(port);
+}
+
+type SerialFdOpener = (port: string, flags: number,
+  callback: (error: NodeJS.ErrnoException | null, fd: number) => void) => void;
+const pendingSerialOpens = new Set<string>();
+
+/** @internal Exported for driver-stall and late-descriptor regression tests. */
+export function openSerialFd(
+  port: string,
+  timeoutMs = SERIAL_OPEN_PROBE_TIMEOUT_MS,
+  opener: SerialFdOpener = openFile,
+  closer: (fd: number) => void = closeFd,
+): Promise<number> {
+  // A timed-out native call may still occupy a worker. Do not queue another
+  // call for that port until its callback arrives and releases any late fd.
+  if (pendingSerialOpens.has(port)) return Promise.reject(new Error('serial open still pending'));
+  pendingSerialOpens.add(port);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const deadline = Date.now() + timeoutMs;
+    const timeoutError = () => new Error(`serial open timed out after ${timeoutMs}ms`);
+    const timer = setTimeout(() => { settled = true; reject(timeoutError()); }, timeoutMs);
+    try {
+      opener(port, fsConstants.O_RDWR | fsConstants.O_NOCTTY | fsConstants.O_NONBLOCK, (error, fd) => {
+        pendingSerialOpens.delete(port);
+        clearTimeout(timer);
+        if (settled || Date.now() >= deadline) {
+          // Promise.race alone leaks a descriptor returned after the timeout.
+          if (typeof fd === 'number' && fd >= 0) closer(fd);
+          if (!settled) { settled = true; reject(timeoutError()); }
+          return;
+        }
+        settled = true;
+        if (error) reject(error);
+        else resolve(fd);
+      });
+    } catch (error) {
+      pendingSerialOpens.delete(port);
+      clearTimeout(timer);
+      settled = true;
+      reject(error);
+    }
+  });
 }
 
 function readFromFd(fd: number, buf: Buffer): Promise<{ bytesRead: number }> {

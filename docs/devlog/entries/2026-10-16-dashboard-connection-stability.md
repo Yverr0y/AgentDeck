@@ -102,3 +102,29 @@ rendering was verified in Default mode. The other active Claude session received
 the human-authorized request to hold shared daemon restarts/deployments during
 measurement and acknowledged the hold. Evidence remains in ignored
 `diagnostics/dashboard-stability/ui-unlocked/` in the persistent checkout.
+
+The clean full verification for `982e8821` passes all 24 automatic gates
+(5,911 Vitest cases); the two platform/opt-in skips and three unattested lab
+gates remain explicit in its receipt. The production Node daemon was updated
+through its supervisor at 23:42 KST: PID 14355, port 9120, content build
+`eb6e5cfb2fd9`. The installed native sources are unchanged from `303c7249`.
+
+The first post-deployment soak keeps every ten-session roster frame, but also
+captures two groups of five-second health timeouts. A native process sample
+shows the main thread blocked inside synchronous filesystem `open`; the sample
+does not resolve the JavaScript caller. A separately instrumented passive
+observer sees no synchronous file operation over 100 ms. The serial path has a
+concrete remaining hazard: after its bounded subprocess probe it performs a
+second `openSync` in the daemon itself. A successful first open does not prove
+the next driver call will return promptly. A temporary serial-suspend lease
+provides an isolation measurement; it does not count as a successful normal
+hardware soak, and identifying this path as the sampled caller remains an
+inference until runtime evidence resolves it.
+
+The actual serial open is now asynchronous and bounded. An expired callback
+closes its returned descriptor, and an outstanding native call prevents new
+opens/probes for that port. Callback-side deadline checks also cover a delayed
+timer. Focused tests exercise a silent driver while another timer runs, late
+descriptor cleanup, retry admission, a delayed event loop, and error paths.
+The earlier synthetic Claude fixture also supplies its own process-exit probe,
+so the unit test never depends on an unrelated live machine PID.

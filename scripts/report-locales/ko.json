@@ -182,7 +182,7 @@
   "OpenClaw Gateway": "OpenClaw 게이트웨이",
   "Does the Gateway proxy stay subscribed, attribute runs and approvals, and report its health truthfully?": "Gateway 프록시가 구독을 유지하고 실행과 승인을 올바르게 연결하며 상태를 정확히 보고하는가?",
   "Devices & display surfaces": "기기와 디스플레이",
-  "Do ESP32, Pixoo, Timebox, iDotMatrix, ADB and mDNS paths discover, flash and render correctly?": "ESP32, Pixoo, Timebox, iDotMatrix, ADB, mDNS 경로의 탐색·설치·렌더링이 정상 동작하는가?",
+  "Do ESP32, Pixoo, Timebox, iDotMatrix, ADB and mDNS paths discover, flash and render correctly, including bounded serial opens and cleanup of late descriptors?": "시리얼 열기 시간 제한과 늦게 반환된 파일 디스크립터 정리를 포함하여 ESP32, Pixoo, Timebox, iDotMatrix, ADB, mDNS 경로의 탐색·설치·렌더링이 정상 동작하는가?",
   "Voice": "음성",
   "Are push-to-talk, transcription and spoken replies routed to the right session and device?": "눌러 말하기·전사·음성 응답을 올바른 세션과 기기로 전달하는가?",
   "Stream Deck & Ulanzi plugins": "Stream Deck과 Ulanzi 플러그인",

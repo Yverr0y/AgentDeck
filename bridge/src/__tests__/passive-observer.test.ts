@@ -1138,7 +1138,10 @@ describe('Claude identity read continuity', () => {
     const file = { pid: 43210, sessionId: 'continuity-session', cwd: directory, startedAt: Date.now() };
     writeFileSync(path, JSON.stringify(file));
     let processes: ProcInfo[] = [{ pid: 43210, ppid: 1, rssKb: 1024, command: 'claude' }];
-    const observer = new PassiveSessionObserver(async () => processes);
+    // This fixture owns a synthetic process table, including its exit signal;
+    // never consult an unrelated real machine PID that happens to be 43210.
+    const observer = new PassiveSessionObserver(async () => processes,
+      async pids => ({ processes: [], exited: pids.length, unknown: 0 }));
     observer.collect([]); await settle();
     expect(observer.collect([]).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
     const scan = async () => { vi.useFakeTimers({ now: Date.now() + 60_000 }); observer.collect([]); await settle(); return observer.collect([]); };
