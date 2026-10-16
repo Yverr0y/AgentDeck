@@ -214,6 +214,150 @@ export function buildHookCommandWin(eventName: string, home: string = homedir())
   return `powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" -HookEvent ${eventName}`;
 }
 
+// ===== Claude Code status-line relay =====
+
+/**
+ * The status line is Claude Code's one documented carrier of the claude.ai
+ * subscription windows (`rate_limits.five_hour` / `seven_day`), so AgentDeck
+ * installs a status-line command that forwards Claude's status document to the
+ * local daemon (`/claude/statusline`) and then runs whatever status line the
+ * user already had, unchanged. Byte-identical with `@agentdeck/setup`'s
+ * inlined copy and Swift `HookInstaller.buildStatuslineRelayCommand` — change
+ * all three together. Rules for what the daemon does with the document:
+ * `shared/src/claude-statusline.ts`.
+ *
+ * Two things this snippet does differently from the hook snippet, on purpose:
+ * it never reads `$AGENTDECK_PORT` (a managed session bridge does not serve the
+ * route — the account gauge belongs to the daemon), and it is fire-and-forget
+ * only, bounded like a telemetry hook: Claude Code cancels a status-line
+ * script the moment the next update arrives, so a hung curl costs a missed
+ * repaint, never a stalled TUI. The wrapped command receives the same stdin
+ * document through `printf '%s' "$I" |`.
+ */
+export const STATUSLINE_RELAY_MARKER = '/claude/statusline';
+const STATUSLINE_RELAY_HEADER = '# AgentDeck status-line relay v1 — forwards Claude Code rate_limits to the local daemon; the status line you had runs below, unchanged.';
+const STATUSLINE_WRAP_OPEN = `printf '%s' "$I" | {`;
+
+export function buildStatuslineRelayCommand(original?: string | null): string {
+  const lines = [
+    STATUSLINE_RELAY_HEADER,
+    `I=$(cat)`,
+    `PORT=""`,
+    `for F in "$HOME/.agentdeck/daemon.json" "$HOME/Library/Containers/bound.serendipity.agent.deck/Data/Library/Application Support/AgentDeck/daemon.json" "$HOME/Library/Group Containers/group.bound.serendipity.agent.deck/daemon.json"; do`,
+    `  [ -f "$F" ] || continue`,
+    `  P=$(python3 -c "import json,sys,signal;signal.signal(signal.SIGALRM,lambda *_:sys.exit(0));signal.setitimer(signal.ITIMER_REAL,0.2);d=json.load(open(sys.argv[1]));p=d.get('httpPort') or d.get('port');print(p if type(p) is int and 1 <= p <= 65535 else '')" "$F" 2>/dev/null)`,
+    `  [ -n "$P" ] && curl -sf --connect-timeout 0.2 --max-time 0.3 "http://127.0.0.1:$P/health" >/dev/null 2>&1 && { PORT="$P"; break; }`,
+    `done`,
+    `PORT="\${PORT:-9120}"`,
+    `printf '%s' "$I" | curl -sf --connect-timeout 0.2 --max-time 0.8 -X POST "http://127.0.0.1:$PORT/claude/statusline" -H 'Content-Type: application/json' -H "X-AgentDeck-Pid: $PPID" -d @- >/dev/null 2>&1 || true`,
+  ];
+  const own = original?.trim();
+  if (own) lines.push(STATUSLINE_WRAP_OPEN, own, `}`);
+  return lines.join('\n');
+}
+
+export function isAgentDeckStatuslineCommand(command: unknown): boolean {
+  return typeof command === 'string' && command.includes(STATUSLINE_RELAY_MARKER);
+}
+
+/**
+ * The user's own command inside an AgentDeck relay: their text verbatim, `''`
+ * when the relay was installed alone, `null` when the command is not ours.
+ */
+export function unwrapStatuslineCommand(command: unknown): string | null {
+  if (!isAgentDeckStatuslineCommand(command)) return null;
+  const text = command as string;
+  const open = `\n${STATUSLINE_WRAP_OPEN}\n`;
+  const at = text.indexOf(open);
+  if (at < 0) return '';
+  const body = text.slice(at + open.length);
+  return body.endsWith('\n}') ? body.slice(0, -2) : body;
+}
+
+/**
+ * `auto` wraps a status line the user already has and installs nothing
+ * otherwise; `on` installs the relay even with no status line — which makes
+ * Claude Code hide its footer hints (`esc to interrupt`, `? for shortcuts`,
+ * voice), so it is never the default; `off` removes an installed relay
+ * (restoring the user's own status line) and never installs one.
+ */
+export type StatuslinePolicy = 'auto' | 'on' | 'off';
+
+export function statuslinePolicyFromEnv(env: NodeJS.ProcessEnv = process.env): StatuslinePolicy {
+  const v = (env.AGENTDECK_STATUSLINE ?? '').trim().toLowerCase();
+  if (v === '1' || v === 'on' || v === 'true') return 'on';
+  if (v === '0' || v === 'off' || v === 'false') return 'off';
+  return 'auto';
+}
+
+export interface StatuslineApplyResult {
+  installed: boolean;
+  /** True when a user command runs inside the relay. */
+  wrapped: boolean;
+  reason?: string;
+}
+
+/** Pure logic: install or refresh the relay in a settings object (no file I/O). */
+export function applyStatuslineRelay(
+  settings: any,
+  policy: StatuslinePolicy = 'auto',
+  platform: NodeJS.Platform = process.platform,
+): StatuslineApplyResult {
+  if (policy === 'off') {
+    const removed = removeStatuslineRelay(settings);
+    return {
+      installed: false,
+      wrapped: false,
+      reason: removed ? 'removed — your own status line is restored' : 'disabled (--no-statusline / AGENTDECK_STATUSLINE=0)',
+    };
+  }
+  // Claude Code runs the status line through a POSIX shell on Windows too, but
+  // the hook body there is a PowerShell file for the `$`-expansion reason
+  // WINDOWS_HOOK_SCRIPT documents; the relay has no such file yet.
+  if (platform === 'win32') return { installed: false, wrapped: false, reason: 'status-line relay is POSIX-only for now' };
+  const current = settings.statusLine;
+  if (current != null && (typeof current !== 'object' || Array.isArray(current))) {
+    return { installed: false, wrapped: false, reason: 'statusLine is not an object; left untouched' };
+  }
+  const command = current?.command;
+  const ours = isAgentDeckStatuslineCommand(command);
+  if (current && !ours && typeof command !== 'string') {
+    return { installed: false, wrapped: false, reason: 'statusLine carries no command; left untouched' };
+  }
+  const original = ours ? unwrapStatuslineCommand(command) ?? '' : (typeof command === 'string' ? command : '');
+  if (!original.trim() && !ours && policy !== 'on') {
+    return {
+      installed: false,
+      wrapped: false,
+      reason: 'no status line configured — opt in with --statusline (a configured status line hides Claude Code\'s footer hints)',
+    };
+  }
+  settings.statusLine = { ...(current ?? {}), type: 'command', command: buildStatuslineRelayCommand(original) };
+  return { installed: true, wrapped: original.trim().length > 0 };
+}
+
+/** Pure logic: take the relay out again, restoring the user's own command verbatim. */
+export function removeStatuslineRelay(settings: any): boolean {
+  const current = settings?.statusLine;
+  if (!current || typeof current !== 'object') return false;
+  const original = unwrapStatuslineCommand(current.command);
+  if (original == null) return false;
+  if (original) settings.statusLine = { ...current, command: original };
+  else delete settings.statusLine;
+  return true;
+}
+
+/** Pure logic: keep an installed relay on the current snippet. Never installs one. */
+export function refreshStatuslineRelay(settings: any): boolean {
+  const current = settings?.statusLine;
+  const original = current && typeof current === 'object' ? unwrapStatuslineCommand(current.command) : null;
+  if (original == null) return false;
+  const rebuilt = buildStatuslineRelayCommand(original);
+  if (rebuilt === current.command) return false;
+  settings.statusLine = { ...current, type: 'command', command: rebuilt };
+  return true;
+}
+
 export const KIRO_HOOK_EVENTS = [
   ['SessionStart', 'kiro_session_start'],
   ['UserPromptSubmit', 'kiro_user_prompt_submit'],
@@ -499,8 +643,13 @@ export function sweepLegacyHooks(home: string = homedir()): boolean {
   return true;
 }
 
+export interface InstallHooksOptions {
+  /** Claude status-line relay policy; `AGENTDECK_STATUSLINE=1|0` is the default. See `StatuslinePolicy`. */
+  statusline?: StatuslinePolicy;
+}
+
 /** File-system wrapper: install hooks into ~/.claude/settings.json */
-export function installHooks(home: string = homedir()): void {
+export function installHooks(home: string = homedir(), opts: InstallHooksOptions = {}): void {
   const { dir, settings: settingsPath } = claudeSettingsPaths(home);
 
   if (!existsSync(dir)) {
@@ -517,9 +666,13 @@ export function installHooks(home: string = homedir()): void {
 
   const settings = readSettings(settingsPath);
   applyHooks(settings, home);
+  const statusline = applyStatuslineRelay(settings, opts.statusline ?? statuslinePolicyFromEnv());
 
   writeSettings(settingsPath, settings);
   console.log(`Hooks installed to ${settingsPath}`);
+  console.log(statusline.installed
+    ? `Claude status-line relay ${statusline.wrapped ? 'wrapped around your status line' : 'installed (relay only)'}`
+    : `Claude status-line relay not installed: ${statusline.reason}`);
 }
 
 /** File-system wrapper: uninstall hooks from ~/.claude/settings.json (and the legacy file) */
@@ -530,6 +683,7 @@ export function uninstallHooks(home: string = homedir()): void {
   if (!existsSync(settingsPath)) return;
 
   const settings = removeHooks(readSettings(settingsPath));
+  if (removeStatuslineRelay(settings)) console.log('Claude status-line relay removed (your own status line restored)');
 
   writeSettings(settingsPath, settings);
   // The script is AgentDeck-owned in its entirety, like the OpenCode plugin.
@@ -650,6 +804,12 @@ export function migrateHooksIfNeeded(home: string = homedir()): void {
       applyHooks(settings, home);
       migrated = true;
     }
+
+    // Migration 12: an installed Claude status-line relay is kept on the
+    // current snippet. Never installed here — a status line is a visible
+    // change to Claude Code's footer, so only `installHooks` adds one, under
+    // its policy.
+    if (refreshStatuslineRelay(settings)) migrated = true;
 
     if (migrated) {
       writeSettings(settingsPath, settings);

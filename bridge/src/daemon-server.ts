@@ -198,7 +198,8 @@ import {
   preferredPortReclaimBudgetMs,
   type DaemonPortSource,
 } from './daemon-port.js';
-import { enableClaudeUsageRecovery, fetchUsageFromApi, hasOAuthToken, resetConsecutiveFailures, type ApiUsageData, type UsageFetchResult } from './usage-api.js';
+import { enableClaudeUsageRecovery, fetchUsageFromApi, getUsageNetworkFetchCount, hasOAuthToken, resetConsecutiveFailures, type ApiUsageData, type UsageFetchResult } from './usage-api.js';
+import { CLAUDE_STATUSLINE_ROUTE, parseClaudeStatusline } from '@agentdeck/shared';
 import { TASK_JUDGE_DRAIN_WINDOW_MS } from './apme/runner.js';
 import { stopClaudeUsageRecoveryChildren } from './claude-usage-recovery.js';
 import { AGENT_IDLE_GAP_MS, canonicalBoardId, resolveGatewayHealth } from '@agentdeck/shared';
@@ -2184,6 +2185,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           ...(relayUplink ? { uplink: relayUplink.status() } : {}),
           workers: relayHub.summary(),
         },
+        // Which source feeds the Claude gauge, and whether the OAuth poll is
+        // standing down behind a fresh status-line reading (decision 2026-10-16).
+        claudeUsage: { ...core.claudeUsageDiagnostics(), oauthNetworkFetches: getUsageNetworkFetchCount() },
         // Report the configured recognition path, not inferred engine readiness.
         // This lets device diagnostics detect a runtime that predates the local backend.
         voice: {
@@ -3399,6 +3403,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       res.on('error', () => {}); // Prevent unhandled stream error on client disconnect
       res.write(`event: connected\ndata: {}\n\n`);
       req.on('close', () => {});
+      return;
+    }
+    // Claude Code status-line relay — the installed status line POSTs Claude's
+    // whole status document here and the daemon keeps only the subscription
+    // windows (shared/src/claude-statusline.ts). Same-machine only: the
+    // document names the session's cwd and transcript path, and no remote peer
+    // has a reason to feed this daemon a quota reading.
+    if (req.method === 'POST' && pathname === CLAUDE_STATUSLINE_ROUTE) {
+      const ip = req.socket.remoteAddress ?? '';
+      if (!isLocalConnection(ip)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized — same-machine only' }));
+        return;
+      }
+      let body = '';
+      req.on('data', (c: Buffer) => { body += c; if (body.length > 256_000) req.destroy(); });
+      req.on('end', () => {
+        let payload: unknown = null;
+        try { payload = body ? JSON.parse(body) : null; } catch { /* malformed → no reading */ }
+        const reading = parseClaudeStatusline(payload, Date.now());
+        const outcome = reading ? core.applyClaudeStatusline(reading) : null;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ received: true, applied: reading != null, broadcast: outcome?.broadcast ?? false }));
+      });
       return;
     }
     // Hook endpoint — receives Claude Code hook POSTs at /hooks/:eventName.
@@ -4799,7 +4827,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // Reset backoff from pre-sleep failures and fetch fresh usage after network stabilizes
     resetConsecutiveFailures();
     setTimeout(() => {
-      fetchUsageRelayed(port).then((result) => core.applyUsageResult(result));
+      core.refreshClaudeUsageIfAllowed(() => fetchUsageRelayed(port));
     }, 4000);
   });
 
@@ -6687,7 +6715,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     }
     if (cmd.type === 'query_usage') {
       void core.refreshZaiUsage().catch(() => {});
-      fetchUsageRelayed(port).then((result) => core.applyUsageResult(result));
+      core.refreshClaudeUsageIfAllowed(() => fetchUsageRelayed(port));
     }
   };
   // ── Device-sourced voice ──────────────────────────────────────────────
@@ -7569,7 +7597,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // Fetch usage on connect if stale
       const cacheAge = Date.now() - core.lastApiFetchTime;
       if (!core.cachedApiUsage || (core.lastApiFetchTime > 0 && cacheAge > 5 * 60 * 1000)) {
-        fetchUsageRelayed(port).then((result) => core.applyUsageResult(result));
+        core.refreshClaudeUsageIfAllowed(() => fetchUsageRelayed(port));
       }
     }, 75);
     initialTimer.unref?.();
@@ -7868,7 +7896,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
 
   // Initial usage fetch (delayed 10s)
   core.addTimeout(setTimeout(() => {
-    fetchUsageRelayed(port).then((result) => core.applyUsageResult(result));
+    core.refreshClaudeUsageIfAllowed(() => fetchUsageRelayed(port));
   }, 10_000));
 
   // Backstop sweep for held PreToolUse approval responses whose per-entry timer

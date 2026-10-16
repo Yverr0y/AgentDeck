@@ -29,6 +29,7 @@ export * from './timeline-summarizer.js';
 export * from './session-utils.js';
 export * from './session-labels.js';
 export * from './claude-background-jobs.js';
+export * from './claude-statusline.js';
 export * from './background-work.js';
 export * from './hook-harness.js';
 export * from './creature-layout.js';

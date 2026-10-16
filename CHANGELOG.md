@@ -45,6 +45,7 @@ bumped, superseded by 1.0.17, and never published, so it exists only in git.
 
 ## Unreleased
 
+- Claude usage gauge: a status-line relay. `agentdeck daemon install` (and `npx @agentdeck/setup`) now wraps the Claude Code status line you already have so Claude's own `rate_limits` document reaches the local daemon at `/claude/statusline`; with no status line configured it is opt-in (`--statusline`), because a configured status line hides Claude Code's footer hints. While those readings are fresh the Node daemon's poll of the undocumented OAuth usage endpoint stands down (one baseline read, then a 10-minute refresh only when the account has per-model caps), and the sandboxed macOS app gains its first Claude 5h/7d gauge without a token or a sibling daemon. Uninstall restores your status line verbatim. `/health.claudeUsage` names the live source and counts the suppressed polls.
 - Stream Deck and Ulanzi decks: two sessions of the same agent in the same project no longer draw identical keys. Each gets a short session-id tag (`chezmoi #5f8f`), the start of the id shown by Claude Code's `/status`, and the detail INFO tile names the tagged session, so the session a voice prompt will reach is identifiable. A lone session looks as before (#544).
 
 ## 2026-10-14 — npm 1.9.2

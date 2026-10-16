@@ -111,6 +111,15 @@ export function didLastFetchFail(): boolean {
   return lastFetchFailed;
 }
 
+/** Network round trips to the OAuth usage endpoint since this process started.
+ *  Cache hits and credential-less exits do not count. `/health.claudeUsage`
+ *  reports it so the status-line relay's "OAuth stays quiet while sessions
+ *  are active" claim is a number, not a belief. */
+let networkFetches = 0;
+export function getUsageNetworkFetchCount(): number {
+  return networkFetches;
+}
+
 export function getTokenStatus(): TokenStatus {
   return lastTokenStatus;
 }
@@ -465,6 +474,7 @@ async function fetchUsageOnce(): Promise<UsageFetchResult | null> {
       'Accept': 'application/json',
     };
 
+    networkFetches++;
     const res = await fetch(USAGE_API_URL, {
       method: 'GET', headers,
       signal: AbortSignal.timeout(10000),

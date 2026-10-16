@@ -1,0 +1,186 @@
+{
+  "$comment": "Claude Code status-line relay rules (shared/src/claude-statusline.ts). Replayed by shared/src/__tests__/claude-statusline.test.ts and apple/AgentDeckTests/ClaudeStatuslineRulesTests.swift. Times are epoch ms; `now` is 2026-10-16T00:00:00Z. `parse` payloads follow the documented status-line JSON (code.claude.com/docs/en/statusline, read 2026-10-16); `resetsAt` strings are ISO-8601 UTC with milliseconds exactly as both runtimes emit them.",
+  "now": 1792108800000,
+  "parse": [
+    {
+      "name": "documented example: both windows, seconds epoch",
+      "payload": {
+        "session_id": "abc123",
+        "version": "2.1.90",
+        "model": { "id": "claude-opus-5-5", "display_name": "Opus" },
+        "context_window": { "used_percentage": 8 },
+        "rate_limits": {
+          "five_hour": { "used_percentage": 23.5, "resets_at": 1738425600 },
+          "seven_day": { "used_percentage": 41.2, "resets_at": 1738857600 },
+          "spend_limit": { "used_percentage": 62.8, "resets_at": 1740787200 }
+        }
+      },
+      "expected": {
+        "fiveHour": { "usedPercent": 23.5, "resetsAt": "2025-02-01T16:00:00.000Z" },
+        "sevenDay": { "usedPercent": 41.2, "resetsAt": "2025-02-06T16:00:00.000Z" },
+        "sessionId": "abc123",
+        "model": "claude-opus-5-5",
+        "version": "2.1.90"
+      }
+    },
+    {
+      "name": "five-hour window alone (seven-day dropped after its reset passed)",
+      "payload": { "rate_limits": { "five_hour": { "used_percentage": 99.9, "resets_at": 1792112400 } } },
+      "expected": {
+        "fiveHour": { "usedPercent": 99.9, "resetsAt": "2026-10-16T01:00:00.000Z" },
+        "sevenDay": null,
+        "sessionId": null,
+        "model": null,
+        "version": null
+      }
+    },
+    {
+      "name": "resets_at already in milliseconds is not multiplied again",
+      "payload": { "rate_limits": { "seven_day": { "used_percentage": 10, "resets_at": 1738857600000 } } },
+      "expected": {
+        "fiveHour": null,
+        "sevenDay": { "usedPercent": 10, "resetsAt": "2025-02-06T16:00:00.000Z" },
+        "sessionId": null,
+        "model": null,
+        "version": null
+      }
+    },
+    {
+      "name": "window without resets_at keeps its percent and no reset",
+      "payload": { "rate_limits": { "five_hour": { "used_percentage": 0 } } },
+      "expected": {
+        "fiveHour": { "usedPercent": 0, "resetsAt": null },
+        "sevenDay": null,
+        "sessionId": null,
+        "model": null,
+        "version": null
+      }
+    },
+    {
+      "name": "percent above 100 is clamped, not refused",
+      "payload": { "rate_limits": { "five_hour": { "used_percentage": 120.5, "resets_at": 1792112400 } } },
+      "expected": {
+        "fiveHour": { "usedPercent": 100, "resetsAt": "2026-10-16T01:00:00.000Z" },
+        "sevenDay": null,
+        "sessionId": null,
+        "model": null,
+        "version": null
+      }
+    },
+    {
+      "name": "no rate_limits at all (API-key session or before the first response)",
+      "payload": { "session_id": "x", "model": { "id": "claude-opus-5-5" }, "context_window": { "used_percentage": 42 } },
+      "expected": null
+    },
+    {
+      "name": "only a gateway spend limit is not a subscription window",
+      "payload": { "rate_limits": { "spend_limit": { "used_percentage": 62.8, "resets_at": 1740787200, "used_usd": 314.12 } } },
+      "expected": null
+    },
+    {
+      "name": "a string percentage is not a number",
+      "payload": { "rate_limits": { "five_hour": { "used_percentage": "23", "resets_at": 1792112400 } } },
+      "expected": null
+    },
+    {
+      "name": "a boolean percentage is not a number",
+      "payload": { "rate_limits": { "five_hour": { "used_percentage": true, "resets_at": 1792112400 } } },
+      "expected": null
+    },
+    {
+      "name": "a negative percentage is refused while its sibling window survives",
+      "payload": { "rate_limits": { "five_hour": { "used_percentage": -1 }, "seven_day": { "used_percentage": 5 } } },
+      "expected": {
+        "fiveHour": null,
+        "sevenDay": { "usedPercent": 5, "resetsAt": null },
+        "sessionId": null,
+        "model": null,
+        "version": null
+      }
+    },
+    {
+      "name": "an empty model id and empty session id read as unknown",
+      "payload": { "session_id": "", "model": { "id": "" }, "rate_limits": { "five_hour": { "used_percentage": 1 } } },
+      "expected": {
+        "fiveHour": { "usedPercent": 1, "resetsAt": null },
+        "sevenDay": null,
+        "sessionId": null,
+        "model": null,
+        "version": null
+      }
+    },
+    {
+      "name": "an array payload is not a document",
+      "payload": [ { "rate_limits": { "five_hour": { "used_percentage": 1 } } } ],
+      "expected": null
+    }
+  ],
+  "age": [
+    { "name": "one second old is fresh", "receivedAt": 1792108799000, "age": "fresh" },
+    { "name": "exactly at the fresh bound is fresh", "receivedAt": 1792108500000, "age": "fresh" },
+    { "name": "one ms past the bound is aged", "receivedAt": 1792108499999, "age": "aged" },
+    { "name": "a stamp from the future is fresh (same-machine clock skew)", "receivedAt": 1792108805000, "age": "fresh" },
+    { "name": "no stamp is unknown", "receivedAt": null, "age": "unknown" },
+    { "name": "a zero stamp is unknown", "receivedAt": 0, "age": "unknown" }
+  ],
+  "poll": [
+    { "name": "no status line yet: poll as before", "statuslineReceivedAt": null, "lastOAuthFetchAt": 1792108740000, "oauthHasScopedLimits": false, "poll": true },
+    { "name": "aged status line: poll resumes", "statuslineReceivedAt": 1792108400000, "lastOAuthFetchAt": 1792108740000, "oauthHasScopedLimits": false, "poll": true },
+    { "name": "fresh status line, no OAuth baseline yet: one poll to learn the caps", "statuslineReceivedAt": 1792108799000, "lastOAuthFetchAt": null, "oauthHasScopedLimits": false, "poll": true },
+    { "name": "fresh status line, account without scoped caps: no poll", "statuslineReceivedAt": 1792108799000, "lastOAuthFetchAt": 1792108740000, "oauthHasScopedLimits": false, "poll": false },
+    { "name": "fresh status line, scoped caps, OAuth 5 min old: wait", "statuslineReceivedAt": 1792108799000, "lastOAuthFetchAt": 1792108500000, "oauthHasScopedLimits": true, "poll": false },
+    { "name": "fresh status line, scoped caps, OAuth exactly 10 min old: slow refresh", "statuslineReceivedAt": 1792108799000, "lastOAuthFetchAt": 1792108200000, "oauthHasScopedLimits": true, "poll": true },
+    { "name": "fresh status line, scoped caps, OAuth 59 min old: slow refresh", "statuslineReceivedAt": 1792108799000, "lastOAuthFetchAt": 1792105260000, "oauthHasScopedLimits": true, "poll": true }
+  ],
+  "carry": [
+    { "name": "OAuth 29 min old still carries scoped caps", "lastOAuthFetchAt": 1792107060000, "carry": true },
+    { "name": "OAuth exactly 30 min old still carries", "lastOAuthFetchAt": 1792107000000, "carry": true },
+    { "name": "OAuth 30 min and 1 ms old drops them", "lastOAuthFetchAt": 1792106999999, "carry": false },
+    { "name": "never fetched carries nothing", "lastOAuthFetchAt": null, "carry": false },
+    { "name": "a zero stamp carries nothing", "lastOAuthFetchAt": 0, "carry": false }
+  ],
+  "changed": [
+    {
+      "name": "first reading always changes",
+      "prev": null,
+      "next": { "fiveHour": { "usedPercent": 23.5, "resetsAt": "2025-02-01T16:00:00.000Z" }, "sevenDay": null },
+      "changed": true
+    },
+    {
+      "name": "identical reading does not",
+      "prev": { "fiveHour": { "usedPercent": 23.5, "resetsAt": "2025-02-01T16:00:00.000Z" }, "sevenDay": { "usedPercent": 41.2, "resetsAt": "2025-02-06T16:00:00.000Z" } },
+      "next": { "fiveHour": { "usedPercent": 23.5, "resetsAt": "2025-02-01T16:00:00.000Z" }, "sevenDay": { "usedPercent": 41.2, "resetsAt": "2025-02-06T16:00:00.000Z" } },
+      "changed": false
+    },
+    {
+      "name": "a move under the epsilon does not",
+      "prev": { "fiveHour": { "usedPercent": 23.5, "resetsAt": null }, "sevenDay": null },
+      "next": { "fiveHour": { "usedPercent": 23.54, "resetsAt": null }, "sevenDay": null },
+      "changed": false
+    },
+    {
+      "name": "a move at the epsilon does",
+      "prev": { "fiveHour": { "usedPercent": 23.5, "resetsAt": null }, "sevenDay": null },
+      "next": { "fiveHour": { "usedPercent": 23.55, "resetsAt": null }, "sevenDay": null },
+      "changed": true
+    },
+    {
+      "name": "a new reset time does (the window rolled over)",
+      "prev": { "fiveHour": { "usedPercent": 1, "resetsAt": "2026-10-16T01:00:00.000Z" }, "sevenDay": null },
+      "next": { "fiveHour": { "usedPercent": 1, "resetsAt": "2026-10-16T06:00:00.000Z" }, "sevenDay": null },
+      "changed": true
+    },
+    {
+      "name": "a window appearing does",
+      "prev": { "fiveHour": { "usedPercent": 1, "resetsAt": null }, "sevenDay": null },
+      "next": { "fiveHour": { "usedPercent": 1, "resetsAt": null }, "sevenDay": { "usedPercent": 2, "resetsAt": null } },
+      "changed": true
+    },
+    {
+      "name": "a window disappearing does",
+      "prev": { "fiveHour": { "usedPercent": 1, "resetsAt": null }, "sevenDay": { "usedPercent": 2, "resetsAt": null } },
+      "next": { "fiveHour": { "usedPercent": 1, "resetsAt": null }, "sevenDay": null },
+      "changed": true
+    }
+  ]
+}

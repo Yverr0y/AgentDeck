@@ -37,6 +37,10 @@ export interface SetupOptions {
   autoInstallDaemon: boolean;
   /** Install the daemon with a loopback-only posture (no LAN discovery, no scans). */
   enterprise: boolean;
+  /** Install the Claude status-line relay even when no status line is configured
+   *  (one that exists is wrapped by default). A configured status line hides
+   *  Claude Code's footer hints, so this is never implied. */
+  statusline: boolean;
 }
 
 /**
@@ -53,6 +57,7 @@ export function parseSetupArgs(argv: readonly string[]): SetupOptions {
   return {
     enterprise,
     autoInstallDaemon: enterprise || argv.includes('--yes') || argv.includes('-y'),
+    statusline: argv.includes('--statusline'),
   };
 }
 
@@ -485,6 +490,76 @@ function buildHookEntry(eventName: string) {
   };
 }
 
+// ─── Claude status-line relay (inlined copy of @agentdeck/hooks) ─────────────
+// Byte-identical with `hooks/src/install.ts` `buildStatuslineRelayCommand` and
+// Swift `HookInstaller.buildStatuslineRelayCommand` — change all three together.
+// The canonical commentary lives in hooks/src/install.ts.
+
+const STATUSLINE_RELAY_MARKER = '/claude/statusline';
+const STATUSLINE_RELAY_HEADER = '# AgentDeck status-line relay v1 — forwards Claude Code rate_limits to the local daemon; the status line you had runs below, unchanged.';
+const STATUSLINE_WRAP_OPEN = `printf '%s' "$I" | {`;
+
+function buildStatuslineRelayCommand(original?: string | null): string {
+  const lines = [
+    STATUSLINE_RELAY_HEADER,
+    `I=$(cat)`,
+    `PORT=""`,
+    `for F in "$HOME/.agentdeck/daemon.json" "$HOME/Library/Containers/bound.serendipity.agent.deck/Data/Library/Application Support/AgentDeck/daemon.json" "$HOME/Library/Group Containers/group.bound.serendipity.agent.deck/daemon.json"; do`,
+    `  [ -f "$F" ] || continue`,
+    `  P=$(python3 -c "import json,sys,signal;signal.signal(signal.SIGALRM,lambda *_:sys.exit(0));signal.setitimer(signal.ITIMER_REAL,0.2);d=json.load(open(sys.argv[1]));p=d.get('httpPort') or d.get('port');print(p if type(p) is int and 1 <= p <= 65535 else '')" "$F" 2>/dev/null)`,
+    `  [ -n "$P" ] && curl -sf --connect-timeout 0.2 --max-time 0.3 "http://127.0.0.1:$P/health" >/dev/null 2>&1 && { PORT="$P"; break; }`,
+    `done`,
+    `PORT="\${PORT:-9120}"`,
+    `printf '%s' "$I" | curl -sf --connect-timeout 0.2 --max-time 0.8 -X POST "http://127.0.0.1:$PORT/claude/statusline" -H 'Content-Type: application/json' -H "X-AgentDeck-Pid: $PPID" -d @- >/dev/null 2>&1 || true`,
+  ];
+  const own = original?.trim();
+  if (own) lines.push(STATUSLINE_WRAP_OPEN, own, `}`);
+  return lines.join('\n');
+}
+
+function unwrapStatuslineCommand(command: unknown): string | null {
+  if (typeof command !== 'string' || !command.includes(STATUSLINE_RELAY_MARKER)) return null;
+  const open = `\n${STATUSLINE_WRAP_OPEN}\n`;
+  const at = command.indexOf(open);
+  if (at < 0) return '';
+  const body = command.slice(at + open.length);
+  return body.endsWith('\n}') ? body.slice(0, -2) : body;
+}
+
+/**
+ * Wrap the status line the user already has (or refresh ours); install a
+ * relay-only status line only on `--statusline` / `AGENTDECK_STATUSLINE=1`.
+ * Returns a one-line outcome for the log.
+ */
+function applyStatuslineRelay(settings: any, optIn: boolean): string {
+  const env = (process.env.AGENTDECK_STATUSLINE ?? '').trim().toLowerCase();
+  if (env === '0' || env === 'off' || env === 'false') {
+    // `off` takes an installed relay out again and never adds one.
+    const own = unwrapStatuslineCommand(settings.statusLine?.command);
+    if (own == null) return 'Claude status-line relay not installed: disabled (AGENTDECK_STATUSLINE=0)';
+    if (own) settings.statusLine = { ...settings.statusLine, command: own };
+    else delete settings.statusLine;
+    return 'Claude status-line relay removed — your own status line is restored';
+  }
+  if (IS_WIN) return 'Claude status-line relay not installed: POSIX-only for now';
+  const enable = optIn || env === '1' || env === 'on' || env === 'true';
+  const current = settings.statusLine;
+  if (current != null && (typeof current !== 'object' || Array.isArray(current))) {
+    return 'Claude status-line relay not installed: statusLine is not an object; left untouched';
+  }
+  const command = current?.command;
+  const ours = typeof command === 'string' && command.includes(STATUSLINE_RELAY_MARKER);
+  if (current && !ours && typeof command !== 'string') {
+    return 'Claude status-line relay not installed: statusLine carries no command; left untouched';
+  }
+  const original = ours ? unwrapStatuslineCommand(command) ?? '' : (typeof command === 'string' ? command : '');
+  if (!original.trim() && !ours && !enable) {
+    return 'Claude status-line relay not installed: no status line configured — opt in with --statusline (a configured status line hides Claude Code\'s footer hints)';
+  }
+  settings.statusLine = { ...(current ?? {}), type: 'command', command: buildStatuslineRelayCommand(original) };
+  return original.trim() ? 'Claude status-line relay wrapped around your status line' : 'Claude status-line relay installed (relay only)';
+}
+
 /**
  * Strip AgentDeck hooks out of the unwatched `~/.claude/settings.local.json`
  * left behind by installs that predate the settings.json move. Inlined copy of
@@ -519,7 +594,7 @@ function sweepLegacyHooks(claudeDir: string) {
   }
 }
 
-function installHooks() {
+function installHooks(opts: SetupOptions) {
   if (!which('claude')) {
     warn('Skipping Claude Code hooks because `claude` is not installed');
     return;
@@ -565,8 +640,11 @@ function installHooks() {
     settings.hooks[event].push(buildHookEntry(event));
   }
 
+  const statuslineOutcome = applyStatuslineRelay(settings, opts.statusline);
+
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   ok(`Hooks installed to ${settingsPath}`);
+  info(statuslineOutcome);
 }
 
 function installKiroHooks() {
@@ -769,7 +847,7 @@ async function main() {
   installBridge();
   checkBridgeNativeRuntime();
   console.log('');
-  installHooks();
+  installHooks(opts);
   installKiroHooks();
   ensureDataDir();
   seedCompatibility();
