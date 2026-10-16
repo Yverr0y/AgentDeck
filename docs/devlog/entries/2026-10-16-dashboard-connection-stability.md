@@ -71,3 +71,34 @@ the exact internal cause of the original warm Node eight-to-two drop remains
 unconfirmed. The app was returned to ordinary LaunchServices execution (PID
 82385, stdout/stderr `/dev/null`) after diagnostics; daemon PID 38774/build
 `23be58f6b98c` was retained throughout.
+
+Unlocked follow-up at 23:03 KST reproduced the warm roster collapse on the same
+daemon: ten sessions became two while the authenticated observer WebSocket
+remained connected and health continued answering. The new diagnostics identify
+a nonempty process scan with 863 rows but only one Claude candidate, compared
+with 15 candidates on the following normal scan. Immediate independent process
+and metadata reads find all eight omitted Claude PIDs alive with valid session
+identities. Missing metadata alone was therefore not the cause of this capture;
+an incomplete process observation had been treated as confirmed process exit.
+
+The observer now revalidates missing established PIDs before publishing a
+removal. Confirmed exits need no retry; live or inaccessible PIDs receive one
+bounded targeted process query. Positively re-read rows are merged before agent
+classification, so exec replacements still remove old Claude identities. An
+inconclusive query keeps the previous roster and process snapshot, including its
+original freshness stamp. Numeric continuity counters distinguish recovered
+scans from confirmed exits and uncertainty. Regression coverage exercises
+partial nonempty scans, targeted-read failure, a process exiting during retry,
+freshness preservation and a live PID changing its command.
+
+Two fresh real Claude CLIs also completed the installed-app screen checks:
+Collaboration shows no timer for a notification, an elapsed timer for an explicit
+request, and `Explicit reply observed` after the recipient's native reply. The
+Default terrarium shows the same request between creatures as a dashed water
+current; a reverse notification leaves its timer running, and the explicit reply
+removes the timer. The 3D Preview's communication overlay also displays the wait;
+its background scene was blank in this long-running app instance, so creature
+rendering was verified in Default mode. The other active Claude session received
+the human-authorized request to hold shared daemon restarts/deployments during
+measurement and acknowledged the hold. Evidence remains in ignored
+`diagnostics/dashboard-stability/ui-unlocked/` in the persistent checkout.

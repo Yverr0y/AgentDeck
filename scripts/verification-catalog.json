@@ -922,7 +922,7 @@
     {
       "id": "observed",
       "name": "Agent observation & hooks",
-      "question": "Are Claude, Codex, OpenCode, Kiro, Antigravity and Hermes sessions seen, attributed and gated correctly from their hooks and transcripts, including Hermes observer setup/discovery diagnostics, explicit loopback delivery without a registry, captured Hermes child suppression, and background work (Claude snapshots, Codex rollout terminals, OpenCode and Hermes plugin reports) through one tracker with executable Node/Swift parity?",
+      "question": "Are Claude, Codex, OpenCode, Kiro, Antigravity and Hermes sessions seen, attributed and gated correctly from their hooks and transcripts, including missing-PID revalidation for partial process snapshots, Hermes observer setup/discovery diagnostics, explicit loopback delivery without a registry, captured Hermes child suppression, and background work (Claude snapshots, Codex rollout terminals, OpenCode and Hermes plugin reports) through one tracker with executable Node/Swift parity?",
       "icon": "◈",
       "match": [
         "hooks/src/__tests__/*.test.ts",

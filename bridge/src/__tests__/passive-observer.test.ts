@@ -6,6 +6,7 @@ import {
   activeKiroCliProcesses,
   CodexRolloutCache,
   collectCodexSessionsFromRollouts,
+  confirmMissingProcesses,
   foldHeadlessCodexSessions,
   type ProcInfo,
   collectKiroSessionsFromSnapshots,
@@ -897,6 +898,57 @@ describe('passive-observer scan resilience', () => {
   async function settle(): Promise<void> {
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
   }
+
+  it('re-reads live or inaccessible missing PIDs and only confirms ESRCH exits', async () => {
+    const recovered = { pid: 42, ppid: 1, rssKb: 1024, command: 'claude' };
+    const reread = vi.fn(async () => [recovered]);
+    expect(await confirmMissingProcesses([42, 43, 44], pid => pid === 43 ? false : undefined, reread))
+      .toEqual({ processes: [recovered], exited: 1, unknown: 1 });
+    expect(reread).toHaveBeenCalledWith([42, 44]);
+  });
+
+  it('does not call a failed targeted read an exit while the PID still exists', async () => {
+    expect(await confirmMissingProcesses([42], () => true, async () => { throw new Error('ps timeout'); }))
+      .toEqual({ processes: [], exited: 0, unknown: 1 });
+    let calls = 0;
+    expect(await confirmMissingProcesses([42], () => ++calls === 1, async () => []))
+      .toEqual({ processes: [], exited: 1, unknown: 0 });
+  });
+
+  it('recovers a partial nonempty scan and preserves freshness when revalidation is unknown', async () => {
+    const claude = { pid: 42, ppid: 1, rssKb: 1024, command: 'claude' };
+    let processes = [...table, claude];
+    let unknown = 0;
+    let command = 'claude';
+    const observer = new PassiveSessionObserver(async () => processes, async pids => ({
+      processes: unknown ? [] : pids.map(() => ({ ...claude, command })), exited: 0, unknown,
+    }));
+    observer.collect([]); await settle();
+    const seed = [{ id: 'observed:claude:abc', agentType: 'claude-code', pid: 42 }];
+    (observer as unknown as { cached: unknown[] }).cached = seed;
+    processes = table;
+    vi.useFakeTimers({ now: Date.now() + 60_000 });
+    observer.collect([]); await settle();
+    expect(observer.processes()).toEqual([...table, claude]);
+    expect(table).toHaveLength(1);
+    expect(observer.diagnostics().processContinuity).toMatchObject({ missing: 1, recovered: 1, unknown: 0 });
+    (observer as unknown as { cached: unknown[] }).cached = seed;
+    const stamp = observer.processSnapshot().capturedAt;
+    unknown = 1;
+    vi.advanceTimersByTime(60_000);
+    observer.collect([]); await settle();
+    expect(observer.collect([])).toEqual(seed);
+    expect(observer.processes()).toEqual([...table, claude]);
+    expect(observer.processSnapshot().capturedAt).toBe(stamp);
+    expect(observer.diagnostics().processContinuity).toMatchObject({ missing: 1, unknown: 1 });
+    expect(observer.diagnostics().processContinuity).toMatchObject({ recoveredScans: 1, recoveredPids: 1, inconclusiveScans: 1 });
+    unknown = 0;
+    command = '/bin/zsh';
+    vi.advanceTimersByTime(60_000);
+    observer.collect([]); await settle();
+    expect(observer.collect([])).toEqual([]);
+    expect(observer.processes().find(row => row.pid === 42)?.command).toBe('/bin/zsh');
+  });
 
   it('retains the process table when a scan comes back empty', async () => {
     let processes = table;

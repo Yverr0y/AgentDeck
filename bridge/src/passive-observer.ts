@@ -59,6 +59,31 @@ export interface ProcInfo {
   command: string;
 }
 
+interface ProcessContinuity {
+  processes: ProcInfo[];
+  exited: number;
+  unknown: number;
+}
+
+/** A PID omitted by a readable process table has not necessarily exited. */
+export async function confirmMissingProcesses(
+  pids: number[],
+  isAlive: (pid: number) => boolean | undefined = processLiveness,
+  reread: (pids: number[]) => Promise<ProcInfo[]> = collectProcessesByPid,
+): Promise<ProcessContinuity> {
+  const suspect = pids.filter(pid => isAlive(pid) !== false);
+  const recovered = suspect.length > 0 ? await reread(suspect).catch(() => []) : [];
+  const processes = recovered.filter(row => suspect.includes(row.pid));
+  const unresolved = suspect.filter(pid => !processes.some(row => row.pid === pid));
+  const unknown = unresolved.filter(pid => isAlive(pid) !== false).length;
+  return { processes, exited: pids.length - processes.length - unknown, unknown };
+}
+
+function processLiveness(pid: number): boolean | undefined {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH' ? false : undefined; }
+}
+
 export interface TranscriptSummary {
   modelName?: string;
   state: ObservedState;
@@ -292,9 +317,12 @@ export class PassiveSessionObserver {
   private lastProcesses: ProcInfo[] = [];
   private processSnapshotAt = 0;
   private claudeIdentityReads = { candidates: 0, unreadable: 0, retained: 0 };
-  diagnostics(): { capturedAt: number; processCount: number; rosterCount: number; claudeIdentityReads: { candidates: number; unreadable: number; retained: number } } {
+  private processContinuity = { capturedAt: 0, scannedProcessCount: 0, missing: 0, recovered: 0, exited: 0, unknown: 0 };
+  private continuityTotals = { recoveredScans: 0, recoveredPids: 0, inconclusiveScans: 0 };
+  diagnostics() {
     return { capturedAt: this.processSnapshotAt, processCount: this.lastProcesses.length,
-      rosterCount: this.cached.length, claudeIdentityReads: { ...this.claudeIdentityReads } };
+      rosterCount: this.cached.length, claudeIdentityReads: { ...this.claudeIdentityReads },
+      processContinuity: { ...this.processContinuity, ...this.continuityTotals } };
   }
   processSnapshot(): { processes: ProcInfo[]; capturedAt: number } {
     return { processes: this.lastProcesses, capturedAt: this.processSnapshotAt };
@@ -310,7 +338,10 @@ export class PassiveSessionObserver {
 
   /** `collectProcesses` is injectable so the scan-failure paths (a rejection,
    *  an empty table) can be exercised without a real process table. */
-  constructor(private readonly collectProcesses: () => Promise<ProcInfo[]> = collectProcessInfo) {}
+  constructor(
+    private readonly collectProcesses: () => Promise<ProcInfo[]> = collectProcessInfo,
+    private readonly confirmMissing: (pids: number[]) => Promise<ProcessContinuity> = confirmMissingProcesses,
+  ) {}
 
   /**
    * Returns the cached observed sessions immediately and, when the cache is
@@ -347,13 +378,31 @@ export class PassiveSessionObserver {
   }
 
   private async scan(managedSessions: EnrichedSession[]): Promise<void> {
-    const processes = await this.collectProcesses();
+    const processes = [...await this.collectProcesses()];
     // collectProcessInfo() reports a timeout, a spawn failure or unparseable
     // output as [] rather than throwing, so the .catch() above never sees it —
     // and no running machine truly has zero processes. Treat an empty table as
     // the third answer ("could not look") and retain the previous roster; the
     // alternative is concluding that every observed session ended at once.
     if (processes.length === 0) return;
+    const present = new Set(processes.map(row => row.pid));
+    const missing = [...new Set(this.cached.map(row => row.pid))]
+      .filter(pid => Number.isInteger(pid) && pid > 0 && !present.has(pid));
+    const continuity = await this.confirmMissing(missing);
+    this.processContinuity = { capturedAt: Date.now(), scannedProcessCount: processes.length,
+      missing: missing.length, recovered: continuity.processes.length,
+      exited: continuity.exited, unknown: continuity.unknown };
+    if (continuity.processes.length > 0) {
+      this.continuityTotals.recoveredScans += 1;
+      this.continuityTotals.recoveredPids += continuity.processes.length;
+    }
+    if (continuity.unknown > 0) this.continuityTotals.inconclusiveScans += 1;
+    // A nonempty but partial ps result dropped every terminal Claude at once
+    // on a live Mac. Re-read missing known PIDs before publishing a removal.
+    // An inconclusive read keeps the prior snapshot AND its freshness stamp;
+    // a confirmed exit or a positively re-read replacement still takes effect.
+    if (continuity.unknown > 0) return;
+    processes.push(...continuity.processes);
     this.lastProcesses = processes;
     this.processSnapshotAt = Date.now();
     const claude = collectClaudeSessions(processes, this.cached);
@@ -735,6 +784,18 @@ export async function collectProcessInfo(): Promise<ProcInfo[]> {
   } catch {
     return [];
   }
+}
+
+async function collectProcessesByPid(pids: number[]): Promise<ProcInfo[]> {
+  if (process.platform === 'win32') {
+    return (await collectProcessInfoWin32()).filter(row => pids.includes(row.pid));
+  }
+  try {
+    const { stdout } = await execFileAsync('ps', ['-ww', '-p', pids.join(','), '-o', 'pid=,ppid=,rss=,tty=,command='], {
+      encoding: 'utf8', timeout: 2_000, maxBuffer: 2 * 1024 * 1024,
+    });
+    return parseProcessTable(stdout);
+  } catch { return []; }
 }
 
 /**
