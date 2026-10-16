@@ -192,13 +192,15 @@ describe('applyStatuslineRelay policy', () => {
   it('refreshStatuslineRelay rewrites an outdated relay and nothing else', () => {
     const outdated = buildStatuslineRelayCommand(USER_STATUSLINE)
       .replace('# AgentDeck status-line relay v1', '# AgentDeck status-line relay v0');
+    // Platform pinned: on a Windows runner the default platform would rebuild
+    // this POSIX relay into the PowerShell form, which is a different change.
     const settings: any = { statusLine: { type: 'command', command: outdated } };
-    expect(refreshStatuslineRelay(settings)).toBe(true);
+    expect(refreshStatuslineRelay(settings, 'darwin')).toBe(true);
     expect(settings.statusLine.command).toBe(buildStatuslineRelayCommand(USER_STATUSLINE));
-    expect(refreshStatuslineRelay(settings)).toBe(false);
+    expect(refreshStatuslineRelay(settings, 'darwin')).toBe(false);
     const foreign: any = { statusLine: { type: 'command', command: USER_STATUSLINE } };
-    expect(refreshStatuslineRelay(foreign)).toBe(false);
-    expect(refreshStatuslineRelay({})).toBe(false);
+    expect(refreshStatuslineRelay(foreign, 'darwin')).toBe(false);
+    expect(refreshStatuslineRelay({}, 'darwin')).toBe(false);
   });
 
   it('reads the policy from AGENTDECK_STATUSLINE', () => {
