@@ -3332,6 +3332,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // Codex observation backstops — which sessions each source believes in.
         // A session present here but absent from sessions_list means the ps
         // observer found it too and won, which is the expected steady state.
+        passiveObserver: passiveSessionObserver.diagnostics(),
         hookCodexSessions: hookCodexSessions.snapshot(),
         codexOtelThreads: codexOtel.snapshot(),
         pocketAutonomy: pocketAutonomy.diagnostics(),

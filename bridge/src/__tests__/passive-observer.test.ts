@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   activeKiroCliProcesses,
   CodexRolloutCache,
@@ -1062,5 +1065,60 @@ describe('selectClaudeConversationFiles', () => {
       file({ pid: 2, sessionId: 'b', kind: 'bg', jobId: 'b' }),
     ];
     expect(ids(selectClaudeConversationFiles(rows))).toEqual(['a', 'b']);
+  });
+});
+
+
+describe('Claude identity read continuity', () => {
+  let directory: string | undefined;
+  afterEach(() => {
+    vi.useRealTimers(); vi.unstubAllEnvs();
+    if (directory) rmSync(directory, { recursive: true, force: true });
+    directory = undefined;
+  });
+
+  async function settle(): Promise<void> { for (let i = 0; i < 20; i += 1) await Promise.resolve(); }
+  async function fixture() {
+    directory = mkdtempSync(join(tmpdir(), 'agentdeck-claude-continuity-'));
+    vi.stubEnv('HOME', directory); vi.stubEnv('CLAUDE_CONFIG_DIR', join(directory, '.claude'));
+    const path = join(directory, '.claude', 'sessions', '43210.json');
+    mkdirSync(join(directory, '.claude', 'sessions'), { recursive: true });
+    const file = { pid: 43210, sessionId: 'continuity-session', cwd: directory, startedAt: Date.now() };
+    writeFileSync(path, JSON.stringify(file));
+    let processes: ProcInfo[] = [{ pid: 43210, ppid: 1, rssKb: 1024, command: 'claude' }];
+    const observer = new PassiveSessionObserver(async () => processes);
+    observer.collect([]); await settle();
+    expect(observer.collect([]).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
+    const scan = async () => { vi.useFakeTimers({ now: Date.now() + 60_000 }); observer.collect([]); await settle(); return observer.collect([]); };
+    return { path, file, observer, scan, setProcesses: (next: ProcInfo[]) => { processes = next; } };
+  }
+
+  it('retains a known live Claude when its session file is temporarily malformed or missing', async () => {
+    const f = await fixture();
+    writeFileSync(f.path, '{"pid":');
+    expect((await f.scan()).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
+    expect(f.observer.diagnostics().claudeIdentityReads).toEqual({ candidates: 1, unreadable: 1, retained: 1 });
+    rmSync(f.path);
+    expect((await f.scan()).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
+    writeFileSync(f.path, JSON.stringify({ ...f.file, sessionId: 'replacement' }));
+    expect((await f.scan()).map(s => s.id)).toEqual(['observed:claude:replacement']);
+    expect(f.observer.diagnostics().claudeIdentityReads.retained).toBe(0);
+  });
+
+  it('still removes an ended process and never invents an identity for an unreadable new process', async () => {
+    const f = await fixture(); rmSync(f.path);
+    f.setProcesses([{ pid: 1, ppid: 0, rssKb: 1024, command: '/sbin/launchd' },
+      { pid: 43211, ppid: 1, rssKb: 1024, command: 'claude' }]);
+    expect(await f.scan()).toEqual([]);
+    expect(f.observer.diagnostics().claudeIdentityReads.retained).toBe(0);
+  });
+
+  it('does not retain an explicitly spare process or one that execed another command', async () => {
+    const f = await fixture();
+    writeFileSync(f.path, JSON.stringify({ ...f.file, spare: true }));
+    expect(await f.scan()).toEqual([]);
+    writeFileSync(f.path, JSON.stringify(f.file)); await f.scan();
+    f.setProcesses([{ pid: 43210, ppid: 1, rssKb: 1024, command: '/bin/zsh' }]);
+    expect(await f.scan()).toEqual([]);
   });
 });

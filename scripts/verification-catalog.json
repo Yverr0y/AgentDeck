@@ -608,7 +608,7 @@
       "trigger": "PRs and pushes touching apple/**, shared/** or generated/protocol/**",
       "blocking": true,
       "command": "verify-build.sh macOS Debug / Release / DotPreviewRelease; verify-build.sh iOS Release / DotPreviewRelease; validate-appstore-submission.sh",
-      "evidence": ["apple/AgentDeckTests/AgentDeckPathsTests.swift", "apple/AgentDeckTests/TerrariumCloudFoldTests.swift", "apple/AgentDeckTests/CommunicationGraphTests.swift"],
+      "evidence": ["apple/AgentDeckTests/AgentDeckPathsTests.swift", "apple/AgentDeckTests/TerrariumCloudFoldTests.swift", "apple/AgentDeckTests/CommunicationGraphTests.swift", "apple/AgentDeckTests/LocalPortProbeTests.swift", "apple/AgentDeckTests/BridgeConnectionLifetimeTests.swift"],
       "proves": [
         "the macOS app and its in-process Swift daemon build and pass XCTest",
         "communication graphs keep unrelated sessions isolated, resolve only explicit peer identity, retain one-way burst ages, and distinguish crossed messages and unavailable history; native graph rendering uses synthetic sessions; habitat currents require visible peers and follow resident parent and camera transforms",

@@ -291,6 +291,11 @@ export class PassiveSessionObserver {
    *  observer already pays for instead of running a second one per tick. */
   private lastProcesses: ProcInfo[] = [];
   private processSnapshotAt = 0;
+  private claudeIdentityReads = { candidates: 0, unreadable: 0, retained: 0 };
+  diagnostics(): { capturedAt: number; processCount: number; rosterCount: number; claudeIdentityReads: { candidates: number; unreadable: number; retained: number } } {
+    return { capturedAt: this.processSnapshotAt, processCount: this.lastProcesses.length,
+      rosterCount: this.cached.length, claudeIdentityReads: { ...this.claudeIdentityReads } };
+  }
   processSnapshot(): { processes: ProcInfo[]; capturedAt: number } {
     return { processes: this.lastProcesses, capturedAt: this.processSnapshotAt };
   }
@@ -351,8 +356,10 @@ export class PassiveSessionObserver {
     if (processes.length === 0) return;
     this.lastProcesses = processes;
     this.processSnapshotAt = Date.now();
+    const claude = collectClaudeSessions(processes, this.cached);
+    this.claudeIdentityReads = claude.identityReads;
     const observed = [
-      ...collectClaudeSessions(processes),
+      ...claude.sessions,
       ...(await collectCodexSessions(processes, this.codexRolloutCache)),
       ...(await collectOpenCodeSessions(processes)),
       ...(await collectAntigravitySessions(processes)),
@@ -835,15 +842,29 @@ export function resolveHostApp(
   return undefined;
 }
 
-function collectClaudeSessions(processes: ProcInfo[]): ObservedSession[] {
+function collectClaudeSessions(processes: ProcInfo[], previous: ObservedSession[] = []): {
+  sessions: ObservedSession[]; identityReads: { candidates: number; unreadable: number; retained: number };
+} {
   const configDirs = claudeConfigDirs();
   const byPid = new Map(processes.map((p) => [p.pid, p]));
   const sessions: ObservedSession[] = [];
   const candidates: Array<{ proc: ProcInfo; file: ClaudeSessionFile }> = [];
+  const identityReads = { candidates: 0, unreadable: 0, retained: 0 };
   for (const proc of processes) {
     if (!isClaudeSessionProcessCommand(proc.command)) continue;
+    identityReads.candidates += 1;
     const file = findClaudeSessionFile(configDirs, proc.pid);
     if (file) candidates.push({ proc, file });
+    else {
+      identityReads.unreadable += 1;
+      // A session file can be absent or half-written during Claude's update.
+      // This scan still positively sees the same Claude process. Losing its
+      // metadata is not evidence the conversation ended; keep only a previously
+      // established identity. A missing PID, non-Claude argv, a valid replacement
+      // identity, spare or parked-job record still removes the old row.
+      const prior = previous.find(s => s.agentType === 'claude-code' && s.pid === proc.pid);
+      if (prior) { sessions.push({ ...prior }); identityReads.retained += 1; }
+    }
   }
   for (const { proc, file: sessionFile } of selectClaudeConversationFiles(candidates)) {
     const transcript = findClaudeTranscript(configDirs, sessionFile.cwd, sessionFile.sessionId);
@@ -875,7 +896,7 @@ function collectClaudeSessions(processes: ProcInfo[]): ObservedSession[] {
       lastActivityAt,
     });
   }
-  return sessions;
+  return { sessions, identityReads };
 }
 
 async function collectCodexSessions(
@@ -1346,7 +1367,7 @@ function findClaudeSessionFile(configDirs: string[], pid: number): ClaudeSession
         cwd: string;
         startedAt: number;
       }>;
-      if (typeof parsed.pid !== 'number' || typeof parsed.sessionId !== 'string' ||
+      if (parsed.pid !== pid || typeof parsed.sessionId !== 'string' ||
           typeof parsed.cwd !== 'string' || typeof parsed.startedAt !== 'number') {
         continue;
       }
