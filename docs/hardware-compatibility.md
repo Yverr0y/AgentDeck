@@ -167,7 +167,7 @@ Operational exceptions:
 | Timebox Mini | Dedicated 11×11 Agent Beacon over ISSC BLE GATT. It shares the single BLE connection budget with iDotMatrix. |
 | TC001 | Self-rendering serial/Wi-Fi board. App Store status is Partial only because the Swift `led8x32` path awaits hardware verification; this is not a sandbox restriction. |
 | D200H | Ulanzi Studio plugin is the only driver. Direct-HID implementations are retired. |
-| Stream Deck family | One plugin provides bundled profiles for standard (DeviceType 0), Mini (1), XL (2), Plus (7), and + XL (13). The XL and + XL profiles AutoInstall and auto-switch on connect like the others; the + XL uses its 6 dials (4 assigned, E5–E6 unassigned). |
+| Stream Deck family | One plugin provides bundled profiles for standard (DeviceType 0), Mini (1), XL (2), Plus (7), and + XL (13). Bundled profiles AutoInstall and activate when first installed, but plugin startup and reconnects do not replace the user's active profile. The + XL uses its 6 dials (4 assigned, E5–E6 unassigned). |
 
 ## Software platforms
 

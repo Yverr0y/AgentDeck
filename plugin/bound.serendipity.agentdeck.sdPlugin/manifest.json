@@ -160,35 +160,35 @@
       "Name": "agentdeck-sdplusxl",
       "DeviceType": 13,
       "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": true,
+      "DontAutoSwitchWhenInstalled": false,
       "Readonly": false
     },
     {
       "Name": "agentdeck-sdxl",
       "DeviceType": 2,
       "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": true,
+      "DontAutoSwitchWhenInstalled": false,
       "Readonly": false
     },
     {
       "Name": "agentdeck-sdplus",
       "DeviceType": 7,
       "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": true,
+      "DontAutoSwitchWhenInstalled": false,
       "Readonly": false
     },
     {
       "Name": "agentdeck-sd",
       "DeviceType": 0,
       "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": true,
+      "DontAutoSwitchWhenInstalled": false,
       "Readonly": false
     },
     {
       "Name": "agentdeck-sdmini",
       "DeviceType": 1,
       "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": true,
+      "DontAutoSwitchWhenInstalled": false,
       "Readonly": false
     }
   ],

@@ -41,11 +41,11 @@ describe('Stream Deck Marketplace platform contract', () => {
 });
 
 describe('bundled profile selection contract', () => {
-  it('installs every bundled profile without replacing the user-selected profile', () => {
+  it('installs and initially selects every bundled profile for first-time users', () => {
     expect(manifest.Profiles).toHaveLength(5);
     for (const profile of manifest.Profiles) {
       expect(profile.AutoInstall, profile.Name).toBe(true);
-      expect(profile.DontAutoSwitchWhenInstalled, profile.Name).toBe(true);
+      expect(profile.DontAutoSwitchWhenInstalled, profile.Name).toBe(false);
     }
   });
 
