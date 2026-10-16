@@ -35,7 +35,7 @@ and [docs/esp32.md](../../docs/esp32.md). Heap discipline is the `esp32-heap-dis
 
 ## Serial open (Node)
 
-- **A successful serial probe does not bound the following driver open.** The Node daemon performs its actual serial open asynchronously with a deadline, never with `openSync` on the HTTP/WebSocket event loop. A timed-out open keeps one pending slot for that port until its native callback arrives; late descriptors are closed rather than admitted, and no new probe is queued for that port while its old open is pending. The deadline is checked in the callback too, because an event-loop stall can delay the timer. Gates: `bridge/src/__tests__/esp32-serial-open.test.ts`; live diagnostic context in the 2026-10-16 Dashboard stability devlog.
+- **A successful serial probe does not bound the following driver open.** The Node daemon performs its actual serial open asynchronously with a deadline, never with `openSync` on the HTTP/WebSocket event loop. A timed-out open keeps one pending slot for that port until its native callback arrives; late descriptors are closed rather than admitted, and no new probe is queued for that port while its old open is pending. The deadline is checked in the callback too, because an event-loop stall can delay the timer. The quick subprocess probe and actual driver open have separate deadlines: reusing the probe's 1.5-second limit rejected six native-USB opens on the real Mac even though the event loop stayed responsive; the driver gets a bounded initialization/worker-queue grace period. Gates: `bridge/src/__tests__/esp32-serial-open.test.ts`; live diagnostic context in the 2026-10-16 Dashboard stability devlog.
 
 ## Serial teardown (Swift)
 

@@ -4,6 +4,19 @@ import { openSerialFd } from '../esp32-serial.js';
 describe('serial driver open deadline', () => {
   afterEach(() => vi.useRealTimers());
 
+  it('allows a healthy driver to finish beyond the quick probe deadline', async () => {
+    vi.useFakeTimers();
+    let complete!: (error: NodeJS.ErrnoException | null, fd: number) => void;
+    const closer = vi.fn();
+    const result = openSerialFd('/dev/test-slow-healthy', undefined,
+      (_port, _flags, callback) => { complete = callback; }, closer);
+    await vi.advanceTimersByTimeAsync(2_000);
+    complete(null, 46);
+    await expect(result).resolves.toBe(46);
+    expect(closer).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('times out a silent driver, blocks duplicate opens, and closes its late descriptor', async () => {
     vi.useFakeTimers();
     let complete!: (error: NodeJS.ErrnoException | null, fd: number) => void;

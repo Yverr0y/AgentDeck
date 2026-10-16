@@ -85,6 +85,10 @@ const CDC_SILENT_READ_TIMEOUT_MS = 120_000;
 // resets the board, which is the self-heal.
 const UART_SILENT_READ_TIMEOUT_MS = 180_000;
 const SERIAL_OPEN_PROBE_TIMEOUT_MS = 1500;
+// The actual driver open may wait for CDC initialization and the filesystem
+// worker queue. Its grace period is independent of the quick subprocess probe;
+// keeping the probe's 1.5s limit here disconnected healthy native-USB boards.
+const SERIAL_DRIVER_OPEN_TIMEOUT_MS = 20_000;
 // Serial open-failure backoff. Every open() (including the probe subprocess)
 // toggles DTR/RTS and RESETS the attached board, so a port that keeps failing
 // to open — a wedged CH340, a stuck bridge — must escalate its retry cadence
@@ -720,7 +724,7 @@ const pendingSerialOpens = new Set<string>();
 /** @internal Exported for driver-stall and late-descriptor regression tests. */
 export function openSerialFd(
   port: string,
-  timeoutMs = SERIAL_OPEN_PROBE_TIMEOUT_MS,
+  timeoutMs = SERIAL_DRIVER_OPEN_TIMEOUT_MS,
   opener: SerialFdOpener = openFile,
   closer: (fd: number) => void = closeFd,
 ): Promise<number> {

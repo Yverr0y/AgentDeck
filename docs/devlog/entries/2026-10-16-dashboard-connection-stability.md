@@ -128,3 +128,29 @@ timer. Focused tests exercise a silent driver while another timer runs, late
 descriptor cleanup, retry admission, a delayed event loop, and error paths.
 The earlier synthetic Claude fixture also supplies its own process-exit probe,
 so the unit test never depends on an unrelated live machine PID.
+
+The first asynchronous-open candidate `f90fc0db` passes clean full verification
+(24 automatic gates; 5,914 Vitest cases) and was deployed through the supervisor
+at 00:33 KST on October 17: PID 5988, port 9120, content build `0d221faf985f`.
+Its real-session notification/request/reverse-notification/response events retain
+the expected intent classifications. Earlier, at 00:04, the installed app also
+showed the explicit response clearing the timer in both Collaboration and the
+Default creature habitat. The original 3D Preview preference was restored.
+
+Additional hardware checks catch a deadline regression: reusing the quick
+probe's 1.5-second budget for the real asynchronous driver open rejects six
+native-USB ports, leaving five responsive serial connections. The Dashboard
+remains responsive, so health alone would miss this loss. The actual driver now
+gets an independent bounded 20-second initialization/worker-queue grace period,
+while the probe stays short. A regression case admits a healthy completion past
+the quick-probe deadline. A later native sample finds the filesystem worker
+threads idle or doing short reads, rather than proving persistent pool
+starvation. The new grace period still requires a fresh normal-hardware soak.
+
+A bounded live check on the previously identified T-Display-S3-Pro port confirms
+the distinction: with an owned serial-suspend lease and a confirmed empty port
+holder scan, the production-style child probe completes in 52 ms, but its
+immediate real reopen takes 2,002 ms. The new opener admits that descriptor
+while 19 independent 100 ms heartbeats run, then closes it and releases its own
+lease. This explains why the 1.5-second limit rejected a working native-USB
+port. No firmware was written.
