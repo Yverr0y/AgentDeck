@@ -1,8 +1,33 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Every rung is a subprocess, so the ladder is exercised against a fake
+// `execFile`. promisify() resolves with the callback's second argument, which
+// is why the fake answers `{ stdout, stderr }` rather than two strings.
+type ExecReply = { stdout?: string; stderr?: string; code?: string | number };
+const execCalls: { file: string; args: string[]; env?: NodeJS.ProcessEnv }[] = [];
+let execRoute: (file: string, args: string[]) => ExecReply = () => ({ stdout: '' });
+vi.mock('child_process', () => ({
+  execFile: (
+    file: string,
+    args: string[],
+    opts: { env?: NodeJS.ProcessEnv },
+    cb: (err: unknown, out?: { stdout: string; stderr: string }) => void,
+  ) => {
+    execCalls.push({ file, args, env: opts?.env });
+    const reply = execRoute(file, args);
+    if (reply.code !== undefined) {
+      cb(Object.assign(new Error(`${file} failed`), { code: reply.code, stderr: reply.stderr ?? '' }));
+    } else {
+      cb(null, { stdout: reply.stdout ?? '', stderr: reply.stderr ?? '' });
+    }
+  },
+}));
+
 import {
   parseTmuxPanes, buildItermSelectScript, buildTerminalAppSelectTabScript,
   buildPostKeysScript, buildAppButtonPressScript, buildAppKeysScript,
-  escapeAppleScript,
+  escapeAppleScript, parseCmuxEnv, isCmuxSocketRefusal, cmuxErrorMessage,
+  injectObservedText, injectObservedSelection,
 } from '../observed-inject.js';
 import { parseProcessTable, appNameFromCommand, resolveHostApp } from '../passive-observer.js';
 
@@ -155,5 +180,196 @@ describe('app-host resolution', () => {
     ].join('\n'));
     const byPid = new Map(rows.map((p) => [p.pid, p]));
     expect(resolveHostApp(20, byPid)).toBeUndefined();
+  });
+});
+
+const SURFACE = '31608312-0A92-4470-A64B-3B000CFC395D';
+const OTHER_SURFACE = '9F9FA550-5886-45CE-AAF8-5F76DC833627';
+
+describe('parseCmuxEnv', () => {
+  const command = '/opt/homebrew/bin/claude --model opus';
+  const ps = (env: string) => `${command} ${env}\n`;
+  const exists = () => true;
+
+  it('reads the surface id and socket path from the environment', () => {
+    const out = ps(`HOME=/Users/me CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=/Users/me/.local/state/cmux/cmux.sock`);
+    expect(parseCmuxEnv(out, `${command}\n`, exists)).toEqual({
+      surfaceId: SURFACE,
+      socketPath: '/Users/me/.local/state/cmux/cmux.sock',
+    });
+  });
+
+  it('is undefined for a process that does not run under cmux', () => {
+    expect(parseCmuxEnv(ps('HOME=/Users/me TERM=xterm-256color'), command, exists)).toBeUndefined();
+  });
+
+  it('removes all argv before reading the real environment', () => {
+    const argv = `${command} CMUX_SURFACE_ID=${OTHER_SURFACE} CMUX_SOCKET_PATH=/wrong.sock`;
+    const out = `${argv} CMUX_SURFACE_ID=${SURFACE}\n`;
+    expect(parseCmuxEnv(out, argv, exists)).toEqual({ surfaceId: SURFACE, socketPath: undefined });
+  });
+
+  it('does not treat a surface mentioned only in argv as a cmux host', () => {
+    const argv = `${command} --prompt explain CMUX_SURFACE_ID=${OTHER_SURFACE}`;
+    expect(parseCmuxEnv(`${argv} HOME=/Users/me\n`, `${argv}\n`, exists)).toBeUndefined();
+    expect(parseCmuxEnv(`${argv}\n`, `${argv}\n`, exists)).toBeUndefined();
+  });
+
+  it('requires a readable complete argv prefix without trimming argument whitespace', () => {
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE}`), '', exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE}`), `${command} changed`, exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE}`), `${command}\nsecond row`, exists)).toBeUndefined();
+    const argv = `${command} CMUX_SURFACE_ID=${OTHER_SURFACE}  `;
+    expect(parseCmuxEnv(`${argv} HOME=/Users/me\n`, `${argv}\n`, exists)).toBeUndefined();
+  });
+
+  it('rejects a surface id that is not a UUID, so it can never read as a flag', () => {
+    expect(parseCmuxEnv(ps('CMUX_SURFACE_ID=--force'), command, exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps('CMUX_SURFACE_ID=surface:2'), command, exists)).toBeUndefined();
+  });
+
+  it('drops a socket path that is relative or missing, leaving discovery to the CLI', () => {
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=cmux.sock`), command, exists)?.socketPath)
+      .toBeUndefined();
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=/gone/cmux.sock`), command, () => false)?.socketPath)
+      .toBeUndefined();
+  });
+});
+
+describe('cmux error reading', () => {
+  it('keeps the first line without the Error: prefix', () => {
+    expect(cmuxErrorMessage('Error: not_found: Surface not found for the given surface_id\n'))
+      .toBe('not_found: Surface not found for the given surface_id');
+  });
+
+  // Measured on cmux 0.65.1 from a launchd job: `send` sees only the pipe
+  // close, `ping` gets the actual reason.
+  it('recognises both shapes of a socket refusal', () => {
+    expect(isCmuxSocketRefusal('Failed to write to socket (Broken pipe, errno 32)')).toBe(true);
+    expect(isCmuxSocketRefusal('ERROR: Access denied - only processes started inside cmux can connect')).toBe(true);
+    expect(isCmuxSocketRefusal('not_found: Surface not found for the given surface_id')).toBe(false);
+  });
+});
+
+describe('cmux rung', () => {
+  const realPlatform = process.platform;
+  const PID = 4242;
+  let cmuxReply: (args: string[]) => ExecReply;
+  let command: string;
+  let environment: string;
+
+  const cmuxArgs = () => execCalls.filter((c) => c.file === 'cmux').map((c) => c.args);
+
+  beforeEach(() => {
+    // The rung is macOS-only; pin the platform so the suite means the same
+    // thing on a Linux CI runner.
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    execCalls.length = 0;
+    cmuxReply = () => ({ stdout: 'OK' });
+    command = '/opt/homebrew/bin/claude';
+    environment = `HOME=/Users/me CMUX_SURFACE_ID=${SURFACE}`;
+    execRoute = (file, args) => {
+      if (file === 'tmux') return { code: 'ENOENT' };
+      if (file === 'ps') {
+        const env = args.includes(String(PID)) ? environment : 'HOME=/Users/me';
+        return { stdout: `${command}${args.includes('-E') ? ` ${env}` : ''}\n` };
+      }
+      if (file === 'cmux') return cmuxReply(args);
+      return { stdout: 'notfound' };
+    };
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: realPlatform });
+  });
+
+  it('pastes a dictated line into the surface, then submits it with Enter', async () => {
+    const r = await injectObservedText({ tty: 'ttys003', pid: PID }, 'Run the tests\\nand fix them');
+    expect(r).toEqual({ ok: true, via: 'cmux' });
+    expect(cmuxArgs()).toEqual([
+      ['send', '--paste', '--surface', SURFACE, '--', 'Run the tests\\nand fix them'],
+      ['send-key', '--surface', SURFACE, '--', 'Enter'],
+    ]);
+    // The host is known, so no AppleScript rung may run — Terminal.app's
+    // would raise an Automation prompt for an app that does not own the tty.
+    expect(execCalls.some((c) => c.file === 'osascript')).toBe(false);
+  });
+
+  it('never forces text over a draft: cmux refuses, and nothing is submitted', async () => {
+    cmuxReply = (args) => args[0] === 'send'
+      ? { code: 1, stderr: `Error: send: the agent prompt in ${SURFACE} holds text someone is typing, so nothing was sent.` }
+      : { stdout: 'OK' };
+    const r = await injectObservedText({ tty: 'ttys003', pid: PID }, 'hello');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('holds text someone is typing');
+    expect(cmuxArgs().flat()).not.toContain('--force');
+    expect(cmuxArgs().some((a) => a[0] === 'send-key')).toBe(false);
+    expect(execCalls.some((c) => c.file === 'osascript')).toBe(false);
+  });
+
+  it('quotes ping when the socket refuses, and names the setting to change', async () => {
+    cmuxReply = (args) => args[0] === 'ping'
+      ? { code: 1, stderr: 'Error: ERROR: Access denied - only processes started inside cmux can connect' }
+      : { code: 1, stderr: 'Error: Failed to write to socket (Broken pipe, errno 32)' };
+    const r = await injectObservedText({ tty: 'ttys003', pid: PID }, 'hello');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('cmux socket refused');
+    expect(r.reason).toContain('Access denied - only processes started inside cmux can connect');
+    expect(r.reason).toContain('Automation mode');
+    // ping runs only on the refusal branch, after the send that failed.
+    expect(cmuxArgs().map((a) => a[0])).toEqual(['send', 'ping']);
+  });
+
+  it('answers a picker with paced, forced Down presses and an Enter', async () => {
+    const r = await injectObservedSelection({ tty: 'ttys003', pid: PID }, 2);
+    expect(r).toEqual({ ok: true, via: 'cmux' });
+    expect(cmuxArgs()).toEqual([
+      ['send-key', '--force', '--surface', SURFACE, '--', 'Down'],
+      ['send-key', '--force', '--surface', SURFACE, '--', 'Down'],
+      ['send-key', '--force', '--surface', SURFACE, '--', 'Enter'],
+    ]);
+  });
+
+  it('reports a break after keys landed instead of re-sending them elsewhere', async () => {
+    let n = 0;
+    cmuxReply = () => (++n === 2 ? { code: 1, stderr: 'Error: not_found: Surface not found' } : { stdout: 'OK' });
+    const r = await injectObservedSelection({ tty: 'ttys003', pid: PID }, 2);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('broke partway');
+    expect(execCalls.some((c) => c.file === 'osascript')).toBe(false);
+  });
+
+  it('leaves sessions outside cmux to the AppleScript rungs', async () => {
+    const r = await injectObservedText({ tty: 'ttys003', pid: PID + 1 }, 'hello');
+    expect(r.ok).toBe(false);
+    expect(cmuxArgs()).toEqual([]);
+    expect(execCalls.some((c) => c.file === 'osascript')).toBe(true);
+  });
+
+  it.each(['text', 'selection'] as const)('ignores argv-only CMUX_SURFACE_ID in the %s ladder', async (kind) => {
+    command += ` --prompt explain CMUX_SURFACE_ID=${OTHER_SURFACE}`;
+    environment = 'HOME=/Users/me';
+    if (kind === 'text') await injectObservedText({ tty: 'ttys003', pid: PID }, 'hello');
+    else await injectObservedSelection({ tty: 'ttys003', pid: PID }, 0);
+    expect(cmuxArgs()).toEqual([]);
+    expect(execCalls.some(c => c.file === 'osascript')).toBe(true);
+  });
+
+  it.each(['changed', 'unreadable'] as const)('does not select cmux when argv is %s after the environment probe', async (failure) => {
+    const route = execRoute;
+    let plainReads = 0;
+    execRoute = (file, args) => {
+      if (file === 'ps' && !args.includes('-E') && ++plainReads === 2) {
+        return failure === 'unreadable' ? { code: 1 } : { stdout: `${command} changed\n` };
+      }
+      return route(file, args);
+    };
+    await injectObservedText({ tty: 'ttys003', pid: PID }, 'hello');
+    expect(cmuxArgs()).toEqual([]);
+  });
+
+  it('does not look for cmux when the agent pid is unknown', async () => {
+    await injectObservedText({ tty: 'ttys003' }, 'hello');
+    expect(execCalls.some((c) => c.file === 'ps')).toBe(false);
   });
 });

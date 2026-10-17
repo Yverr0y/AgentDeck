@@ -6361,7 +6361,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         injectionGuardUntil.set(uuid, now + INJECTION_GUARD_MAX_MS);
         const obs = passiveSessionObserver.collect([])
           .find((s) => s.id === `observed:claude:${uuid}`) as
-            { tty?: string; appName?: string } | undefined;
+            { tty?: string; appName?: string; pid?: number } | undefined;
         // The option's visible label lets app-hosted prompts press the matching
         // native button instead of guessing cursor movement.
         const label = ov?.options?.[idx]?.label;
@@ -6378,7 +6378,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         const parsedCount = ov?.groups?.length ?? 1;
         const confirmSubmit = groupCount > 1 && (ov?.activeGroup ?? 0) === parsedCount - 1;
         injectObservedSelection(
-          { tty: obs?.tty, appName: obs?.appName, label }, idx, { confirmSubmit },
+          { tty: obs?.tty, appName: obs?.appName, pid: obs?.pid, label }, idx, { confirmSubmit },
         ).then((r) => {
           injectionGuardUntil.set(uuid, Date.now() + INJECTION_SETTLE_MS);
           debug('daemon', r.ok
@@ -7268,9 +7268,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
               // silently dropped — the board said "sent" and nothing arrived.
               const obs = passiveSessionObserver.collect([])
                 .find((s) => s.id === sessionId) as
-                  { tty?: string; appName?: string } | undefined;
+                  { tty?: string; appName?: string; pid?: number } | undefined;
               const r = await injectObservedText(
-                { tty: obs?.tty, appName: obs?.appName }, text);
+                { tty: obs?.tty, appName: obs?.appName, pid: obs?.pid }, text);
               delivered = r.ok;
               via = r.via;
               deliverReason = r.reason;
@@ -7463,9 +7463,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // session — the same ladder dictated text uses.
           const obs = passiveSessionObserver.collect([])
             .find((s) => s.id === sessionId) as
-              { tty?: string; appName?: string } | undefined;
+              { tty?: string; appName?: string; pid?: number } | undefined;
           const r = await injectObservedText(
-            { tty: obs?.tty, appName: obs?.appName }, text);
+            { tty: obs?.tty, appName: obs?.appName, pid: obs?.pid }, text);
           delivered = r.ok;
           via = r.via;
           deliverReason = r.reason;
