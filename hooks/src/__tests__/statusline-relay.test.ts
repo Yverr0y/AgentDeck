@@ -282,7 +282,10 @@ describe.skipIf(process.platform !== 'win32')('the Windows relay script, execute
     server = null;
   });
 
-  it.each(['Git Bash', 'PowerShell stream', 'PowerShell pipeline'] as const)('POSTs the document and preserves the original status line through %s', async (shell) => {
+  it.each([
+    'Git Bash', 'PowerShell stream', 'PowerShell pipeline',
+    'PowerShell native stream', 'PowerShell native pipeline', 'PowerShell literal input',
+  ] as const)('POSTs the document and preserves the original status line through %s', async (shell) => {
     const received: Array<{ path: string; body: string }> = [];
     server = createServer((req, res) => {
       let body = '';
@@ -302,16 +305,25 @@ describe.skipIf(process.platform !== 'win32')('the Windows relay script, execute
     writeFileSync(join(home, '.agentdeck', 'daemon.json'), JSON.stringify({ port }));
     const script = ensureWindowsStatuslineScript(home);
 
-    const document = JSON.stringify({ session_id: 'win-probe', rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 } }, note: '한글 résumé' }) + '\n';
+    const document = JSON.stringify({ session_id: 'win-probe', rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 } }, note: '한글 résumé' }, null, 2) + '\n\n';
+    const nativeScript = join(home, 'native-stdin.cjs');
+    writeFileSync(nativeScript, 'const text = require("fs").readFileSync(0, "utf8"); process.stdout.write(process.argv[2] === "note" ? JSON.parse(text).note : text);');
+    const native = "& '" + process.execPath.replaceAll("'", "''") + "' '" + nativeScript.replaceAll("'", "''") + "'";
     const originals = {
       'Git Bash': `printf 'wrapped:%s' "$(cat | wc -c | tr -d ' ')"`,
       'PowerShell stream': '[Console]::Out.Write("원본:`n" + [Console]::In.ReadToEnd())',
-      'PowerShell pipeline': '$json = $input | Out-String | ConvertFrom-Json\n[Console]::Out.Write("원본:" + $json.note)',
+      'PowerShell pipeline': '$json = $INPUT | Out-String | ConvertFrom-Json\n[Console]::Out.Write("원본:" + $json.note)',
+      'PowerShell native stream': native,
+      'PowerShell native pipeline': '$input | ' + native + ' note',
+      'PowerShell literal input': "[Console]::Out.Write('$input' + [Console]::In.ReadToEnd())",
     };
     const expected = {
       'Git Bash': `wrapped:${Buffer.byteLength(document)}`,
       'PowerShell stream': `원본:\n${document}`,
       'PowerShell pipeline': '원본:한글 résumé',
+      'PowerShell native stream': document,
+      'PowerShell native pipeline': '한글 résumé',
+      'PowerShell literal input': '$input' + document,
     };
     const original = originals[shell];
     const encoded = Buffer.from(original, 'utf-8').toString('base64');

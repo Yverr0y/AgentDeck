@@ -574,7 +574,27 @@ if (\$OriginalB64) {
       \$psi.Arguments = '"' + \$script.Replace('\\', '/') + '"'
     } else {
       \$psi.FileName = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
-      \$command = '[Console]::InputEncoding = New-Object System.Text.UTF8Encoding(\$false); [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding(\$false);' + [Environment]::NewLine + \$original
+      # PowerShell captures its stdin reader before running a command that uses
+      # the input variable. Parse the user's command after selecting UTF-8 and
+      # feed that pipeline explicitly; leave raw stdin untouched otherwise.
+      \$command = @'
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding(\$false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding(\$false)
+\$OutputEncoding = [Console]::OutputEncoding
+\$userCommand = [ScriptBlock]::Create([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__AGENTDECK_ORIGINAL__')))
+\$usesInput = \$userCommand.Ast.Find({
+  param(\$node)
+  \$node -is [System.Management.Automation.Language.VariableExpressionAst] -and
+    \$node.VariablePath.IsVariable -and
+    \$node.VariablePath.UserPath -match '^(?:variable:)?(?:(?:global|local|script|private):)?input\$'
+}, \$false)
+if (\$usesInput) {
+  & { while ((\$line = [Console]::In.ReadLine()) -ne \$null) { \$line } } | & \$userCommand
+} else {
+  & \$userCommand
+}
+'@
+      \$command = \$command.Replace('__AGENTDECK_ORIGINAL__', \$OriginalB64)
       \$psi.Arguments = '-NoProfile -ExecutionPolicy Bypass -EncodedCommand ' + [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes(\$command))
     }
     \$psi.UseShellExecute = \$false
