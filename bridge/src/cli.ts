@@ -4772,6 +4772,218 @@ apme
     logLegend();
   });
 
+/** `mlx:mlx-community/gemma-4-26b-a4b-it-4bit` → `mlx:gemma-4-26b-a4b-it-4bit`. */
+function shortJudgeLabel(label: string | null): string {
+  if (!label) return 'unknown';
+  const colon = label.indexOf(':');
+  const backend = colon >= 0 ? label.slice(0, colon) : '';
+  const model = (colon >= 0 ? label.slice(colon + 1) : label).split('/').pop() ?? label;
+  return backend ? `${backend}:${model}` : model;
+}
+
+function score2(value: number | null): string {
+  return value == null ? '—' : value.toFixed(2);
+}
+
+function signed2(value: number | null): string {
+  return value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+}
+
+function printReferenceReport(report: import('./apme/reference-judge.js').ReferenceReport): void {
+  const s = report.stats;
+  const ci = (range: [number, number] | null, fmt: (v: number) => string) =>
+    range ? ` (95% CI ${fmt(range[0])} … ${fmt(range[1])})` : '';
+  log(`\n  ${report.judge} · sample ${report.sample}: ${report.attempts} attempt(s), ${report.failures} failed, ${s.n} compared with a local verdict`);
+  if (report.sample !== 'uniform') log('  A filtered sample: these figures hold for that slice, not for every judged task.');
+  for (const f of report.failureReasons.slice(0, 3)) log(`    failed ×${f.count}: ${f.reason}`);
+  if (s.n === 0) return;
+  log(`  MAE ${score2(s.mae)}${ci(s.maeCi, (v) => v.toFixed(2))}   bias ${signed2(s.bias)}${ci(s.biasCi, (v) => signed2(v))}  (bias > 0: the local judge scores higher)`);
+  log(`  Spearman ${score2(s.spearman)}   same outcome band ${s.bucketAgreement == null ? '—' : `${Math.round(s.bucketAgreement * 100)}%`}   Cohen's kappa ${score2(s.kappa)}`);
+  const pct = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+  log(`  Scores at exactly 0 or 1: local ${pct(s.localExtremeShare)}, reference ${pct(s.referenceExtremeShare)}`);
+  if (s.n < 30) log(`  n=${s.n}: read these as direction, not as a measurement.`);
+  log('  Outcome bands, local (rows) × reference (columns):');
+  log(`    ${''.padEnd(8)} ${'success'.padStart(8)} ${'partial'.padStart(8)} ${'fail'.padStart(8)}`);
+  for (const l of ['success', 'partial', 'fail'] as const) {
+    const row = s.confusion[l];
+    log(`    ${l.padEnd(8)} ${String(row.success).padStart(8)} ${String(row.partial).padStart(8)} ${String(row.fail).padStart(8)}`);
+  }
+  const groups = (title: string, rows: import('./apme/reference-judge.js').ReferenceGroupStats[], label: (k: string) => string) => {
+    if (rows.length < 2) return;
+    log(`  By ${title}:`);
+    for (const g of rows) log(`    ${label(g.key).padEnd(34)} n=${String(g.n).padEnd(4)} MAE ${score2(g.mae)}  bias ${signed2(g.bias)}`);
+  };
+  groups('local judge', report.byLocalJudge, shortJudgeLabel);
+  groups('category', report.byCategory, (k) => k);
+  if (report.medianLatencyMs != null || report.medianInputTokens != null) {
+    log(`  Per call: median ${report.medianLatencyMs == null ? '—' : `${Math.round(report.medianLatencyMs / 1000)} s`}, median ${report.medianInputTokens == null ? '—' : `${Math.round(report.medianInputTokens / 1000)}k`} input tokens`);
+  }
+  if (report.disagreements.length > 0) {
+    log('  Largest disagreements:');
+    for (const d of report.disagreements) {
+      log(`    ${d.taskId.slice(0, 8)}  ${(d.category ?? 'unknown').padEnd(12)} local ${d.local.toFixed(2)}  ref ${d.reference.toFixed(2)}  Δ ${signed2(d.delta)}  ${shortJudgeLabel(d.localJudge)}`);
+      if (d.localSummary) log(`      local: ${d.localSummary.slice(0, 160)}`);
+      if (d.referenceSummary) log(`      ref:   ${d.referenceSummary.slice(0, 160)}`);
+      if (d.referenceMissed.length > 0) log(`      ref missed: ${d.referenceMissed.slice(0, 3).join(' · ').slice(0, 200)}`);
+    }
+  }
+}
+
+apme
+  .command('reference-judge')
+  .description(
+    'Score tasks the local judge already scored with a stronger model through your Codex CLI login ' +
+    '(codex exec), to measure the local judge. Default is a DRY RUN that lists what would be sent; ' +
+    'pass --run to send. Each call sends that task\'s prompts, replies and tool trajectory, with ' +
+    'credentials redacted, to the model behind your Codex login.',
+  )
+  .option('--run', 'Actually call the reference model (default: dry run)')
+  .option('-n, --limit <n>', 'Tasks to score in this run', '10')
+  .option('--since <window>', 'Only tasks closed within this window, e.g. 7d / 2w', '30d')
+  .option('--model <model>', 'Codex model (default: the `model` set in ~/.codex/config.toml)')
+  .option('--effort <effort>', 'Reasoning effort: low / medium / high / xhigh / max (default: high)')
+  .option('--category <category>', 'Only tasks of this category')
+  .option('--local-band <band>', 'Only tasks the local judge put in this band: success / partial / fail')
+  .option('--seed <seed>', 'Sampling seed: the same seed keeps the same order', 'agentdeck')
+  .option('--timeout <sec>', 'Per-task timeout in seconds', '300')
+  .action(async (opts) => {
+    const { initApme } = await import('./apme/index.js');
+    const { buildTaskJudgeInput } = await import('./apme/runner.js');
+    const ref = await import('./apme/reference-judge.js');
+    const { readKnownTokens } = await import('./auth.js');
+    const apme = await initApme();
+    if (!apme) { log('APME not available'); process.exit(1); }
+
+    const windowMs = parseLookbackWindow(opts.since);
+    if (windowMs == null) { log(`Unrecognized --since value: ${opts.since}`); process.exit(1); }
+    const limit = Number(opts.limit);
+    if (!Number.isInteger(limit) || limit <= 0) { log(`Invalid --limit: ${opts.limit}`); process.exit(1); }
+    const timeoutSec = Number(opts.timeout);
+    if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) { log(`Invalid --timeout: ${opts.timeout}`); process.exit(1); }
+    const model: string | null = opts.model ?? ref.readCodexDefaultModel();
+    if (!model) {
+      log('No --model given and ~/.codex/config.toml sets no `model`. Pass --model <name>.');
+      process.exit(1);
+    }
+    const effort: string = opts.effort ?? ref.DEFAULT_REFERENCE_EFFORT;
+    if (opts.localBand && !ref.OUTCOME_BUCKETS.includes(opts.localBand)) {
+      log(`Invalid --local-band: ${opts.localBand} (success / partial / fail)`);
+      process.exit(1);
+    }
+    const judge = ref.referenceJudgeTag(model, effort);
+    const sample = ref.referenceSampleLabel({ category: opts.category, localBand: opts.localBand });
+
+    const pool = apme.store.listLocallyJudgedTasks({ sinceMs: Date.now() - windowMs, limit: 20_000 });
+    const already = apme.store.referenceVerdictTaskIds(judge, sample);
+    const picks = ref.pickReferenceCandidates(pool, {
+      limit, skip: already, seed: String(opts.seed), category: opts.category, localBand: opts.localBand,
+    });
+
+    log(`\n  Reference judge ${judge} · sample ${sample}`);
+    log(`  ${pool.length} locally judged task(s) closed in the last ${opts.since}; ${already.size} already scored by this judge in this sample; ${picks.length} picked.`);
+    if (picks.length === 0) { log(''); return; }
+
+    const inputs = picks.map((pick) => ({ pick, input: buildTaskJudgeInput(apme.store, { runId: pick.runId, taskId: pick.taskId }) }));
+    if (!opts.run) {
+      log(`  ${'Task'.padEnd(9)} ${'Category'.padEnd(12)} ${'Agent'.padEnd(12)} ${'Local'.padEnd(6)} ${'Local judge'.padEnd(30)} Prompt`);
+      let tokens = 0;
+      for (const { pick, input } of inputs) {
+        const size = input.kind === 'ready' ? `${input.prompt.length} chars` : `skipped (${input.kind})`;
+        if (input.kind === 'ready') tokens += ref.estimateCodexInputTokens(input.prompt);
+        log(`  ${pick.taskId.slice(0, 8).padEnd(9)} ${(pick.category ?? 'unknown').padEnd(12)} ${(pick.agentType ?? '?').padEnd(12)} ${pick.localOverall.toFixed(2).padEnd(6)} ${shortJudgeLabel(pick.localJudge).padEnd(30)} ${size}`);
+      }
+      log(`\n  Estimated input: ~${Math.round(tokens / 1000)}k tokens (the prompts, plus ~${Math.round(ref.CODEX_FIXED_INPUT_TOKENS / 1000)}k of Codex's own instructions per call).`);
+      log('  --run sends each prompt above, credentials redacted, to the model behind your Codex login.');
+      log('  This was a DRY RUN: nothing was sent.\n');
+      return;
+    }
+
+    const secrets = readKnownTokens();
+    const pairs: Array<{ local: number; reference: number }> = [];
+    let index = 0;
+    for (const { pick, input } of inputs) {
+      index++;
+      const tag = `  [${index}/${inputs.length}] ${pick.taskId.slice(0, 8)}`;
+      if (input.kind !== 'ready') { log(`${tag} skipped (${input.kind === 'declined' ? `declined: ${input.reason}` : 'missing'})`); continue; }
+      const redacted = ref.redactForEgress(input.prompt, secrets);
+      const schema = ref.verdictSchemaFromRubric(input.rubric.prompt);
+      const result = await ref.runCodexJudge(redacted.text, { model, effort, schema, timeoutMs: timeoutSec * 1000 });
+      const parsed = ref.parseReferenceVerdict(result.text);
+      const overall = parsed?.scores.overall ?? null;
+      apme.store.insertReferenceEval({
+        taskId: pick.taskId,
+        runId: pick.runId,
+        judge,
+        sample,
+        category: input.category ?? input.task.taskCategory ?? null,
+        rubricVer: input.rubric.version,
+        promptSha: ref.promptSha(input.prompt),
+        overall,
+        scoresJson: parsed ? JSON.stringify(parsed.scores) : null,
+        verdictJson: parsed ? JSON.stringify({ summary: parsed.summary, reasoning: parsed.reasoning, done: parsed.done, missed: parsed.missed }) : null,
+        error: parsed ? null : (result.error ?? 'unparseable verdict'),
+        localJudge: pick.localJudge,
+        localOverall: pick.localOverall,
+        localRubricVer: pick.localRubricVer,
+        localJudgedAt: pick.localJudgedAt,
+        inputTokens: result.usage?.inputTokens ?? null,
+        cachedInputTokens: result.usage?.cachedInputTokens ?? null,
+        outputTokens: result.usage?.outputTokens ?? null,
+        reasoningTokens: result.usage?.reasoningTokens ?? null,
+        latencyMs: result.latencyMs,
+        createdAt: Date.now(),
+      });
+      const secs = `${Math.round(result.latencyMs / 1000)} s`;
+      const redactNote = redacted.redactions > 0 ? `, ${redacted.redactions} redacted` : '';
+      if (overall == null) {
+        log(`${tag} ${(input.category ?? 'unknown').padEnd(12)} failed after ${secs}: ${(result.error ?? 'unparseable verdict').slice(0, 160)}${redactNote}`);
+        continue;
+      }
+      pairs.push({ local: pick.localOverall, reference: overall });
+      log(`${tag} ${(input.category ?? 'unknown').padEnd(12)} local ${pick.localOverall.toFixed(2)}  ref ${overall.toFixed(2)}  Δ ${signed2(pick.localOverall - overall)}  ${secs}${result.usage ? `, ${Math.round(result.usage.inputTokens / 1000)}k in` : ''}${redactNote}`);
+    }
+    const stats = ref.computeAgreement(pairs);
+    log(`\n  This run: n=${stats.n}, MAE ${score2(stats.mae)}, bias ${signed2(stats.bias)}, same outcome band ${stats.bucketAgreement == null ? '—' : `${Math.round(stats.bucketAgreement * 100)}%`}.`);
+    log(`  Every reference verdict so far: agentdeck apme agreement${sample === 'uniform' ? '' : ` --sample ${sample}`}\n`);
+  });
+
+apme
+  .command('agreement')
+  .description('How closely the local judge agrees with the reference judge (scores from `apme reference-judge`)')
+  .option('--judge <tag>', 'Only this reference judge, e.g. codex:gpt-6-astra@high')
+  .option('--sample <design>', 'Only this sampling design, e.g. uniform or local_band=fail')
+  .option('--since <window>', 'Only reference verdicts made within this window')
+  .option('--top <n>', 'Largest disagreements to list per judge', '5')
+  .option('--json', 'Emit JSON instead of the report')
+  .action(async (opts) => {
+    const { initApme } = await import('./apme/index.js');
+    const { buildReferenceReports } = await import('./apme/reference-judge.js');
+    const apme = await initApme();
+    if (!apme) { log('APME not available'); process.exit(1); }
+    let sinceMs: number | undefined;
+    if (opts.since) {
+      const windowMs = parseLookbackWindow(opts.since);
+      if (windowMs == null) { log(`Unrecognized --since value: ${opts.since}`); process.exit(1); }
+      sinceMs = Date.now() - windowMs;
+    }
+    const top = Number(opts.top);
+    const rows = apme.store.listReferenceEvals({ judge: opts.judge, sample: opts.sample, sinceMs });
+    const reports = buildReferenceReports(rows, {
+      top: Number.isInteger(top) && top >= 0 ? top : 5,
+      localSummary: (taskId) => apme.store.getTask(taskId)?.summary ?? null,
+    });
+    if (opts.json) {
+      log(JSON.stringify({ judges: reports }, null, 2));
+      return;
+    }
+    if (reports.length === 0) {
+      log('\n  No reference verdicts yet. Run `agentdeck apme reference-judge` (dry run), then add --run.\n');
+      return;
+    }
+    for (const report of reports) printReferenceReport(report);
+    log('');
+  });
+
 apme
   .command('judge')
   .description('Run evaluation on unevaluated runs')

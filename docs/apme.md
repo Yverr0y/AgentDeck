@@ -116,6 +116,7 @@ daemon 없이 session bridge 단독 사용 시 데이터만 축적되고 coding 
 | `bridge/src/apme/collector.ts` | 수집 경계 — session/turn lifecycle, hook → steps, transcript/rollout response → turns |
 | `bridge/src/apme/classifier.ts` | Task signals 계산 + rule-based + MLX fallback 분류 |
 | `bridge/src/apme/runner.ts` | Run-level (coding) + turn-level (non-coding) 평가 파이프라인 |
+| `bridge/src/apme/reference-judge.ts` | Reference judge (CLI 전용) — `codex exec` 호출, 루브릭 템플릿 → strict schema, 송출 전 마스킹, agreement 계산 |
 | `bridge/src/foundation-models-helper.ts` | CLI-only Foundation Models Swift helper resolver / JSONL process manager |
 | `bridge/fm-helper/AgentDeckFMHelper.swift` | macOS 26+ Swift helper source bundled with the CLI package |
 | `bridge/src/apme/outcome.ts` | Outcome 판정 (committed/iterated/abandoned 등) + composite score |
@@ -501,6 +502,18 @@ Store 초기화 시:
 id, run_id, verdict (approve|reject|neutral), note, ts
 ```
 
+### reference_evals — reference judge 의 두 번째 판정 (2026-10-18)
+
+```
+id, task_id, run_id, judge ('codex:<model>@<effort>'), category, rubric_ver,
+prompt_sha, overall, scores_json, verdict_json, error,
+local_judge, local_overall, local_rubric_ver, local_judged_at,
+input_tokens, cached_input_tokens, output_tokens, reasoning_tokens,
+latency_ms, created_at
+```
+
+`agentdeck apme reference-judge --run` 만 쓴다. `evals` 와 분리한 이유: scorecard, outcome, Work 판 어떤 쿼리도 reference 판정을 제품 자신의 판정으로 오인할 수 없게. `local_*` 는 비교 시점의 로컬 판정 스냅샷이고, 실패한 호출도 행으로 남는다(`overall` NULL, `error`). 아래 [Reference judge](#reference-judge-2026-10-18) 절 참고.
+
 ### 집계 뷰
 
 ```sql
@@ -853,6 +866,57 @@ composite = 0.40 × outcomeScore
 5. **Accept/reject**: 상관 개선 > 0.05 시 `rubrics` 테이블에 새 버전 append (`parentVer` 링크). 미개선 시 폐기 + 로그
 
 자동 실행 조건도 같은 설계의 일부였다: vibe correlation < 0.4 이면 재튜닝, 단 disagreement 샘플 최소 3개. 위 경고대로 이 트리거 역시 코드에 없다.
+
+## Reference judge (2026-10-18)
+
+로컬 judge 의 판정을 믿지 않고 잰다. 2026-10-16 포지션 워크숍 결정 ⑪ — "`codex exec` 로 구동하는 고급 모델을 reference judge 로, 로컬 judge 와의 agreement 지표, 그리고 불일치로 루브릭을 고치는 OPRO 루프. 사람 레이블은 reference 를 보정할 뿐" — 의 앞 두 조각이다. OPRO 루프는 아직 없다(위 절). `agentdeck apme reference-judge` 가 판정하고 `agentdeck apme agreement` 가 보고한다. 명령 표와 옵션: [cli.md § Evaluation](cli.md#evaluation-apme).
+
+**같은 프롬프트.** 로컬 판정이 끝난 task 의 판정 요청을 `buildTaskJudgeInput` 으로 다시 만든다 — `runTaskEval` 이 판정 요청을 만드는 바로 그 함수다. 두 judge 가 다른 프롬프트를 봤다면 agreement 는 judge 가 아니라 프롬프트를 잰다. `apme-reference-judge.test.ts` 가 라이브 judge 에 전달된 문자열과 같음을 고정한다. 다른 점은 송출 전 마스킹뿐이다: 이 머신의 페어링 토큰(서빙 중인 것 + accepted ring)과 credential 모양 문자열(`redactSecrets` 의 접두사, PEM private key, `sk-`, `AKIA`, `npm_`, `AIza`, `xox?-`)을 `[REDACTED]` 로. 커밋 해시와 UUID 는 남긴다 — judge 가 증거로 읽는다.
+
+**`codex exec` 호출.** 사용자 자신의 Codex 로그인으로 부르니 API 키가 없다. 플래그마다 이유가 있다:
+
+| 플래그 | 이유 |
+|---|---|
+| `--ephemeral` | rollout 을 쓰지 않는다 — AgentDeck 의 Codex rollout reader 가 judge 를 세션으로 보지 않는다 |
+| `--ignore-user-config` | `~/.codex/config.toml` 에는 AgentDeck 자신의 Codex 훅이 있다. 읽히면 judge 가 데몬에 Codex 세션으로 보고되고 APME run 이 열린다(2026-10-01 headless 홍수). 사용자의 model/effort 기본값도 빠지므로 `-m`/`-c model_reasoning_effort` 로 넘긴다 — 모델 기본값은 같은 파일의 최상위 `model` 을 직접 읽는다 |
+| `-s read-only`, 빈 임시 `-C` | 스키마 파일은 그 디렉터리 밖에 둔다. read-only 는 쓰기만 막는다 — 읽기는 아래 두 행이 막는다 |
+| `--disable` × 16: `shell_tool` `unified_exec` `shell_snapshot` `code_mode_host` `view_image` `apps` `plugins` `browser_use` `computer_use` `image_generation` `multi_agent` `skill_search` `tool_suggest` `sleep_tool` `goals` `hooks` (`REFERENCE_DISABLED_FEATURES`) | 모델에게 도구가 없다 — 비교 대상인 로컬 judge 에도 없다. 파일을 읽거나 서브에이전트에 물어 낸 판정은 프롬프트보다 많이 본 판정이고, 그런 호출 하나하나가 로컬 데이터가 머신 밖으로 나가는 길이다. `code_mode_host` 를 끄면 code mode 는 fail closed. `hooks` 는 `--ignore-user-config` 의 이중 잠금. 모르는 기능 이름은 `codex exec` 가 거부하므로, 이름이 바뀐 기능은 켜진 채 도는 대신 호출이 실패한다 |
+| `-c web_search=disabled` | 웹 검색은 기능이 아니라 설정이고 `--ignore-user-config` 아래에서도 기본으로 켜져 있다. 모르는 `-c` 키는 경고만 내고 무시되므로, "unrecognized configuration" 경고가 나온 실행의 판정은 버린다(`isolationBreach`) |
+| `--output-schema` | 루브릭의 `Return strict JSON` 템플릿에서 만든 strict schema(`verdictSchemaFromRubric`) — 로컬 judge 가 요청받은 축 그대로 답하게. 템플릿을 못 읽으면 스키마 없이 부르고 `parseJudgeJson` 이 판정한다 |
+| `--json`, 프롬프트는 stdin(`-`) | JSONL 이벤트: 마지막 `agent_message` = 판정, `turn.completed.usage` = 토큰. stdin 을 닫지 않으면 `codex exec` 는 영원히 기다린다 |
+
+격리는 실측으로 확인했다(2026-10-18): 12회 호출 동안 새 rollout 0, 그 시간대에 시작된 APME run·turn 0. 도구 차단 후 4회도 rollout·shell snapshot·run·turn 모두 0.
+
+도구 차단도 실측으로 정했다(codex-cli 0.160.1, "가능하면 직접 확인하라"는 합성 프롬프트). read-only 샌드박스인데도 모델은 `rg` 로 `/etc/hosts` 를 읽었고, 기본 설정에서는 웹 검색을 2회 했다. shell 만 끄면 code mode 의 `exec` 도구를 대신 두 번 불렀다. 이 호출은 `--json` 이벤트 어디에도 없고 `RUST_LOG=codex_core=info` 의 `ToolCall: exec` 로만 보였으며, 입력 토큰이 10k 에서 64k 로 늘었다. 위 전부를 끈 구성에서는 ToolCall 0, 요청 1회(10,015 토큰). 이벤트에 도구 item(`command_execution`, `web_search` …)이 하나라도 나오면 그 판정은 저장하지 않고 실패로 남긴다(`isolationBreach`). 이벤트에 안 보이는 호출은 감지가 아니라 차단(`code_mode_host` off)으로 다룬다.
+
+effort 기본값은 `high` — 사용자 Codex 기본값이 `ultra` 여도 따르지 않는다. `ultra` 는 서브에이전트에 위임하는데 판정 하나에는 쓸모가 없다.
+
+**저장.** `reference_evals` 테이블(위 Data schema). `evals` 가 아니므로 scorecard·outcome·Work 판 어떤 쿼리도 reference 판정을 제품의 판정으로 읽지 않는다. 실패한 호출도 행이다.
+
+**표본.** `--since`(기본 30일 — `apme prune` 기본 창과 같아서 tool payload 가 아직 지워지지 않은 task 다) 안의 로컬 판정 task 위에서 균등하게, 순서는 (seed, task id) 해시. dry run 이 보여준 목록이 `--run` 이 보내는 목록이고, 재실행은 같은 설계에서 이미 판정한 task 를 건너뛰고 다음으로 간다. 다른 설계에서 판정한 task 는 건너뛰지 않는다 — 건너뛰면 그 task 가 이 설계의 표본에서 빠진다. 균등 순서 20·21번째가 fail 밴드 표본의 task 였으니, 건너뛰었다면 균등 표본이 fail 을 덜 셌을 것이다. `--local-band`·`--category` 는 표본을 좁힌다. 각 행은 자기 설계(`sample`: `uniform`, `local_band=fail` …)를 기록하고 보고서는 (judge, 설계)별로 따로 낸다 — 좁힌 표본의 MAE 는 모집단 추정이 아니라 그 조각의 값이고, `local_band=fail` 의 밴드 일치율은 로컬 fail 의 정밀도다.
+
+**지표**(`apme agreement`): n, MAE(95% 부트스트랩 CI), bias = 평균(local − reference)(양수 = 로컬이 후함), Spearman(동점은 평균 순위), outcome 밴드 일치율과 Cohen's κ(`deriveTaskOutcome` 의 0.75/0.5 경계), confusion matrix, 정확히 0 또는 1 인 점수 비율, 로컬 judge 모델·카테고리별 분해, 가장 큰 불일치(양쪽 요약 + reference 의 missed). judge 태그(`codex:<model>@<effort>`)마다 따로 — 다른 모델·effort 는 다른 계기다.
+
+**비용**(2026-10-18, `gpt-6-astra@high`): 호출당 중앙값 12 s. 입력 토큰은 Codex 자신의 고정분에 프롬프트를 더한 값이다. 고정분은 도구를 다 끈 지금 9.7–10.2k 이고, 도구가 켜져 있던 첫 측정에서는 15.7k 였다. 프롬프트는 한글 음절당 0.91 토큰, 그 밖의 문자당 0.28 토큰이다(실제 프롬프트 20개에 맞춘 값, 잔차 1.1k 이내). dry run 의 추정이 이 식이다(`estimateCodexInputTokens`). 첫 측정의 12 task 는 143 s 걸렸다.
+
+### 첫 측정 (2026-10-18)
+
+로컬 judge `mlx:gemma-4-26b-a4b-it-4bit`, reference `codex:gpt-6-astra@high`, 30일 창의 로컬 판정 task 996개.
+
+| 설계 | n | 결과 |
+|---|---|---|
+| `uniform` | 12 | MAE 0.24(CI 0.10–0.43), bias +0.08(CI −0.14–+0.28), 같은 밴드 9/12, κ −0.09, Spearman −0.31. 로컬 점수 12/12 가 정확히 0 또는 1, reference 는 1/12 |
+| `local_band=fail` | 8 | reference 가 fail 로 확인 2/8(정밀도 25%), 6건은 0.92–0.96 |
+
+이 20건은 도구가 켜진 채 판정했지만 도구는 쓰이지 않았다. 20개 프롬프트를 다시 만들어 보니 `prompt_sha` 가 20/20 일치했고, 입력 토큰을 프롬프트 크기에 회귀한 잔차는 모두 −566…+1,018 토큰이다. 도구 호출에는 고정분(약 15.7k)을 다시 보내는 두 번째 요청이 필요하다. 웹 검색은 결과를 입력에 더한다(합성 프롬프트에서 2회에 +36k). 도구를 끈 뒤 균등 표본에 4건을 더했다(n=16): MAE 0.23(CI 0.12–0.36), bias +0.11(CI −0.07–+0.25), 같은 밴드 12/16, κ −0.07.
+
+1. **로컬 judge 는 사실상 이진 판정이다.** 30일 창 996개 중 1.00 이 70.6%, 0.00 이 19.7%, 그 사이는 약 10%. gemma 전체 1,805건 중 1,311건이 1.0, 289건이 0.0이다. 앞선 Qwen3.6-35B 는 773건 중 218건만 1.0 이었다. 그래서 위의 κ 와 Spearman 은 측정이 아니라 동점의 산물이다 — 축이 거의 두 값뿐이면 순위 상관이 설 자리가 없다.
+2. **로컬 fail 의 60% 가 한 배치의 오판이다.** 30일 창 로컬 fail(점수 < 0.5) 216건 중 130건이 2026-10-01 headless `codex exec` 이미지 배치다(그 배치 140건 중 130건 fail). 로컬 judge 의 이유는 매번 같다 — "DONE 만 답하고 실제 생성은 안 했다, tool 호출은 파일 복사를 시도했다". trajectory 는 imagegen skill 읽기 → 이미지 툴 호출 → `~/.codex/generated_images/…` 의 결과를 요청 경로로 `cp` → `DONE` 이다. 작업은 됐고, 증거는 로컬 judge 가 본 바로 그 프롬프트 안에 있다. reference 는 표본에 든 이 배치 7건을 전부 0.92–0.96 으로 뒤집었다. reference 가 확인한 fail 2건은 이 배치가 아니었다(광고 소재 교체를 거부한 opencode task 0.22, `<task-notification>` 만 있는 task 0.40).
+3. **사용자 작업이 아닌 task 가 판정 풀에 있다.** 첫 프롬프트가 `<task-notification>` 인 task 75건, Codex Desktop 백그라운드 스레드 98건(ambient suggestions 34건 09-21–09-29, composer suggestion 64건 10-10–10-17). 수집 단계 drop 규칙이 생긴 뒤에도 그 전 행은 남아 있다. 균등 표본 12건 중 1건(로컬 1.00, reference 0.30)이 composer suggestion 이었다.
+
+**이 측정이 정하지 않는 것.** reference 는 정답이 아니다. 워크숍 결정대로 사람 레이블로 보정해야 하는데, `vibe_feedback` 은 run 단위라 task 단위 레이블 경로가 아직 없다. n 이 작다(CI 를 같이 읽을 것). 저장된 로컬 판정은 그 시점의 프롬프트로 만들어졌다 — 루브릭은 모든 판정이 같은 버전(3469)이지만, turn 응답 backfill 이나 payload prune 이 이후 프롬프트를 바꿨을 수 있다.
+
+**후속.** (1) task-gradeability 가 `<task-notification>` 만 있는 task 를 거절하고, 이미 남은 Codex 백그라운드 스레드 판정을 `retractUngradeableVerdicts` 처럼 소급 철회 — 양 데몬 규칙이라 Node SSOT + Swift 생성 미러. (2) 이미지 배치 오판은 OPRO 루프의 첫 표적: 불일치 사례(이 테이블)로 루브릭을 고치고 같은 표본으로 재채점. (3) task 단위 사람 레이블 경로로 reference 보정.
 
 ## Daemon HTTP API
 
