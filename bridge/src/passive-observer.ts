@@ -62,7 +62,7 @@ export interface ProcInfo {
 interface ProcessContinuity {
   processes: ProcInfo[];
   exited: number;
-  unknown: number;
+  unknownPids: number[];
 }
 
 /** A PID omitted by a readable process table has not necessarily exited. */
@@ -75,8 +75,8 @@ export async function confirmMissingProcesses(
   const recovered = suspect.length > 0 ? await reread(suspect).catch(() => []) : [];
   const processes = recovered.filter(row => suspect.includes(row.pid));
   const unresolved = suspect.filter(pid => !processes.some(row => row.pid === pid));
-  const unknown = unresolved.filter(pid => isAlive(pid) !== false).length;
-  return { processes, exited: pids.length - processes.length - unknown, unknown };
+  const unknownPids = unresolved.filter(pid => isAlive(pid) !== false);
+  return { processes, exited: pids.length - processes.length - unknownPids.length, unknownPids };
 }
 
 function processLiveness(pid: number): boolean | undefined {
@@ -393,40 +393,44 @@ export class PassiveSessionObserver {
     const missing = [...new Set(this.cached.map(row => row.pid))]
       .filter(pid => Number.isInteger(pid) && pid > 0 && !present.has(pid));
     const continuity = await this.confirmMissing(missing);
+    const unknownPids = new Set(continuity.unknownPids);
     this.processContinuity = { capturedAt: Date.now(), scannedProcessCount: processes.length,
       missing: missing.length, recovered: continuity.processes.length,
-      exited: continuity.exited, unknown: continuity.unknown };
+      exited: continuity.exited, unknown: unknownPids.size };
     if (continuity.processes.length > 0) {
       this.continuityTotals.recoveredScans += 1;
       this.continuityTotals.recoveredPids += continuity.processes.length;
     }
-    if (continuity.unknown > 0) this.continuityTotals.inconclusiveScans += 1;
+    if (unknownPids.size > 0) this.continuityTotals.inconclusiveScans += 1;
     // A nonempty but partial ps result dropped every terminal Claude at once
     // on a live Mac. Re-read missing known PIDs before publishing a removal.
-    // An inconclusive read keeps the prior snapshot AND its freshness stamp;
-    // a confirmed exit or a positively re-read replacement still takes effect.
-    if (continuity.unknown > 0) return;
+    // Retain only inconclusive identities, without re-reading their metadata as
+    // if their owner had been observed. Confirmed changes still take effect.
     processes.push(...continuity.processes);
-    this.lastProcesses = processes;
-    this.processSnapshotAt = Date.now();
+    const retained = this.cached.filter(row => unknownPids.has(row.pid));
+    this.lastProcesses = [...processes, ...this.lastProcesses.filter(row => unknownPids.has(row.pid))];
+    // Consumers use this stamp as proof the whole snapshot was observed.
+    if (unknownPids.size === 0) this.processSnapshotAt = Date.now();
     const claude = collectClaudeSessions(processes, this.cached);
     this.claudeIdentityReads = claude.identityReads;
     let codex: ObservedSession[];
     try {
       codex = await collectCodexSessions(processes, this.codexRolloutCache, this.readCodexRollouts);
-      this.codexObserved = codex.map(row => ({ ...row }));
-      this.codexRolloutCapturedAt = Date.now();
+      this.codexObserved = [...codex.map(row => ({ ...row })),
+        ...this.codexObserved.filter(row => unknownPids.has(row.pid))];
+      if (unknownPids.size === 0) this.codexRolloutCapturedAt = Date.now();
     } catch {
       this.codexRolloutReadFailures += 1;
       // Preserve only established identities with a positively observed owner
       // of the same harness. Other agents and confirmed exits still advance.
       const byPid = new Map(processes.map(row => [row.pid, row]));
       this.codexObserved = this.codexObserved.filter(row => {
+        if (unknownPids.has(row.pid)) return true;
         const owner = byPid.get(row.pid);
         return owner && isCodexSessionProcessCommand(owner.command)
           && owner.command.includes('app-server') === (row.agentType === 'codex-app');
       });
-      codex = this.codexObserved.map(row => ({ ...row }));
+      codex = this.codexObserved.filter(row => !unknownPids.has(row.pid)).map(row => ({ ...row }));
     }
     const observed = [
       ...claude.sessions,
@@ -434,9 +438,10 @@ export class PassiveSessionObserver {
       ...(await collectOpenCodeSessions(processes)),
       ...(await collectAntigravitySessions(processes)),
       ...(await collectKiroSessions(processes, this.kiroSessionCache)),
+      ...retained,
     ];
-    const { roster, execChildren } = foldHeadlessCodexSessions(observed, processes);
-    const next = dedupeObservedSessions(roster, managedSessions, processes);
+    const { roster, execChildren } = foldHeadlessCodexSessions(observed, this.lastProcesses);
+    const next = dedupeObservedSessions(roster, managedSessions, this.lastProcesses);
     // Only notify on real change — an unconditional callback would emit a
     // sessions broadcast every SCAN_INTERVAL even when nothing moved. A
     // headless child appearing or leaving changes no roster row, so it is
