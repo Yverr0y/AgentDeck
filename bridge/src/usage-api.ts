@@ -83,6 +83,8 @@ export interface UsageFetchResult {
    *  network fetch wrote within the TTL. False when it is a fallback served
    *  because the fetch could not be made or failed. */
   fresh: boolean;
+  /** Original successful observation time; a cache/relay must never restamp it. */
+  fetchedAt?: number;
 }
 
 export type TokenStatus = 'valid' | 'expired' | 'missing' | 'unknown';
@@ -313,10 +315,10 @@ function readFileCache(): UsageCacheFile | null {
   }
 }
 
-function writeFileCache(data: ApiUsageData): void {
+function writeFileCache(data: ApiUsageData, fetchedAt: number): void {
   try {
     mkdirSync(AGENTDECK_DIR, { recursive: true });
-    const cache: UsageCacheFile = { data, fetchedAt: Date.now() };
+    const cache: UsageCacheFile = { data, fetchedAt };
     writeFileSync(USAGE_CACHE_FILE, JSON.stringify(cache), 'utf-8');
   } catch (err) {
     debug('UsageAPI', `Failed to write cache file: ${err}`);
@@ -401,7 +403,7 @@ export async function fetchUsageFromApi(): Promise<UsageFetchResult | null> {
   inFlight = fetchUsageOnce().catch(() => {
     noteFailure('usage probe unavailable');
     const cache = readFileCache();
-    return cache ? { data: cache.data, fresh: false } : null;
+    return cache ? { data: cache.data, fresh: false, fetchedAt: cache.fetchedAt } : null;
   }).finally(() => { inFlight = null; });
   return inFlight;
 }
@@ -415,7 +417,7 @@ async function fetchUsageOnce(): Promise<UsageFetchResult | null> {
   // just declined to overwrite is a rollback nobody asked for.
   const stale = (fc: UsageCacheFile | null): UsageFetchResult | null => {
     const current = readFileCache() ?? fc;
-    return current ? { data: current.data, fresh: false } : null;
+    return current ? { data: current.data, fresh: false, fetchedAt: current.fetchedAt } : null;
   };
 
   // 1. Check file cache first — shared across all bridge sessions
@@ -425,7 +427,7 @@ async function fetchUsageOnce(): Promise<UsageFetchResult | null> {
     // A within-TTL entry was written by a real network fetch (only the success
     // path writes it), so this IS a fresh reading — just a shared one.
     noteSuccess();
-    return { data: fileCache.data, fresh: true };
+    return { data: fileCache.data, fresh: true, fetchedAt: fileCache.fetchedAt };
   }
 
   // 2. Read OAuth credentials
@@ -585,9 +587,10 @@ async function fetchUsageOnce(): Promise<UsageFetchResult | null> {
 
     // Success — reset counters, write cache
     noteSuccess();
-    writeFileCache(result);
+    const fetchedAt = Date.now();
+    writeFileCache(result, fetchedAt);
 
-    return { data: result, fresh: true };
+    return { data: result, fresh: true, fetchedAt };
   } catch (err) {
     noteFailure(String(err).slice(0, 160));
     return stale(fileCache);

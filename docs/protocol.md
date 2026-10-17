@@ -191,7 +191,7 @@ Communication between the daemon (port 9120) and all dashboard clients (Plugin, 
 
 // Usage stats (session + API-sourced plan usage + ollama status)
 { type: 'usage_update', sessionDurationSec: 120, inputTokens: 5000, outputTokens: 3000, toolCalls: 7,
-  fiveHourPercent: 42, sevenDayPercent: 15, extraUsageEnabled: true, oauthConnected: true,
+  claudeUsageSnapshot: true, fiveHourPercent: 42, sevenDayPercent: 15, extraUsageEnabled: true, oauthConnected: true,
   ollamaStatus: { running: true, models: [{ name: 'qwen2.5:7b', size: '4.5G' }] } }
 
 // Connection status
@@ -209,6 +209,13 @@ Communication between the daemon (port 9120) and all dashboard clients (Plugin, 
 // Active sessions list (multi-session + sibling state)
 { type: 'sessions_list', sessions: [{ id: 'abc', project: 'MyApp', state: 'idle' }] }
 ```
+
+`usage_update.claudeUsageSnapshot: true` means both Claude quota windows are a
+replacement snapshot: omitted 5h/7d values, reset times, scoped caps and extra-usage
+fields are cleared. This lets
+a weekly-only reading retire a previously displayed 5h window. An absent or
+false marker keeps legacy partial-update semantics in retain-on-absent clients.
+`usageStale: true` still clears all Claude quota fields regardless of the marker.
 
 #### `SessionInfo` — the axes that are easy to conflate
 

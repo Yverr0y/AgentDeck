@@ -26,10 +26,14 @@ describe('generated Claude status-line rule mirror in sync', () => {
     expect(swift).toContain(`static let oauthCarryOverMs: Double = ${rulesMod.CLAUDE_OAUTH_CARRY_OVER_MS}`);
     expect(swift).toContain(`static let oauthScopedRefreshMs: Double = ${rulesMod.CLAUDE_OAUTH_SCOPED_REFRESH_MS}`);
     expect(swift).toContain(`static let changeEpsilon: Double = ${rulesMod.CLAUDE_STATUSLINE_CHANGE_EPSILON}`);
+    expect(swift).toContain(`static let msThreshold: Double = ${rulesMod.CLAUDE_STATUSLINE_MS_THRESHOLD}`);
+    expect(swift).toContain(`static let sessionLimit: Int = ${rulesMod.CLAUDE_STATUSLINE_SESSION_LIMIT}`);
+    expect(swift).toContain(`static let relayedSessionUsageFields: [String] = ${JSON.stringify(rulesMod.RELAYED_SESSION_USAGE_FIELDS)}`);
   });
 
   it('the Swift suite replays the shared vector file (grep the test wiring)', () => {
     const swiftTest = readFileSync(`${repoRoot}apple/AgentDeckTests/ClaudeStatuslineRulesTests.swift`, 'utf8');
     expect(swiftTest).toContain('shared/claude-statusline-vectors.json');
+    expect(swiftTest).toContain('cases("accept")');
   });
 });

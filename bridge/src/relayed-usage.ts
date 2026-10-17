@@ -1,6 +1,30 @@
 import type { CodexRateLimits, UsageEvent } from './types.js';
 import { mergeRelayedSessionUsage, mergeZaiSubscription } from './usage-event.js';
 import { pickBestCodexRateLimits } from './codex-rate-limits-live.js';
+import type { ApiUsageData } from './usage-api.js';
+
+/** Sync an already-adjusted focused quota without manufacturing an observation
+ * timestamp. Replacement omissions must survive the daemon's next own tick. */
+export function syncRelayedClaudeUsage(cache: ApiUsageData, relayed: Partial<UsageEvent>): boolean {
+  if (relayed.fiveHourPercent == null && relayed.sevenDayPercent == null) return false;
+  const snapshot = relayed.claudeUsageSnapshot === true;
+  if (snapshot || relayed.fiveHourPercent != null) {
+    cache.fiveHourPercent = relayed.fiveHourPercent ?? null;
+    cache.fiveHourResetsAt = relayed.fiveHourResetsAt ?? null;
+  }
+  if (snapshot || relayed.sevenDayPercent != null) {
+    cache.sevenDayPercent = relayed.sevenDayPercent ?? null;
+    cache.sevenDayResetsAt = relayed.sevenDayResetsAt ?? null;
+  }
+  cache.scopedLimits = Array.isArray(relayed.scopedLimits) ? relayed.scopedLimits : [];
+  if (snapshot) {
+    cache.extraUsageEnabled = relayed.extraUsageEnabled ?? false;
+    cache.extraUsageMonthlyLimit = relayed.extraUsageMonthlyLimit ?? null;
+    cache.extraUsageUsedCredits = relayed.extraUsageUsedCredits ?? null;
+    cache.extraUsageUtilization = relayed.extraUsageUtilization ?? null;
+  }
+  return true;
+}
 
 /**
  * Decide what the daemon broadcasts when a session bridge relays a
@@ -22,14 +46,17 @@ import { pickBestCodexRateLimits } from './codex-rate-limits-live.js';
  * blank the session numbers for every focus that legitimately carries no Claude
  * quota — Codex, OpenCode, API billing.
  *
- * So the event is split by HALF, not by event: the ACCOUNT half (quota, scoped
- * caps, extra usage, subscriptions, Codex/Ollama, `usageStale`) comes from the
- * daemon's authoritative aggregate, the SESSION half from the relay.
+ * When the relay has no Claude quota, or the caller prefers the daemon's
+ * current account reading, split the event by half: ACCOUNT fields (quota,
+ * scoped caps, extra usage, subscriptions, Codex/Ollama, `usageStale`) come
+ * from the daemon, and SESSION counters come from the relay. An unstamped
+ * focused-session event must not overwrite a newer status-line/account reading
+ * or revive a window its replacement snapshot retired.
  *
  * ## Why the Claude-bearing branch is not just the same merge
  *
- * When the relay carries Claude percentages the event already holds the account
- * half the merge exists to protect, so it goes out as-is — except for
+ * Without `preferOwnClaudeUsage`, a relay carrying Claude percentages retains
+ * the existing behavior: its account half goes out as-is — except for
  * `codexRateLimits`, which is the one account-half field a session bridge
  * cannot compute as well as the daemon. A bridge keeps host processes off by
  * design, so it has only the passive rollout read; the daemon additionally
@@ -73,11 +100,11 @@ import { pickBestCodexRateLimits } from './codex-rate-limits-live.js';
  * ## Why `buildOwnUsage` is a thunk
  *
  * `BridgeCore.buildUsage()` is the call that arms the throttled `codex
- * app-server` spawn gate and re-derives the whole account half. It must run on
- * the merged branch only — the Claude-bearing branch is the daemon's most
- * flicker-sensitive path, and its entire history is about not clobbering the
- * dashboard. Passing it as a thunk puts that in the signature instead of in a
- * comment, so a test can assert it was never called.
+ * app-server` spawn gate and re-derives the whole account half. It runs only
+ * when merging session counters into the daemon's account reading: no relayed
+ * Claude quota, or explicit `preferOwnClaudeUsage`. The default Claude-bearing
+ * path continues using the remembered blocks below without rebuilding. Passing
+ * it as a thunk lets tests assert which path incurred that work.
  *
  * `ownCodexRateLimits` is the block from the daemon's own last built usage
  * event — a remembered value, never a fresh build, so reading it costs nothing
@@ -87,6 +114,10 @@ import { pickBestCodexRateLimits } from './codex-rate-limits-live.js';
 export function resolveRelayedUsageEvent(input: {
   relayed: Record<string, unknown>;
   ownCodexRateLimits: CodexRateLimits | null;
+  /** Prefer the daemon's account snapshot, including retired Claude windows,
+   *  while still forwarding session counters. The caller decides freshness;
+   *  false/absent preserves the existing Claude-bearing relay behavior. */
+  preferOwnClaudeUsage?: boolean;
   /** When the daemon's live-backed family authority lapses, or null/absent when
    *  it has none. An instant rather than a flag so it is judged against THIS
    *  event's clock: without a live reading there is no family authority here,
@@ -106,6 +137,7 @@ export function resolveRelayedUsageEvent(input: {
   const {
     relayed,
     ownCodexRateLimits,
+    preferOwnClaudeUsage = false,
     ownLiveFamilyAuthorityExpiresAtMs = null,
     ownZaiRateLimits,
     nowMs = Date.now(),
@@ -113,7 +145,7 @@ export function resolveRelayedUsageEvent(input: {
   } = input;
 
   const hasClaudeData = relayed.fiveHourPercent != null || relayed.sevenDayPercent != null;
-  if (!hasClaudeData) {
+  if (preferOwnClaudeUsage || !hasClaudeData) {
     return mergeRelayedSessionUsage(buildOwnUsage(), relayed);
   }
 

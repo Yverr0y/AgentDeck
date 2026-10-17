@@ -216,8 +216,8 @@ export class StateStore {
       allSessions: this.sessionsWithPendingReview(),
       totalTokens,
       totalCost: (this.usage.totalCost as number) ?? (selected.totalCost as number) ?? 0,
-      fiveHourPercent: (this.usage.fiveHourPercent as number | undefined) ?? (selected.fiveHourPercent as number | undefined),
-      sevenDayPercent: (this.usage.sevenDayPercent as number | undefined) ?? (selected.sevenDayPercent as number | undefined),
+      fiveHourPercent: (this.usage.fiveHourPercent as number | undefined) ?? (this.usage.claudeUsageSnapshot === true ? undefined : selected.fiveHourPercent as number | undefined),
+      sevenDayPercent: (this.usage.sevenDayPercent as number | undefined) ?? (this.usage.claudeUsageSnapshot === true ? undefined : selected.sevenDayPercent as number | undefined),
       fiveHourResetsAt: this.usage.fiveHourResetsAt as string | undefined,
       sevenDayResetsAt: this.usage.sevenDayResetsAt as string | undefined,
       // Codex (ChatGPT) rolling-window quota rides the same usage_update event.

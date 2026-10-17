@@ -282,7 +282,7 @@ describe.skipIf(process.platform !== 'win32')('the Windows relay script, execute
     server = null;
   });
 
-  it('POSTs the stdin document to the daemon named by daemon.json and runs the wrapped command through Git Bash', async () => {
+  it.each(['Git Bash', 'PowerShell stream', 'PowerShell pipeline'] as const)('POSTs the document and preserves the original status line through %s', async (shell) => {
     const received: Array<{ path: string; body: string }> = [];
     server = createServer((req, res) => {
       let body = '';
@@ -302,12 +302,31 @@ describe.skipIf(process.platform !== 'win32')('the Windows relay script, execute
     writeFileSync(join(home, '.agentdeck', 'daemon.json'), JSON.stringify({ port }));
     const script = ensureWindowsStatuslineScript(home);
 
-    const document = JSON.stringify({ session_id: 'win-probe', rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 } }, note: '한글 résumé' });
-    const original = `printf 'wrapped:%s' "$(cat | wc -c | tr -d ' ')"`;
+    const document = JSON.stringify({ session_id: 'win-probe', rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 } }, note: '한글 résumé' }) + '\n';
+    const originals = {
+      'Git Bash': `printf 'wrapped:%s' "$(cat | wc -c | tr -d ' ')"`,
+      'PowerShell stream': '[Console]::Out.Write("원본:`n" + [Console]::In.ReadToEnd())',
+      'PowerShell pipeline': '$json = $input | Out-String | ConvertFrom-Json\n[Console]::Out.Write("원본:" + $json.note)',
+    };
+    const expected = {
+      'Git Bash': `wrapped:${Buffer.byteLength(document)}`,
+      'PowerShell stream': `원본:\n${document}`,
+      'PowerShell pipeline': '원본:한글 résumé',
+    };
+    const original = originals[shell];
     const encoded = Buffer.from(original, 'utf-8').toString('base64');
+    const env: NodeJS.ProcessEnv = { ...process.env, USERPROFILE: home };
+    if (shell !== 'Git Bash') {
+      // Windows environment names are case-insensitive: remove every PATH
+      // spelling before pinning an empty directory so no installed Bash is found.
+      for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+      env.PATH = home;
+      env.CLAUDE_CODE_GIT_BASH_PATH = join(home, 'absent-bash.exe');
+    }
+    const powershell = join(process.env.SystemRoot ?? process.env.SYSTEMROOT ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const { stdout, code } = await new Promise<{ stdout: string; code: number | null }>((resolve, reject) => {
-      const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-OriginalB64', encoded], {
-        env: { ...process.env, USERPROFILE: home }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+      const child = spawn(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-OriginalB64', encoded], {
+        env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
       });
       let out = '';
       child.stdout.setEncoding('utf-8');
@@ -320,7 +339,7 @@ describe.skipIf(process.platform !== 'win32')('the Windows relay script, execute
     expect(code).toBe(0);
     expect(received.map((r) => r.path)).toEqual(['/health', '/claude/statusline']);
     expect(received[1].body).toBe(document);
-    expect(stdout).toBe(`wrapped:${Buffer.byteLength(document)}`);
+    expect(stdout).toBe(expected[shell]);
   });
 });
 

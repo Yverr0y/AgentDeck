@@ -27,6 +27,8 @@ export function rulesFrom(mod) {
     scopedRefreshMs: mod.CLAUDE_OAUTH_SCOPED_REFRESH_MS,
     changeEpsilon: mod.CLAUDE_STATUSLINE_CHANGE_EPSILON,
     msThreshold: mod.CLAUDE_STATUSLINE_MS_THRESHOLD,
+    sessionLimit: mod.CLAUDE_STATUSLINE_SESSION_LIMIT,
+    relayedSessionUsageFields: mod.RELAYED_SESSION_USAGE_FIELDS,
   };
 }
 
@@ -54,12 +56,16 @@ enum ClaudeStatuslineRules {
     static let freshMs: Double = ${num(rules.freshMs)}
     /// The last OAuth reading's scoped caps ride along this long.
     static let oauthCarryOverMs: Double = ${num(rules.carryOverMs)}
-    /// With scoped caps on the account, OAuth still refreshes this often.
+    /// Account authorization and quota refresh this often, with or without scoped caps.
     static let oauthScopedRefreshMs: Double = ${num(rules.scopedRefreshMs)}
     /// Percent moves below this do not broadcast on their own.
     static let changeEpsilon: Double = ${num(rules.changeEpsilon)}
     /// A \`resets_at\` above this is already epoch milliseconds.
     static let msThreshold: Double = ${num(rules.msThreshold)}
+    /// Bounded per-session replay memory.
+    static let sessionLimit: Int = ${num(rules.sessionLimit)}
+    /// Session fields may accompany a relay without replacing the daemon's account quota.
+    static let relayedSessionUsageFields: [String] = ${JSON.stringify(rules.relayedSessionUsageFields)}
 
     struct Window: Equatable {
         let usedPercent: Double
@@ -75,6 +81,28 @@ enum ClaudeStatuslineRules {
         let version: String?
         /// Daemon receipt time, epoch ms.
         let receivedAtMs: Double
+        /// Session elapsed time orders documents across resumes, never freshness.
+        let durationMs: Double?
+        let apiDurationMs: Double?
+        let inputTokens: Double?
+        let outputTokens: Double?
+
+        init(
+            fiveHour: Window?, sevenDay: Window?, sessionId: String?, model: String?, version: String?,
+            receivedAtMs: Double, durationMs: Double? = nil, apiDurationMs: Double? = nil,
+            inputTokens: Double? = nil, outputTokens: Double? = nil
+        ) {
+            self.fiveHour = fiveHour
+            self.sevenDay = sevenDay
+            self.sessionId = sessionId
+            self.model = model
+            self.version = version
+            self.receivedAtMs = receivedAtMs
+            self.durationMs = durationMs
+            self.apiDurationMs = apiDurationMs
+            self.inputTokens = inputTokens
+            self.outputTokens = outputTokens
+        }
     }
 
     enum Age: Equatable { case fresh, aged, unknown }
@@ -101,12 +129,29 @@ enum ClaudeStatuslineRules {
         return s
     }
 
+    private static func counter(_ raw: Any?) -> Double? {
+        guard let value = finiteNumber(raw), value >= 0 else { return nil }
+        return value
+    }
+
+    /// Compare reset instants, including OAuth ISO strings with a different offset or precision.
+    private static func resetMs(_ raw: String?) -> Double {
+        guard let raw else { return .nan }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = f.date(from: raw) { return (date.timeIntervalSince1970 * 1000).rounded() }
+        f.formatOptions = [.withInternetDateTime]
+        return f.date(from: raw).map { ($0.timeIntervalSince1970 * 1000).rounded() } ?? .nan
+    }
+
     static func parseWindow(_ raw: Any?) -> Window? {
         guard let o = raw as? [String: Any], let pct = finiteNumber(o["used_percentage"]), pct >= 0 else { return nil }
         var resetsAt: String?
         if let r = finiteNumber(o["resets_at"]), r > 0 {
             let ms = r > msThreshold ? r : r * 1000
-            resetsAt = isoString(Date(timeIntervalSince1970: ms.rounded() / 1000))
+            if ms <= 8.64e15 {
+                resetsAt = isoString(Date(timeIntervalSince1970: ms.rounded() / 1000))
+            }
         }
         return Window(usedPercent: min(100, pct), resetsAt: resetsAt)
     }
@@ -119,12 +164,18 @@ enum ClaudeStatuslineRules {
         let sevenDay = parseWindow(rl["seven_day"])
         guard fiveHour != nil || sevenDay != nil else { return nil }
         let model = (p["model"] as? [String: Any])?["id"]
+        let cost = p["cost"] as? [String: Any]
+        let context = p["context_window"] as? [String: Any]
         return Reading(
             fiveHour: fiveHour, sevenDay: sevenDay,
             sessionId: nonEmptyString(p["session_id"]),
             model: nonEmptyString(model),
             version: nonEmptyString(p["version"]),
-            receivedAtMs: receivedAtMs
+            receivedAtMs: receivedAtMs,
+            durationMs: counter(cost?["total_duration_ms"]),
+            apiDurationMs: counter(cost?["total_api_duration_ms"]),
+            inputTokens: counter(context?["total_input_tokens"]),
+            outputTokens: counter(context?["total_output_tokens"])
         )
     }
 
@@ -141,8 +192,46 @@ enum ClaudeStatuslineRules {
     ) -> Bool {
         if age(receivedAtMs: statuslineReceivedAtMs, nowMs: nowMs) != .fresh { return true }
         guard let last = lastOAuthFetchAtMs, last.isFinite, last > 0 else { return true }
-        if !oauthHasScopedLimits { return false }
         return nowMs - last >= oauthScopedRefreshMs
+    }
+
+    /// OAuth failures preserve a live statusline; successful older caches never rewind quota.
+    static func preserveUsageOnOAuth(currentFetchedAt: Double, nextFetchedAt: Double, fresh: Bool, statuslineLive: Bool) -> Bool {
+        (!fresh && statuslineLive) || (fresh && nextFetchedAt < currentFetchedAt)
+    }
+
+    /// API and context counters may decrease on resume or compaction; session elapsed time may not.
+    static func progressRegressed(previous: Reading?, next: Reading) -> Bool {
+        guard let before = previous?.durationMs, let after = next.durationMs else { return false }
+        return after < before
+    }
+
+    /// Cached renders never renew receipt freshness. A fresh cross-session quota also
+    /// rejects older reset windows, same-window decreases, and another session's expiry removal.
+    static func shouldAccept(previousForSession: Reading?, current: Reading?, next: Reading) -> Bool {
+        if progressRegressed(previous: previousForSession, next: next) { return false }
+        if let previous = previousForSession,
+           previous.fiveHour == next.fiveHour, previous.sevenDay == next.sevenDay,
+           previous.apiDurationMs == next.apiDurationMs,
+           previous.inputTokens == next.inputTokens, previous.outputTokens == next.outputTokens {
+            return false
+        }
+        if let current, age(receivedAtMs: current.receivedAtMs, nowMs: next.receivedAtMs) == .fresh {
+            let windows: [(Window?, Window?, Window?)] = [
+                (current.fiveHour, next.fiveHour, previousForSession?.fiveHour),
+                (current.sevenDay, next.sevenDay, previousForSession?.sevenDay),
+            ]
+            for (a, b, previous) in windows {
+                if let a, b == nil, let reset = a.resetsAt, !reset.isEmpty,
+                   resetMs(reset) > next.receivedAtMs,
+                   resetMs(previous?.resetsAt) != resetMs(reset) { return false }
+                guard let a, let b, let aReset = a.resetsAt, !aReset.isEmpty,
+                      let bReset = b.resetsAt, !bReset.isEmpty else { continue }
+                let before = resetMs(aReset), after = resetMs(bReset)
+                if after < before || (after == before && b.usedPercent < a.usedPercent) { return false }
+            }
+        }
+        return true
     }
 
     /// May the last OAuth-family reading's scoped caps still ride along?

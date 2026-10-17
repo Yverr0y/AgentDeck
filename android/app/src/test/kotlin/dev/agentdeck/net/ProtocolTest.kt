@@ -20,6 +20,34 @@ class ProtocolTest {
     }
 
     @Test
+    fun `weekly-only quota snapshot removes the previous five-hour window`() {
+        val holder = dev.agentdeck.state.AgentStateHolder.instance
+        fun deliver(json: String) {
+            BridgeConnection.instance.onEvent?.invoke(requireNotNull(parseBridgeMessage(json)))
+        }
+        BridgeConnection.instance.onEvent?.invoke(BridgeEvent.Disconnected)
+        try {
+            deliver("""{"type":"usage_update","claudeUsageSnapshot":true,"usageStale":false,"fiveHourPercent":42,"fiveHourResetsAt":"2099-01-01T00:00:00Z","sevenDayPercent":12,"sevenDayResetsAt":"2099-01-08T00:00:00Z","scopedLimits":[{"label":"model","percent":80}],"codexRateLimits":{"primary":{"usedPercent":25}}}""")
+            assertEquals(42.0, holder.state.value.usage.fiveHourPercent)
+            assertEquals(12.0, holder.state.value.usage.sevenDayPercent)
+
+            // Released Android readers ignore the additive marker and already
+            // replace usage snapshots through the actual connection callback.
+            deliver("""{"type":"usage_update","claudeUsageSnapshot":true,"usageStale":false,"sevenDayPercent":0,"sevenDayResetsAt":"2099-01-15T00:00:00Z"}""")
+            val state = holder.state.value
+            assertNull(state.usage.fiveHourPercent)
+            assertNull(state.usage.fiveHourResetsAt)
+            assertNull(state.usage.scopedLimits)
+            assertEquals(0.0, state.usage.sevenDayPercent)
+            assertEquals("2099-01-15T00:00:00Z", state.usage.sevenDayResetsAt)
+            assertEquals(false, state.usage.usageStale)
+            assertEquals(25.0, state.codexRateLimits?.primary?.usedPercent)
+        } finally {
+            BridgeConnection.instance.onEvent?.invoke(BridgeEvent.Disconnected)
+        }
+    }
+
+    @Test
     fun `stale Claude quota retires scopes and subscriptions while Codex survives`() {
         val holder = dev.agentdeck.state.AgentStateHolder.instance
         fun deliver(json: String) {

@@ -368,6 +368,55 @@ final class ProtocolTests: XCTestCase {
     }
 
     @MainActor
+    func testClaudeQuotaSnapshotReplacesBothWindowsWithWeeklyOnly() {
+        let holder = AgentStateHolder()
+        defer { holder.prepareForTermination() }
+        func deliver(_ json: String) {
+            guard let event = BridgeEventParser.parse(json) else { XCTFail("decode failed"); return }
+            holder.handleEvent(event)
+        }
+        deliver(#"{"type":"usage_update","claudeUsageSnapshot":true,"usageStale":false,"fiveHourPercent":42,"fiveHourResetsAt":"2099-01-01T00:00:00Z","sevenDayPercent":12,"sevenDayResetsAt":"2099-01-08T00:00:00Z","scopedLimits":[{"label":"model","percent":80}],"extraUsageEnabled":true,"extraUsageMonthlyLimit":100,"extraUsageUsedCredits":12,"extraUsageUtilization":12,"codexRateLimits":{"primary":{"usedPercent":25}}}"#)
+        XCTAssertEqual(holder.state.fiveHourPercent, 42)
+        XCTAssertEqual(holder.state.sevenDayPercent, 12)
+        XCTAssertEqual(holder.state.extraUsageUsedCredits, 12)
+
+        // A complete weekly-only snapshot must remove the old 5h value and
+        // countdown without turning an explicit 0% weekly reading into absence.
+        deliver(#"{"type":"usage_update","claudeUsageSnapshot":true,"usageStale":false,"sevenDayPercent":0,"sevenDayResetsAt":"2099-01-15T00:00:00Z"}"#)
+        XCTAssertNil(holder.state.fiveHourPercent)
+        XCTAssertNil(holder.state.fiveHourResetsAt)
+        XCTAssertNil(holder.state.scopedLimits)
+        XCTAssertNil(holder.state.extraUsageEnabled)
+        XCTAssertNil(holder.state.extraUsageMonthlyLimit)
+        XCTAssertNil(holder.state.extraUsageUsedCredits)
+        XCTAssertNil(holder.state.extraUsageUtilization)
+        XCTAssertEqual(holder.state.sevenDayPercent, 0)
+        XCTAssertEqual(holder.state.sevenDayResetsAt, "2099-01-15T00:00:00Z")
+        XCTAssertEqual(holder.state.usageStale, false)
+        XCTAssertEqual(holder.state.codexRateLimits?.primary?.usedPercent, 25)
+    }
+
+    @MainActor
+    func testLegacyPartialUsageFramesKeepTheUnreportedClaudeWindow() {
+        let holder = AgentStateHolder()
+        defer { holder.prepareForTermination() }
+        func deliver(_ json: String) {
+            guard let event = BridgeEventParser.parse(json) else { XCTFail("decode failed"); return }
+            holder.handleEvent(event)
+        }
+        deliver(#"{"type":"usage_update","fiveHourPercent":42,"fiveHourResetsAt":"2099-01-01T00:00:00Z","sevenDayPercent":12}"#)
+        deliver(#"{"type":"usage_update","sevenDayPercent":13}"#)
+        XCTAssertEqual(holder.state.fiveHourPercent, 42)
+        XCTAssertEqual(holder.state.fiveHourResetsAt, "2099-01-01T00:00:00Z")
+        XCTAssertEqual(holder.state.sevenDayPercent, 13)
+
+        deliver(#"{"type":"usage_update","claudeUsageSnapshot":false,"sevenDayPercent":14}"#)
+        XCTAssertEqual(holder.state.fiveHourPercent, 42)
+        XCTAssertEqual(holder.state.fiveHourResetsAt, "2099-01-01T00:00:00Z")
+        XCTAssertEqual(holder.state.sevenDayPercent, 14)
+    }
+
+    @MainActor
     func testStaleClaudeQuotaClearsAllDisplayFieldsAndEmptySubscriptionsReplace() {
         let holder = AgentStateHolder()
         defer { holder.prepareForTermination() }

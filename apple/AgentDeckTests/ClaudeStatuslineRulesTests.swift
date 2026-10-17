@@ -38,7 +38,10 @@ final class ClaudeStatuslineRulesTests: XCTestCase {
         guard let d = raw as? [String: Any] else { return nil }
         return ClaudeStatuslineRules.Reading(
             fiveHour: window(d["fiveHour"]), sevenDay: window(d["sevenDay"]),
-            sessionId: nil, model: nil, version: nil, receivedAtMs: Self.receivedAtMs)
+            sessionId: d["sessionId"] as? String, model: d["model"] as? String, version: d["version"] as? String,
+            receivedAtMs: number(d["receivedAt"]) ?? Self.receivedAtMs,
+            durationMs: number(d["durationMs"]), apiDurationMs: number(d["apiDurationMs"]),
+            inputTokens: number(d["inputTokens"]), outputTokens: number(d["outputTokens"]))
     }
 
     func testParseVectors() throws {
@@ -56,6 +59,10 @@ final class ClaudeStatuslineRulesTests: XCTestCase {
             XCTAssertEqual(r.model, expected["model"] as? String, name)
             XCTAssertEqual(r.version, expected["version"] as? String, name)
             XCTAssertEqual(r.receivedAtMs, Self.receivedAtMs, name)
+            XCTAssertEqual(r.durationMs, number(expected["durationMs"]), name)
+            XCTAssertEqual(r.apiDurationMs, number(expected["apiDurationMs"]), name)
+            XCTAssertEqual(r.inputTokens, number(expected["inputTokens"]), name)
+            XCTAssertEqual(r.outputTokens, number(expected["outputTokens"]), name)
         }
     }
 
@@ -96,12 +103,58 @@ final class ClaudeStatuslineRulesTests: XCTestCase {
         }
     }
 
+    func testOAuthOrderingVectors() throws {
+        for c in try cases("oauthOrdering").rows {
+            let name = c["name"] as? String ?? ""
+            XCTAssertEqual(ClaudeStatuslineRules.preserveUsageOnOAuth(
+                currentFetchedAt: try XCTUnwrap(number(c["currentFetchedAt"])),
+                nextFetchedAt: try XCTUnwrap(number(c["nextFetchedAt"])),
+                fresh: try XCTUnwrap(c["fresh"] as? Bool),
+                statuslineLive: try XCTUnwrap(c["statuslineLive"] as? Bool)),
+                try XCTUnwrap(c["preserve"] as? Bool), name)
+        }
+    }
+
     func testChangedVectors() throws {
         for c in try cases("changed").rows {
             let name = c["name"] as? String ?? ""
             let next = try XCTUnwrap(reading(c["next"]), name)
             XCTAssertEqual(ClaudeStatuslineRules.changed(prev: reading(c["prev"]), next: next),
                            try XCTUnwrap(c["changed"] as? Bool), name)
+        }
+    }
+
+    func testFocusedWeeklySnapshotRetiresCachedWindowWithoutRenewingObservation() {
+        let current = ApiUsageData(
+            fiveHourPercent: 42, fiveHourResetsAt: "2099-01-01T00:00:00Z",
+            sevenDayPercent: 12, sevenDayResetsAt: "2099-01-08T00:00:00Z",
+            extraUsageEnabled: true, extraUsageMonthlyLimit: 100,
+            fetchedAt: 1234)
+        let next = DaemonServer.syncRelayedClaudeUsage(current, [
+            "claudeUsageSnapshot": true, "sevenDayPercent": 0.0,
+            "sevenDayResetsAt": "2099-01-15T00:00:00Z",
+        ])
+        XCTAssertNil(next.fiveHourPercent)
+        XCTAssertNil(next.fiveHourResetsAt)
+        XCTAssertEqual(next.sevenDayPercent, 0)
+        XCTAssertFalse(next.extraUsageEnabled)
+        XCTAssertNil(next.extraUsageMonthlyLimit)
+        XCTAssertEqual(next.fetchedAt, current.fetchedAt)
+        let legacy = DaemonServer.syncRelayedClaudeUsage(current, ["sevenDayPercent": 0.0])
+        XCTAssertEqual(legacy.fiveHourPercent, current.fiveHourPercent)
+        XCTAssertEqual(legacy.fiveHourResetsAt, current.fiveHourResetsAt)
+    }
+
+    func testAcceptanceVectors() throws {
+        for c in try cases("accept").rows {
+            let name = c["name"] as? String ?? ""
+            let previous = reading(c["previousForSession"])
+            let current = reading(c["current"])
+            let next = try XCTUnwrap(reading(c["next"]), name)
+            XCTAssertEqual(ClaudeStatuslineRules.progressRegressed(previous: previous, next: next),
+                           try XCTUnwrap(c["regressed"] as? Bool), name)
+            XCTAssertEqual(ClaudeStatuslineRules.shouldAccept(previousForSession: previous, current: current, next: next),
+                           try XCTUnwrap(c["accepted"] as? Bool), name)
         }
     }
 

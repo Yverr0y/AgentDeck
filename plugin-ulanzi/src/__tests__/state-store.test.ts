@@ -19,6 +19,33 @@ function connectedStore(): StateStore {
 }
 
 describe('D200H StateStore session isolation', () => {
+  it('does not revive a focused session quota after a weekly-only account snapshot', () => {
+    const store = connectedStore();
+    // An older focused snapshot may still carry quota alongside session state.
+    store.apply({
+      type: 'state_update', state: State.PROCESSING, permissionMode: PermissionMode.DEFAULT, sessionId: claude.id,
+      fiveHourPercent: 91, sevenDayPercent: 55,
+    } as BridgeEvent);
+    store.apply({
+      type: 'usage_update', claudeUsageSnapshot: true, usageStale: false,
+      fiveHourPercent: 42, fiveHourResetsAt: '2099-01-01T00:00:00Z',
+      sevenDayPercent: 12, sevenDayResetsAt: '2099-01-08T00:00:00Z',
+    } as BridgeEvent);
+    expect(store.toLayoutInput(claude.id)).toMatchObject({ fiveHourPercent: 42, sevenDayPercent: 12 });
+
+    store.apply({
+      type: 'usage_update', claudeUsageSnapshot: true, usageStale: false,
+      sevenDayPercent: 0, sevenDayResetsAt: '2099-01-15T00:00:00Z',
+    } as BridgeEvent);
+    for (const input of [store.toLayoutInput(), store.toLayoutInput(claude.id)]) {
+      expect(input.fiveHourPercent).toBeUndefined();
+      expect(input.fiveHourResetsAt).toBeUndefined();
+      expect(input).toMatchObject({
+        sevenDayPercent: 0, sevenDayResetsAt: '2099-01-15T00:00:00Z', usageKnown: true,
+      });
+    }
+  });
+
   it('keeps daemon transport separate from an empty disconnected aggregate state', () => {
     const store = new StateStore();
     store.setConnected(true);

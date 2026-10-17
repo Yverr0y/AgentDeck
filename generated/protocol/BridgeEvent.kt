@@ -214,6 +214,12 @@ data class BridgeEvent (
      */
     val workerSessionCount: Double? = null,
 
+    /**
+     * True: replaces Claude windows, scoped caps and extra usage; omissions clear. Absent/false
+     * preserves legacy partial-frame semantics.
+     */
+    val claudeUsageSnapshot: Boolean? = null,
+
     @Json(name = "codexAccountId")
     val codexAccountID: String? = null,
 

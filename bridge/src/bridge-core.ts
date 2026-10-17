@@ -23,6 +23,10 @@ import { buildDisplayStateEvent } from './display-dim.js';
 import { foldCodexSessionsForDisplay, loadMlxSettings, sortSessions } from '@agentdeck/shared';
 import {
   claudeOAuthCarryOverFresh,
+  shouldAcceptClaudeStatusline,
+  claudeStatuslineProgressRegressed,
+  preserveClaudeUsageOnOAuth,
+  CLAUDE_STATUSLINE_SESSION_LIMIT,
   claudeStatuslineChanged,
   classifyClaudeStatuslineAge,
   shouldPollClaudeOAuth,
@@ -208,6 +212,7 @@ export class BridgeCore {
   /** Newest Claude Code status-line reading — the sanctioned subscription-window
    *  source (shared/src/claude-statusline.ts). Null until one arrives. */
   claudeStatusline: ClaudeStatuslineReading | null = null;
+  private claudeStatuslineSessions = new Map<string, ClaudeStatuslineReading>();
   /** Where the Claude 5h/7d numbers in `cachedApiUsage` came from. */
   claudeUsageSource: ClaudeUsageSource | null = null;
   /** Last LIVE OAuth-family reading (direct `/api/oauth/usage`, or a sibling's
@@ -638,42 +643,25 @@ export class BridgeCore {
    * `usageStale` wire flag and the `USAGE_STALE_TTL` backstop that exists to
    * catch exactly this. See `UsageFetchResult`.
    */
-  updateApiUsage(usage: ApiUsageData, fresh = true, source: ClaudeUsageSource = 'oauth'): void {
+  updateApiUsage(usage: ApiUsageData, fresh = true, source: ClaudeUsageSource = 'oauth', fetchedAt = Date.now()): void {
     if (source !== 'statusline') {
       // Every live reading that reaches this method came through OAuth —
       // directly, or as a sibling bridge's relay of its own OAuth read. The
       // status line has its own entry point (`applyClaudeStatusline`).
-      if (fresh) {
-        this.lastOAuthFetchTime = Date.now();
+      if (fresh && fetchedAt >= this.lastOAuthFetchTime) {
+        this.lastOAuthFetchTime = fetchedAt;
         this.lastOAuthUsage = usage;
       }
-      // While a status-line reading is fresh it stays the live source: an
-      // OAuth-family reading only refreshes the fields the status line cannot
-      // carry (scoped caps, extra usage) and never replaces the live numbers —
-      // two sources describing one account would otherwise flicker against
-      // each other on every slow refresh (measured on the isolated probe,
-      // 2026-10-16). A fallback reading changes nothing at all.
-      if (this.claudeStatuslineIsLive() && this.cachedApiUsage) {
-        if (fresh) {
-          this.cachedApiUsage = {
-            ...this.cachedApiUsage,
-            scopedLimits: usage.scopedLimits,
-            extraUsageEnabled: usage.extraUsageEnabled,
-            extraUsageMonthlyLimit: usage.extraUsageMonthlyLimit,
-            extraUsageUsedCredits: usage.extraUsageUsedCredits,
-            extraUsageUtilization: usage.extraUsageUtilization,
-          };
-          this.oauthConnected = true;
-          this.broadcastUsage();
-        }
-        return;
-      }
+      // Failed/cached OAuth results cannot retire a fresh status-line reading.
+      // A successful account read is authoritative for every window, including
+      // quota resets or account changes that lower a previous high-water mark.
+      if (preserveClaudeUsageOnOAuth(this.lastApiFetchTime, fetchedAt, fresh, this.claudeStatuslineIsLive())) return;
     }
     this.cachedApiUsage = usage;
     this.apiUsagePreAdjusted = false; // raw data from API, needs adjustment
     this.claudeUsageSource = source;
     if (fresh) {
-      this.lastApiFetchTime = Date.now();
+      this.lastApiFetchTime = fetchedAt;
       this.oauthConnected = true;
       this.apiUsageStale = false;
     } else {
@@ -698,7 +686,7 @@ export class BridgeCore {
    */
   applyUsageResult(result: UsageFetchResult | null): boolean {
     if (result) {
-      this.updateApiUsage(result.data, result.fresh);
+      this.updateApiUsage(result.data, result.fresh, 'oauth', result.fetchedAt);
       // Token status check — if expired, mark stale even though we got numbers.
       // Not while the status line is the live source: its reading needs no token.
       const tokenStatus = getTokenStatus();
@@ -712,10 +700,14 @@ export class BridgeCore {
     return false;
   }
 
-  /** A fresh status-line reading is the live Claude source; the OAuth paths must not retire it. */
+  /** Recent statusline evidence also protects a newer OAuth correction from unstamped relays. */
+  claudeStatuslineIsFresh(now = Date.now()): boolean {
+    return classifyClaudeStatuslineAge(this.claudeStatusline?.receivedAt ?? null, now) === 'fresh';
+  }
+
+  /** The OAuth paths must not retire a live, token-free statusline source. */
   claudeStatuslineIsLive(now = Date.now()): boolean {
-    return this.claudeUsageSource === 'statusline'
-      && classifyClaudeStatuslineAge(this.claudeStatusline?.receivedAt ?? null, now) === 'fresh';
+    return this.claudeUsageSource === 'statusline' && this.claudeStatuslineIsFresh(now);
   }
 
   /** Fetch usage from API and update cache. Returns true on a LIVE reading. */
@@ -733,7 +725,24 @@ export class BridgeCore {
    * fires on every message boundary and every broadcast repaints every
    * surface, serial boards included; the 5 s usage tick carries the rest.
    */
-  applyClaudeStatusline(reading: ClaudeStatuslineReading): { broadcast: boolean } {
+  applyClaudeStatusline(reading: ClaudeStatuslineReading): { applied: boolean; broadcast: boolean } {
+    const key = reading.sessionId ?? '';
+    const previousForSession = this.claudeStatuslineSessions.get(key);
+    const u = this.cachedApiUsage;
+    const current = u ? {
+      ...reading, receivedAt: this.lastApiFetchTime,
+      fiveHour: u.fiveHourPercent == null ? null : { usedPercent: u.fiveHourPercent, resetsAt: u.fiveHourResetsAt },
+      sevenDay: u.sevenDayPercent == null ? null : { usedPercent: u.sevenDayPercent, resetsAt: u.sevenDayResetsAt },
+    } : this.claudeStatusline;
+    // Remember rejected documents too: an idle session must not become fresh
+    // merely because another session (or OAuth) replaced the account reading.
+    if (claudeStatuslineProgressRegressed(previousForSession, reading)) return { applied: false, broadcast: false };
+    this.claudeStatuslineSessions.delete(key);
+    this.claudeStatuslineSessions.set(key, reading);
+    if (this.claudeStatuslineSessions.size > CLAUDE_STATUSLINE_SESSION_LIMIT) {
+      this.claudeStatuslineSessions.delete(this.claudeStatuslineSessions.keys().next().value!);
+    }
+    if (!shouldAcceptClaudeStatusline(previousForSession, current, reading)) return { applied: false, broadcast: false };
     const prev = this.claudeStatusline;
     const changed = claudeStatuslineChanged(prev, reading);
     const resumed = classifyClaudeStatuslineAge(prev?.receivedAt ?? null, reading.receivedAt) !== 'fresh';
@@ -764,7 +773,7 @@ export class BridgeCore {
     if (resumed) log('Claude usage: status-line relay is the live source (OAuth poll pauses while readings stay fresh)');
     const broadcast = changed || sourceChanged;
     if (broadcast) this.broadcastUsage();
-    return { broadcast };
+    return { applied: true, broadcast };
   }
 
   /**

@@ -324,7 +324,7 @@ import {
 } from './surface-protocol.js';
 import { claudeHookTimelineEntry } from './claude-hook-timeline.js';
 import type { UsageEvent } from './types.js';
-import { resolveRelayedUsageEvent } from './relayed-usage.js';
+import { resolveRelayedUsageEvent, syncRelayedClaudeUsage } from './relayed-usage.js';
 import { CARD_FEED_PATH, CARD_OUTBOX_PATH, FONT_PACK_PATH, GLANCE_FRAME_PATH, LEARNING_PACK_PATH, type CardFeedResponse, type SessionInfo, type OutboxPushRequest } from '@agentdeck/shared';
 import { readFileSync, statSync, writeFileSync, appendFileSync } from 'fs';
 import { readFile, rm } from 'fs/promises';
@@ -1200,7 +1200,7 @@ async function fetchUsageViaHttp(siblings: { port: number }[]): Promise<RelayedU
       const data = await res.json() as { status: string; usage: ApiUsageData | null; fetchedAt: number };
       if (!data.usage) continue;
       const age = Date.now() - data.fetchedAt;
-      if (age > 5 * 60 * 1000) continue;
+      if (!Number.isFinite(data.fetchedAt) || data.fetchedAt <= 0 || age < 0 || age > 5 * 60 * 1000) continue;
       return { usage: data.usage, fetchedAt: data.fetchedAt };
     } catch { /* try next */ }
   }
@@ -1252,9 +1252,11 @@ export async function fetchUsageRelayed(selfPort: number): Promise<UsageFetchRes
   // is `fresh` — its age contract is the 5-minute gate inside fetchUsageViaHttp.
   if (siblings.length > 0) {
     const httpResult = await fetchUsageViaHttp(siblings);
-    if (httpResult) return { data: httpResult.usage, fresh: true };
+    if (httpResult) return { data: httpResult.usage, fresh: true, fetchedAt: httpResult.fetchedAt };
     const wsResult = await fetchUsageViaWs(siblings);
-    if (wsResult) return { data: wsResult, fresh: true };
+    // Legacy usage_update frames carry no observation stamp. Keep their age
+    // unknown; they cannot displace a fresh statusline or defer OAuth polling.
+
     // Relay is only an optimization to avoid multiple API pollers. A PTY session
     // bridge only refreshes usage when it has *direct* inbound WS clients, but
     // dashboards/Stream Deck connect to the daemon (sole entry point) — so a
@@ -1263,7 +1265,9 @@ export async function fetchUsageRelayed(selfPort: number): Promise<UsageFetchRes
     // Fall back to the direct API; the shared usage-cache.json (120s TTL) dedupes
     // so this can't cause a 429 storm even if a sibling is also actively fetching.
     debug('daemon', 'Siblings exist but relay yielded nothing fresh — falling back to direct API (shared file cache dedupes)');
-    return fetchUsageFromApi();
+    const direct = await fetchUsageFromApi().catch(() => null);
+    if (direct?.fresh) return direct;
+    return wsResult ? { data: wsResult, fresh: false } : direct;
   }
 
   debug('daemon', 'No siblings, using direct API');
@@ -3427,7 +3431,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         const reading = parseClaudeStatusline(payload, Date.now());
         const outcome = reading ? core.applyClaudeStatusline(reading) : null;
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ received: true, applied: reading != null, broadcast: outcome?.broadcast ?? false }));
+        res.end(JSON.stringify({ received: true, applied: outcome?.applied ?? false, broadcast: outcome?.broadcast ?? false }));
       });
       return;
     }
@@ -4891,16 +4895,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     } else if (evt.type === 'usage_update') {
       // Sync daemon cache with relay's already-adjusted values (prevents oscillation)
       const u = evt as any;
-      if (core.cachedApiUsage && u.fiveHourPercent != null) {
-        core.cachedApiUsage.fiveHourPercent = u.fiveHourPercent;
-        core.cachedApiUsage.fiveHourResetsAt = u.fiveHourResetsAt ?? null;
-        core.cachedApiUsage.sevenDayPercent = u.sevenDayPercent ?? core.cachedApiUsage.sevenDayPercent;
-        core.cachedApiUsage.sevenDayResetsAt = u.sevenDayResetsAt ?? core.cachedApiUsage.sevenDayResetsAt ?? null;
-        // Scoped caps ride the same relay snapshot. The Swift daemon syncs them on
-        // its equivalent live-update path; leaving them out here made the daemon's
-        // own next broadcastUsage re-emit a stale scoped set until the next full
-        // fetch — the exact drift DaemonServer.swift documents.
-        core.cachedApiUsage.scopedLimits = Array.isArray(u.scopedLimits) ? u.scopedLimits : [];
+      const preferOwnClaudeUsage = core.claudeStatuslineIsFresh();
+      if (!preferOwnClaudeUsage && core.cachedApiUsage && syncRelayedClaudeUsage(core.cachedApiUsage, u)) {
         core.apiUsagePreAdjusted = true;
       }
       // WHICH half of the relayed event survives, and why, lives in
@@ -4909,6 +4905,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // clobbering the dashboard, and an inline branch had no test seam.
       core.wsServer.broadcast({ ...resolveRelayedUsageEvent({
         relayed: u,
+        preferOwnClaudeUsage,
         ownCodexRateLimits: core.lastBuiltCodexRateLimits,
         ownLiveFamilyAuthorityExpiresAtMs: core.lastBuiltCodexLiveFamilyAuthorityExpiresAtMs,
         ownZaiRateLimits: core.zaiQuotaForWire() ?? undefined,

@@ -14,7 +14,7 @@
  * Decided 2026-10-16 ("keep today's experience, give each daemon the safe
  * maximum"): OAuth polling is not removed. It is suppressed while a status-line
  * reading is fresh and resumes when sessions go quiet, and the per-model scoped
- * caps that only OAuth reports keep refreshing on a slower clock. The Swift
+ * caps and account authorization keep refreshing on a slower clock. The Swift
  * daemon, which never had an OAuth path, gains its first token-free Claude
  * gauge from the same reading.
  *
@@ -23,10 +23,10 @@
  * session's first API response; each window may be independently absent, and
  * Claude Code drops a window once its `resets_at` passes; the script is
  * debounced at 300 ms and a running script is cancelled by the next update.
- * So an absent window is "no information" (the reading keeps the other window,
- * the consumer retains), and a reading is stamped at receipt — the payload
- * carries no capture time, and the script runs right after the API response it
- * describes.
+ * Timer/mode changes also rerender cached quota. Receipt time advances only for
+ * a changed response, with bounded per-session replay memory and cross-session
+ * ordering checks. Accepted windows are a replacement snapshot: a missing
+ * window retires its old value; a document with neither window changes nothing.
  *
  * `pnpm generate-claude-statusline-rules` emits the Swift mirror
  * (`ClaudeStatuslineRules.generated.swift`); the byte gate is
@@ -54,10 +54,9 @@ export const CLAUDE_STATUSLINE_FRESH_MS = 5 * 60_000;
 export const CLAUDE_OAUTH_CARRY_OVER_MS = 30 * 60_000;
 
 /**
- * With scoped caps on the account, OAuth still refreshes this often while the
- * status line is fresh — one tenth of the 60 s poll — so the gauge only OAuth
- * can feed keeps moving. Without caps it does not poll at all until the
- * status line goes quiet.
+ * OAuth refreshes at least this often while the status line is fresh, even
+ * without scoped caps: cached session renders must not indefinitely suppress
+ * account authorization, reset, or plan observations.
  */
 export const CLAUDE_OAUTH_SCOPED_REFRESH_MS = 10 * 60_000;
 
@@ -70,6 +69,15 @@ export const CLAUDE_STATUSLINE_CHANGE_EPSILON = 0.05;
 
 /** A `resets_at` above this is already epoch milliseconds, not seconds. */
 export const CLAUDE_STATUSLINE_MS_THRESHOLD = 1e11;
+/** Bounded per-session replay memory; idle sessions cannot repeatedly win by receipt time. */
+export const CLAUDE_STATUSLINE_SESSION_LIMIT = 128;
+
+/** Session counters may cross a focus relay without replacing account quota. */
+export const RELAYED_SESSION_USAGE_FIELDS = [
+  'sessionDurationSec', 'inputTokens', 'outputTokens', 'toolCalls',
+  'estimatedCostUsd', 'sessionPercent', 'costSpent', 'costLimit',
+  'resetTime', 'resetDate',
+] as const;
 
 export interface ClaudeStatuslineWindow {
   /** 0–100; the status line never reports above 100 for these windows, and a
@@ -89,6 +97,11 @@ export interface ClaudeStatuslineReading {
   version: string | null;
   /** Daemon receipt time, epoch ms. */
   receivedAt: number;
+  /** Session elapsed time accumulates across resumes; ordering only, never freshness. */
+  durationMs?: number | null;
+  apiDurationMs?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
 }
 
 /** Where the Claude 5h/7d numbers a daemon is showing came from. */
@@ -109,7 +122,8 @@ function parseWindow(raw: unknown): ClaudeStatuslineWindow | null {
   const r = o.resets_at;
   if (typeof r === 'number' && Number.isFinite(r) && r > 0) {
     const ms = r > CLAUDE_STATUSLINE_MS_THRESHOLD ? r : r * 1000;
-    resetsAt = new Date(Math.round(ms)).toISOString();
+    // Finite input can still exceed Date's range. Never throw from the HTTP route.
+    if (ms <= 8.64e15) resetsAt = new Date(Math.round(ms)).toISOString();
   }
   return { usedPercent: Math.min(100, pct), resetsAt };
 }
@@ -131,6 +145,9 @@ export function parseClaudeStatusline(payload: unknown, receivedAt: number): Cla
   const model = p.model && typeof p.model === 'object' && !Array.isArray(p.model)
     ? (p.model as Record<string, unknown>).id
     : undefined;
+  const cost = p.cost as Record<string, unknown> | undefined;
+  const context = p.context_window as Record<string, unknown> | undefined;
+  const counter = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
   return {
     fiveHour,
     sevenDay,
@@ -138,6 +155,10 @@ export function parseClaudeStatusline(payload: unknown, receivedAt: number): Cla
     model: nonEmptyString(model),
     version: nonEmptyString(p.version),
     receivedAt,
+    durationMs: counter(cost?.total_duration_ms),
+    apiDurationMs: counter(cost?.total_api_duration_ms),
+    inputTokens: counter(context?.total_input_tokens),
+    outputTokens: counter(context?.total_output_tokens),
   };
 }
 
@@ -167,16 +188,68 @@ export interface ClaudeOAuthPollInput {
 
 /**
  * Should the OAuth poll run on this tick? Always when no fresh status-line
- * reading exists. While one does: once, to learn whether the account has
- * scoped caps at all; then only on the slow clock when it does; never when it
- * does not.
+ * reading exists. While one does: one baseline account read, then the slow
+ * account refresh regardless of whether the previous account had scoped caps.
  */
 export function shouldPollClaudeOAuth(input: ClaudeOAuthPollInput): boolean {
   if (classifyClaudeStatuslineAge(input.statuslineReceivedAt, input.now) !== 'fresh') return true;
   const last = input.lastOAuthFetchAt;
   if (last == null || !Number.isFinite(last) || last <= 0) return true;
-  if (!input.oauthHasScopedLimits) return false;
+  // The payload has no capture timestamp/account identity. Even active renders
+  // cannot suppress authoritative quota/auth validation indefinitely.
   return input.now - last >= CLAUDE_OAUTH_SCOPED_REFRESH_MS;
+}
+
+/** Session elapsed time accumulates across resumes (unlike API/context counters).
+ * It orders documents but cannot make an idle timer render a new observation. */
+export function claudeStatuslineProgressRegressed(
+  previous: ClaudeStatuslineReading | null | undefined, next: ClaudeStatuslineReading,
+): boolean {
+  return previous?.durationMs != null && next.durationMs != null
+    && next.durationMs < previous.durationMs;
+}
+
+/** Keep a live token-free reading through OAuth failure, and never rewind a
+ * newer observation with an older successful cache, regardless of its source. */
+export function preserveClaudeUsageOnOAuth(
+  currentFetchedAt: number, nextFetchedAt: number, fresh: boolean, statuslineLive: boolean,
+): boolean {
+  return (!fresh && statuslineLive) || (fresh && nextFetchedAt < currentFetchedAt);
+}
+
+/** A render is not an API observation. Remember each session's response progress
+ * even when another session currently owns the display. Exact window comparison
+ * is intentional here; repaint epsilon is not a freshness threshold. A lower
+ * reading for the same reset, or an older reset, cannot replace a fresh reading.
+ * An aged high-water mark stops blocking legitimate account changes; a successful
+ * OAuth read replaces it immediately. */
+export function shouldAcceptClaudeStatusline(
+  previousForSession: ClaudeStatuslineReading | null | undefined,
+  current: ClaudeStatuslineReading | null | undefined,
+  next: ClaudeStatuslineReading,
+): boolean {
+  if (claudeStatuslineProgressRegressed(previousForSession, next)) return false;
+  const equalWindow = (a: ClaudeStatuslineWindow | null, b: ClaudeStatuslineWindow | null) =>
+    a?.usedPercent === b?.usedPercent && a?.resetsAt === b?.resetsAt;
+  if (previousForSession
+    && equalWindow(previousForSession.fiveHour, next.fiveHour)
+    && equalWindow(previousForSession.sevenDay, next.sevenDay)
+    && (previousForSession.apiDurationMs ?? null) === (next.apiDurationMs ?? null)
+    && (previousForSession.inputTokens ?? null) === (next.inputTokens ?? null)
+    && (previousForSession.outputTokens ?? null) === (next.outputTokens ?? null)) return false;
+  if (current && classifyClaudeStatuslineAge(current.receivedAt, next.receivedAt) === 'fresh') {
+    for (const key of ['fiveHour', 'sevenDay'] as const) {
+      const a = current[key], b = next[key];
+      // An idle session dropping its expired window cannot retire a newer
+      // session's still-live window. Same-window retirement remains valid.
+      if (a && !b && a.resetsAt && Date.parse(a.resetsAt) > next.receivedAt
+        && Date.parse(previousForSession?.[key]?.resetsAt ?? '') !== Date.parse(a.resetsAt)) return false;
+      if (!a?.resetsAt || !b?.resetsAt) continue;
+      if (Date.parse(b.resetsAt) < Date.parse(a.resetsAt)
+        || (Date.parse(b.resetsAt) === Date.parse(a.resetsAt) && b.usedPercent < a.usedPercent)) return false;
+    }
+  }
+  return true;
 }
 
 /** May the last OAuth reading's scoped caps and extra-usage fields still ride along? */
