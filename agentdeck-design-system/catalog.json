@@ -70,7 +70,15 @@
       "docs/troubleshooting.md": "User manual (see docs/install.md). Symptom-to-fix table, not a specification surface.",
       "docs/roadmap.md": "Forward-looking plan. Binding it would imply the catalog publishes commitments rather than the system as built.",
       "docs/ENTERPRISE-ROADMAP.md": "Forward-looking plan (see docs/roadmap.md). Binding it would imply the catalog publishes commitments rather than the system as built.",
-      "docs/marketing/ad-platform-revenue-research-2026-09-13.md": "Dated business research snapshot (ad-platform revenue options, Korean body). Nothing here is adopted; it records platform rules and sensitivity math for a decision not yet made, so cataloguing it would imply a policy the project has not set."
+      "docs/marketing/ad-platform-revenue-research-2026-09-13.md": "Dated business research snapshot (ad-platform revenue options, Korean body). Nothing here is adopted; it records platform rules and sensitivity math for a decision not yet made, so cataloguing it would imply a policy the project has not set.",
+      "docs/marketing/position-workshop-2026-10-16/README.md": "Index of the dated 2026-10-16 position-workshop research snapshot (Korean). Provenance notes for memos the project does not adopt as policy; binding it would publish research as a system document.",
+      "docs/marketing/position-workshop-2026-10-16/harness-evolution.md": "Dated external research memo (2026-10-16 workshop): harness evolution timeline and absorption map, with UNVERIFIED rows. A snapshot, not a specification surface.",
+      "docs/marketing/position-workshop-2026-10-16/competitive-landscape.md": "Dated external research memo (2026-10-16 workshop): four-quadrant competitive landscape with star counts as of 2026-10-15. A snapshot, not a specification surface.",
+      "docs/marketing/position-workshop-2026-10-16/market-demand-monetization.md": "Dated external research memo (2026-10-16 workshop): demand, personas, distribution and monetization. Nothing here is adopted; monetization stays off the table.",
+      "docs/marketing/position-workshop-2026-10-16/agentdeck-metrics.md": "Dated traction measurement (2026-10-15 UTC) with verbatim capture commands and collapsible raw blocks; re-runnable scripts beside it. A snapshot, not a specification surface.",
+      "docs/marketing/position-workshop-2026-10-16/internal-inventory.md": "Dated repository inventory (master @ c773e23b, Korean) produced for the 2026-10-16 workshop by a read-only agent pass. Superseded by the rules and docs it indexes.",
+      "docs/marketing/position-workshop-2026-10-16/crosscheck.md": "Dated cross-check (Korean) of twelve external research claims against the code at c773e23b. Evidence for the workshop report, not a rule surface.",
+      "docs/marketing/position-workshop-2026-10-16/red-team-review.md": "Adversarial review (Korean) of the 2026-10-16 workshop report draft and how its findings were applied. Working notes, not a system document."
     }
   },
   "documents": [
