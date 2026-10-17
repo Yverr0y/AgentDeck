@@ -88,6 +88,49 @@ final class MultiDaemonConnectionTests: XCTestCase {
         XCTAssertGreaterThan(server.requests, 0, "Retry exhaustion must not be treated as a user stop when the selected host returns")
     }
 
+    func testPreferredLocalHostRecoversAfterRetryExhaustion() throws {
+        let ready = expectation(description: "local listener ready")
+        let server = try RefusalServer(code: 401) { ready.fulfill() }
+        defer { server.stop() }
+        wait(for: [ready], timeout: 5)
+        server.approve()
+        let port = Int(try XCTUnwrap(server.port))
+        let old = UserDefaults.standard.string(forKey: "lastBridgeUrl")
+        defer { UserDefaults.standard.set(old, forKey: "lastBridgeUrl") }
+        let holder = AgentStateHolder()
+        holder.discovery.isBrowserEnabled = false
+        defer { holder.prepareForTermination() }
+        let initial = expectation(description: "preferred local endpoint connected")
+        let handle = holder.connection.onEvent
+        holder.connection.onEvent = { event in
+            handle?(event)
+            if case .connection(let state) = event, state.status == "connected" { initial.fulfill() }
+        }
+        let url = "ws://127.0.0.1:\(port)"
+        holder.setPreferredLocalBridge(url: url)
+        wait(for: [initial], timeout: 8)
+        holder.connection.onEvent = handle
+        let requests = server.requests
+        holder.connection.disconnect()
+        holder.handleEvent(.connection(ConnectionEvent(type: "connection", status: "disconnected")))
+        let disconnected = expectation(description: "socket teardown delivered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { disconnected.fulfill() }
+        wait(for: [disconnected], timeout: 3)
+        holder.connection.onReconnectExhausted?(url)
+        holder.schedulePreferredLocalRecovery(after: 0.01)
+        let settled = expectation(description: "local recovery retry delivered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { settled.fulfill() }
+        wait(for: [settled], timeout: 4)
+        XCTAssertGreaterThan(server.requests, requests, "A preferred loopback endpoint must recover even without a matching Bonjour LAN address")
+        let recoveredRequests = server.requests
+        holder.stopConnectionAttempts()
+        holder.schedulePreferredLocalRecovery(after: 0.01)
+        let stopped = expectation(description: "explicit stop remains in force")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
+        XCTAssertEqual(server.requests, recoveredRequests)
+    }
+
     func testDiscoveryDoesNotUndoExplicitStop() throws { try assertDiscoveryRemainsStopped(auth: false) }
     func testDiscoveryDoesNotRetryAnAuthenticationRefusal() throws { try assertDiscoveryRemainsStopped(auth: true) }
 
