@@ -63,12 +63,12 @@ describe('codexHookPromptText', () => {
 describe('CodexAmbientSessions', () => {
   const prompt = (sid: string, text: string) => ({ session_id: sid, cwd: '/', prompt: text });
 
-  it('classifies the thread on its prompt and every later hook on that id', () => {
+  it.each([SAFETY, 'This is an app-generated request for a suggested next user message. The user did not write this message.\n\nYour suggestion will appear in the user\'s empty message composer.'])('classifies the thread on its prompt and every later hook on that id: %s', text => {
     const s = new CodexAmbientSessions();
     // The live order: session_start arrives ~90 ms before the prompt and is
     // not yet identifiable — the caller retracts its effects at firstSeen.
     expect(s.classify('codex_session_start', { session_id: 'amb-1', cwd: '/' }, 1000)).toEqual({ ambient: false, firstSeen: false });
-    expect(s.classify('codex_user_prompt_submit', prompt('amb-1', SAFETY), 1090))
+    expect(s.classify('codex_user_prompt_submit', prompt('amb-1', text), 1090))
       .toEqual({ ambient: true, firstSeen: true, sessionId: 'amb-1', reason: 'ambient-suggestions' });
     expect(s.classify('codex_tool_start', { session_id: 'amb-1', tool_name: 'shell' }, 1500))
       .toEqual({ ambient: true, firstSeen: false, sessionId: 'amb-1' });

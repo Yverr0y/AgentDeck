@@ -360,6 +360,25 @@ try {
     assert.equal(diag.apmeHistoryReader.timeouts, 0);
     return { taskProjection: true, communicationProjection: true, workerActive: true };
   });
+  await check('composer suggestions retract startup rows and stay out of history', async () => {
+    const session = { session_id: 'package-composer-suggestion', cwd: '/workspace/package-composer' };
+    await hook('codex_session_start', session);
+    await hook('codex_user_prompt_submit', { ...session,
+      prompt: 'This is an app-generated request for a suggested next user message. The user did not write this message.\n\nYour suggestion will appear in the empty composer.' });
+    await hook('codex_tool_start', { ...session, tool_name: 'Bash', tool_use_id: 'internal', tool_input: { command: 'true' } });
+    await hook('codex_stop', session);
+    const fresh = await connect();
+    try {
+      const rows = await waitFor('post-classification roster', () => fresh.roster());
+      assert(!rows.some(row => row.id.includes(session.session_id)));
+      const response = await fetch(`http://127.0.0.1:${daemon.port}/apme/tasks?session=${session.session_id}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).total, 0);
+      return { startupRowRetracted: true, taskRows: 0 };
+    } finally { fresh.ws.close(); peers.delete(fresh); }
+  });
   await check('installed Claude hook snippet discovers only the temporary daemon', async () => {
     const installed = await import(pathToFileURL(join(prefix, 'node_modules/@agentdeck/hooks/dist/install.js')));
     const sid = 'package-hook-snippet';
