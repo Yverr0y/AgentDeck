@@ -1189,15 +1189,7 @@ start/completion·duration·summary 를 읽고, 양 데몬의 `/apme/graph` 는 
 
 ## Test coverage
 
-| File | Tests | Coverage |
-|---|---|---|
-| `apme-collector.test.ts` | 9 | run lifecycle, usage/model update, listRuns, rubric seed, evals, scorecard, multi-turn 사이클, setLastClosedTurnResponse fallback, disabled graceful |
-| `apme-classifier.test.ts` | 17 | computeSignals (tool counts, plan mode, web search), classifyRun (coding/planning/research/debugging/refactoring/review/conversation/ops/unknown), classifyRunSmart (LLM fallback) |
-| `apme-runner.test.ts` | 20 | detectLanguage, parseJudgeJson, shouldJudge gating, runner flow (mock det+judge), real spawn, no-changes skip, buildJudgePrompt, enqueueTurn |
-| `apme-tuner.test.ts` | 19 | correlation math, parseProposal, extractOverall, disagreement collection, vibeCorrelation, tune accept/reject/unparseable/insufficient/disabled |
-| `apme-http.test.ts` | 10 | 503 uninit, GET runs/run/scorecard/rubric, POST vibe/recommend, 404, agent filter |
-
-**총 75 tests.** 모든 테스트는 실제 SQLite (`better-sqlite3` `createRequire` 해석) + 실제 `spawn` 명령 실행.
+APME 테스트는 `bridge/src/__tests__/apme-*.test.ts` 다(2026-10-18 기준 43개 파일). 파일별 개수 표는 두지 않는다. 이전 표는 5개 파일, 75개 테스트에서 멈춰 있었고 소스 트리에 없는 `apme-tuner.test.ts` 까지 적고 있었다(튜너는 위 OPRO 절에 적힌 대로 아직 없다). store 를 쓰는 테스트는 실제 SQLite(`better-sqlite3`, `createRequire` 해석)를 연다. 두 데몬이 같게 판정해야 하는 규칙(judge 응답 게이트, task gradeability, task 제목)은 `shared/` 의 벡터 파일(`apme-judge-response-vectors.json`, `apme-judge-api-response-vectors.json`, `task-gradeability-vectors.json`, `task-title-vectors.json`)을 Node·Swift 두 스위트가 재생한다.
 
 ## Schema versioning — `agentdeck-eval/v1`
 
