@@ -1,6 +1,8 @@
 # AgentDeck traction metrics — `puritysb/AgentDeck`
 
-**Collected** 2026-10-15T15:43:39Z → 2026-10-15T16:07:22Z (UTC) = 2026-10-16 00:43–01:07 KST. Read-only: GitHub/npm/store APIs and public pages, plus `git` read commands on the local checkout (`HEAD: 0bd68d80 2026-10-16T00:40:02+09:00`; no fetch, no daemon, no hardware). Every capture below carries its verbatim command, UTC timestamp and exit code in a collapsible block; full raw files are in `raw/` next to this file, derived numbers are computed by `scripts/analyze.py` + `scripts/assemble.py` (re-runnable: `python3 -I scripts/analyze.py raw metrics.json`).
+**Collected** 2026-10-15T15:43:39Z → 2026-10-15T16:07:22Z (UTC) = 2026-10-16 00:43–01:07 KST. Read-only: GitHub/npm/store APIs and public pages, plus `git` read commands on the local checkout (`HEAD: 0bd68d80 2026-10-16T00:40:02+09:00`; no fetch, no daemon, no hardware). Every capture below carries its verbatim command, UTC timestamp and exit code in a collapsible block. Derived numbers were computed by `scripts/analyze.py` + `scripts/assemble.py` from the original `raw/` captures.
+
+**Archive limitation.** The full `raw/` inputs were not committed. The preserved Python scripts read those inputs; they do not recollect API responses. Re-running the analysis requires a separately retained copy of the original inputs. `scripts/lib.sh` is also a historical copy, with `RAW` fixed to the original session's scratch directory. References below to files kept in `raw/` describe that collection workspace, not this checkout; this archive alone cannot reproduce the complete collection and analysis.
 
 ## 1. One-screen summary
 
