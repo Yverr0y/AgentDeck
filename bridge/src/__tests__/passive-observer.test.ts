@@ -23,6 +23,7 @@ import {
   parseClaudeTranscript,
   parseCodexRollout,
   parseLsofRollouts,
+  parseLsofRolloutProbe,
   parseProcessTable,
   selectClaudeConversationFiles,
   type ClaudeSessionFile,
@@ -948,6 +949,71 @@ describe('passive-observer scan resilience', () => {
     observer.collect([]); await settle();
     expect(observer.collect([])).toEqual([]);
     expect(observer.processes().find(row => row.pid === 42)?.command).toBe('/bin/zsh');
+  });
+
+  it('does not replace established Desktop identities after an unreadable rollout probe', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-probe-'));
+    const path = join(dir, 'rollout-app.jsonl');
+    writeFileSync(path, jsonl([{ type: 'session_meta', payload: {
+      id: 'app-kept', cwd: '/repo', source: 'vscode', originator: 'Codex Desktop',
+    } }]));
+    const host = { pid: 42, ppid: 1, rssKb: 100, command: '/Applications/ChatGPT.app/Contents/Resources/codex app-server' };
+    let mode: 'known' | 'unknown' | 'closed' = 'known';
+    const observer = new PassiveSessionObserver(async () => [...table, host],
+      async () => ({ processes: [], exited: 0, unknown: 0 }), async () => {
+        if (mode === 'unknown') throw new Error('lsof deadline');
+        return mode === 'known' ? new Map([[42, [path]]]) : new Map();
+      });
+    try {
+      vi.useFakeTimers({ now: Date.now() });
+      const first = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await first; await settle();
+      const seeded = observer.collect([]);
+      expect(seeded).toHaveLength(1);
+      expect(seeded[0]).toMatchObject({ id: 'observed:codex-app:app-kept', pid: 42 });
+      const stamp = observer.diagnostics().codexRolloutCapturedAt;
+      mode = 'unknown'; vi.advanceTimersByTime(6_000);
+      observer.collect([]); await settle();
+      expect(observer.collect([])).toEqual(seeded);
+      expect(observer.diagnostics().codexRolloutCapturedAt).toBe(stamp);
+      expect(observer.processSnapshot().capturedAt).toBeGreaterThan(stamp);
+      expect(observer.diagnostics().codexRolloutReadFailures).toBe(1);
+      mode = 'closed'; vi.advanceTimersByTime(6_000);
+      const closed = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await closed; await settle();
+      expect(observer.collect([])).toEqual([]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('still removes a confirmed exited owner while another Codex probe is unavailable', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-probe-exit-'));
+    const paths = ['a', 'b'].map(id => {
+      const path = join(dir, `rollout-${id}.jsonl`);
+      writeFileSync(path, jsonl([{ type: 'session_meta', payload: { id, cwd: '/repo', originator: 'Codex Desktop' } }]));
+      return path;
+    });
+    const hosts = [42, 43].map(pid => ({ pid, ppid: 1, rssKb: 100, command: '/Applications/ChatGPT.app/Contents/Resources/codex app-server' }));
+    let exit = false;
+    const observer = new PassiveSessionObserver(async () => [...table, ...(exit ? [hosts[1]] : hosts)],
+      async pids => ({ processes: [], exited: pids.length, unknown: 0 }), async () => {
+        if (exit) throw new Error('lsof unavailable');
+        return new Map([[42, [paths[0]]], [43, [paths[1]]]]);
+      });
+    try {
+      vi.useFakeTimers({ now: Date.now() });
+      const first = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await first; await settle();
+      expect(observer.collect([])).toHaveLength(2);
+      exit = true; vi.advanceTimersByTime(6_000);
+      const next = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await next; await settle();
+      expect(observer.collect([]).map(row => row.id)).toEqual(['observed:codex-app:b']);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('treats a partial nonempty lsof frame as unknown, but accepts a known process with no rollout', () => {
+    expect(() => parseLsofRolloutProbe('p42\nn/tmp/rollout-a.jsonl\n', [42, 99])).toThrow('Incomplete');
+    expect(parseLsofRolloutProbe('p42\nn/bin/codex\n', [42])).toEqual(new Map());
   });
 
   it('retains the process table when a scan comes back empty', async () => {

@@ -317,11 +317,14 @@ export class PassiveSessionObserver {
   private lastProcesses: ProcInfo[] = [];
   private processSnapshotAt = 0;
   private claudeIdentityReads = { candidates: 0, unreadable: 0, retained: 0 };
+  private codexRolloutReadFailures = 0;
+  private codexRolloutCapturedAt = 0;
+  private codexObserved: ObservedSession[] = [];
   private processContinuity = { capturedAt: 0, scannedProcessCount: 0, missing: 0, recovered: 0, exited: 0, unknown: 0 };
   private continuityTotals = { recoveredScans: 0, recoveredPids: 0, inconclusiveScans: 0 };
   diagnostics() {
     return { capturedAt: this.processSnapshotAt, processCount: this.lastProcesses.length,
-      rosterCount: this.cached.length, claudeIdentityReads: { ...this.claudeIdentityReads },
+      rosterCount: this.cached.length, codexRolloutReadFailures: this.codexRolloutReadFailures, codexRolloutCapturedAt: this.codexRolloutCapturedAt, claudeIdentityReads: { ...this.claudeIdentityReads },
       processContinuity: { ...this.processContinuity, ...this.continuityTotals } };
   }
   processSnapshot(): { processes: ProcInfo[]; capturedAt: number } {
@@ -341,6 +344,7 @@ export class PassiveSessionObserver {
   constructor(
     private readonly collectProcesses: () => Promise<ProcInfo[]> = collectProcessInfo,
     private readonly confirmMissing: (pids: number[]) => Promise<ProcessContinuity> = confirmMissingProcesses,
+    private readonly readCodexRollouts: (pids: number[]) => Promise<Map<number, string[]>> = mapCodexPidsToRollouts,
   ) {}
 
   /**
@@ -407,9 +411,26 @@ export class PassiveSessionObserver {
     this.processSnapshotAt = Date.now();
     const claude = collectClaudeSessions(processes, this.cached);
     this.claudeIdentityReads = claude.identityReads;
+    let codex: ObservedSession[];
+    try {
+      codex = await collectCodexSessions(processes, this.codexRolloutCache, this.readCodexRollouts);
+      this.codexObserved = codex.map(row => ({ ...row }));
+      this.codexRolloutCapturedAt = Date.now();
+    } catch {
+      this.codexRolloutReadFailures += 1;
+      // Preserve only established identities with a positively observed owner
+      // of the same harness. Other agents and confirmed exits still advance.
+      const byPid = new Map(processes.map(row => [row.pid, row]));
+      this.codexObserved = this.codexObserved.filter(row => {
+        const owner = byPid.get(row.pid);
+        return owner && isCodexSessionProcessCommand(owner.command)
+          && owner.command.includes('app-server') === (row.agentType === 'codex-app');
+      });
+      codex = this.codexObserved.map(row => ({ ...row }));
+    }
     const observed = [
       ...claude.sessions,
-      ...(await collectCodexSessions(processes, this.codexRolloutCache)),
+      ...codex,
       ...(await collectOpenCodeSessions(processes)),
       ...(await collectAntigravitySessions(processes)),
       ...(await collectKiroSessions(processes, this.kiroSessionCache)),
@@ -963,9 +984,11 @@ function collectClaudeSessions(processes: ProcInfo[], previous: ObservedSession[
 async function collectCodexSessions(
   processes: ProcInfo[],
   rolloutCache: CodexRolloutCache,
+  readRollouts: (pids: number[]) => Promise<Map<number, string[]>>,
 ): Promise<ObservedSession[]> {
   const codex = processes.filter((p) => isCodexSessionProcessCommand(p.command));
-  const rolloutsByPid = await mapCodexPidsToRollouts(codex.map((p) => p.pid));
+  if (codex.length === 0) return [];
+  const rolloutsByPid = await readRollouts(codex.map((p) => p.pid));
   return collectCodexSessionsFromRollouts(processes, rolloutsByPid, rolloutCache);
 }
 
@@ -1491,12 +1514,18 @@ async function mapCodexPidsToRollouts(pids: number[]): Promise<Map<number, strin
       try {
         const paths = new Set<string>();
         for (const fd of await readdirAsync(`/proc/${pid}/fd`)) {
-          const path = await readlinkAsync(`/proc/${pid}/fd/${fd}`);
-          if (isCodexRolloutPath(path)) paths.add(path);
+          try {
+            const path = await readlinkAsync(`/proc/${pid}/fd/${fd}`);
+            if (isCodexRolloutPath(path)) paths.add(path);
+          } catch (error) {
+            // A descriptor closed after readdir is normal; unreadable process
+            // metadata is still unknown, not an empty identity set.
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
         }
         if (paths.size > 0) map.set(pid, [...paths]);
       } catch {
-        // /proc permission/race failures are normal.
+        throw new Error('Codex rollout observation unavailable');
       }
     }
     return map;
@@ -1509,10 +1538,18 @@ async function mapCodexPidsToRollouts(pids: number[]): Promise<Map<number, strin
       timeout: 2_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    return parseLsofRollouts(stdout);
+    return parseLsofRolloutProbe(stdout, pids);
   } catch {
-    return new Map();
+    // A timeout/partial lsof result cannot prove that Desktop conversations
+    // closed. Let the scan retain its established roster and freshness stamp.
+    throw new Error('Codex rollout observation unavailable');
   }
+}
+
+export function parseLsofRolloutProbe(output: string, expectedPids: number[]): Map<number, string[]> {
+  const present = new Set(output.split('\n').filter(line => /^p[0-9]+$/.test(line)).map(line => Number(line.slice(1))));
+  if (expectedPids.some(pid => !present.has(pid))) throw new Error('Incomplete Codex rollout observation');
+  return parseLsofRollouts(output);
 }
 
 export function parseLsofRollouts(output: string): Map<number, string[]> {
