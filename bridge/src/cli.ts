@@ -22,6 +22,8 @@ import {
   runWindowsTask,
   endWindowsTask,
   deleteWindowsTask,
+  getDaemonNodeTarget,
+  xmlEscape,
 } from './windows-service.js';
 import {
   deriveRemoteAttachOpts,
@@ -296,10 +298,16 @@ export function daemonPostureArgs(opts: { local?: boolean; loopback?: boolean; e
   return args;
 }
 
-export function buildPlist(extraArgs: string[] = []): string {
-  const bin = getAgentdeckBin();
-  const logDir = join(homedir(), '.agentdeck');
-  const extra = extraArgs.map((a) => `\n    <string>${a}</string>`).join('');
+export function buildPlist(extraArgs: string[] = [], opts: {
+  node?: string; cliJs?: string; home?: string; pathEnv?: string;
+} = {}): string {
+  // Match the runtime and package running this install. A compiled checkout's
+  // cli.js need not be executable, and a PATH shim can target a different copy.
+  const target = getDaemonNodeTarget();
+  const args = [opts.node ?? target.node, opts.cliJs ?? target.cliJs,
+    'daemon', 'start', '--foreground', ...extraArgs];
+  const logDir = join(opts.home ?? homedir(), '.agentdeck');
+  const argv = args.map((arg) => `    <string>${xmlEscape(arg)}</string>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -308,10 +316,7 @@ export function buildPlist(extraArgs: string[] = []): string {
   <string>${PLIST_LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${bin}</string>
-    <string>daemon</string>
-    <string>start</string>
-    <string>--foreground</string>${extra}
+${argv}
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -321,13 +326,13 @@ export function buildPlist(extraArgs: string[] = []): string {
     <false/>
   </dict>
   <key>StandardOutPath</key>
-  <string>${logDir}/daemon-stdout.log</string>
+  <string>${xmlEscape(join(logDir, 'daemon-stdout.log'))}</string>
   <key>StandardErrorPath</key>
-  <string>${logDir}/daemon-stderr.log</string>
+  <string>${xmlEscape(join(logDir, 'daemon-stderr.log'))}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>${process.env.PATH}</string>
+    <string>${xmlEscape(opts.pathEnv ?? process.env.PATH ?? '')}</string>
   </dict>
 </dict>
 </plist>`;
