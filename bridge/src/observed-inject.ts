@@ -167,12 +167,12 @@ export interface CmuxSurface {
 const CMUX_SURFACE_ID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/;
 
 /**
- * Read the cmux surface out of `ps -E -o command=` output, which prints the
- * process's argv and then its environment, space-separated.
+ * Read only the environment suffix of `ps -E -ww -o command=`. Apple's ps
+ * appends it after the same argv rendered without -E (adv_cmds/ps/print.c,
+ * getproclline). Require that complete argv prefix before looking for keys:
+ * a prompt argument alone must never identify a cmux surface.
  *
- * The LAST occurrence wins: the environment comes after argv, so a prompt
- * argument that happens to contain `CMUX_SURFACE_ID=` cannot redirect typing
- * to another surface. `CMUX_WORKSPACE_ID` is deliberately ignored — it records
+ * `CMUX_WORKSPACE_ID` is deliberately ignored — it records
  * the workspace the surface was in at launch, a surface can be moved since,
  * and cmux resolves a surface UUID on its own (measured on 0.65.1).
  *
@@ -182,10 +182,17 @@ const CMUX_SURFACE_ID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-
  */
 export function parseCmuxEnv(
   psOutput: string,
+  commandOutput: string,
   pathExists: (path: string) => boolean = existsSync,
 ): CmuxSurface | undefined {
+  // Remove only ps's record terminator; trimming argv whitespace would move
+  // the boundary into an argument. No suffix or mismatched snapshots is unknown.
+  const command = commandOutput.replace(/\n$/, '');
+  const combined = psOutput.replace(/\n$/, '');
+  if (!command || command.includes('\n') || !combined.startsWith(`${command} `)) return undefined;
+  const environment = combined.slice(command.length + 1);
   const last = (name: string) =>
-    [...psOutput.matchAll(new RegExp(`(?:^|\\s)${name}=(\\S+)`, 'g'))].at(-1)?.[1];
+    [...environment.matchAll(new RegExp(`(?:^|\\s)${name}=(\\S+)`, 'g'))].at(-1)?.[1];
   const surfaceId = last('CMUX_SURFACE_ID');
   if (!surfaceId || !CMUX_SURFACE_ID_RE.test(surfaceId)) return undefined;
   const socket = last('CMUX_SOCKET_PATH');
@@ -198,11 +205,15 @@ export function parseCmuxEnv(
 async function readCmuxSurface(pid: number): Promise<CmuxSurface | undefined> {
   if (process.platform !== 'darwin' || !Number.isInteger(pid) || pid <= 1) return undefined;
   try {
-    const { stdout } = await execFileAsync(
-      'ps', ['-E', '-ww', '-o', 'command=', '-p', String(pid)],
-      { encoding: 'utf8', timeout: 2_000 },
-    );
-    return parseCmuxEnv(stdout);
+    const args = ['-ww', '-o', 'command=', '-p', String(pid)];
+    const options = { encoding: 'utf8' as const, timeout: 2_000 };
+    const before = await execFileAsync('ps', args, options);
+    const combined = await execFileAsync('ps', ['-E', ...args], options);
+    const after = await execFileAsync('ps', args, options);
+    // A process may rewrite argv or exit between probes. Never use a shorter,
+    // outdated argv prefix to reinterpret its newer arguments as environment.
+    if (before.stdout !== after.stdout) return undefined;
+    return parseCmuxEnv(combined.stdout, before.stdout);
   } catch {
     return undefined;
   }

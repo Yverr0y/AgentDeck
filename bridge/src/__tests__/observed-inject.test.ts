@@ -187,37 +187,51 @@ const SURFACE = '31608312-0A92-4470-A64B-3B000CFC395D';
 const OTHER_SURFACE = '9F9FA550-5886-45CE-AAF8-5F76DC833627';
 
 describe('parseCmuxEnv', () => {
-  const ps = (env: string) => `/opt/homebrew/bin/claude --model opus ${env}\n`;
+  const command = '/opt/homebrew/bin/claude --model opus';
+  const ps = (env: string) => `${command} ${env}\n`;
   const exists = () => true;
 
   it('reads the surface id and socket path from the environment', () => {
     const out = ps(`HOME=/Users/me CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=/Users/me/.local/state/cmux/cmux.sock`);
-    expect(parseCmuxEnv(out, exists)).toEqual({
+    expect(parseCmuxEnv(out, `${command}\n`, exists)).toEqual({
       surfaceId: SURFACE,
       socketPath: '/Users/me/.local/state/cmux/cmux.sock',
     });
   });
 
   it('is undefined for a process that does not run under cmux', () => {
-    expect(parseCmuxEnv(ps('HOME=/Users/me TERM=xterm-256color'), exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps('HOME=/Users/me TERM=xterm-256color'), command, exists)).toBeUndefined();
   });
 
-  // The environment follows argv in `ps -E` output, so an argument that
-  // mentions the variable must not decide where keystrokes go.
-  it('takes the last occurrence, which is the environment rather than argv', () => {
-    const out = `/opt/homebrew/bin/claude CMUX_SURFACE_ID=${OTHER_SURFACE} CMUX_SURFACE_ID=${SURFACE}\n`;
-    expect(parseCmuxEnv(out, exists)?.surfaceId).toBe(SURFACE);
+  it('removes all argv before reading the real environment', () => {
+    const argv = `${command} CMUX_SURFACE_ID=${OTHER_SURFACE} CMUX_SOCKET_PATH=/wrong.sock`;
+    const out = `${argv} CMUX_SURFACE_ID=${SURFACE}\n`;
+    expect(parseCmuxEnv(out, argv, exists)).toEqual({ surfaceId: SURFACE, socketPath: undefined });
+  });
+
+  it('does not treat a surface mentioned only in argv as a cmux host', () => {
+    const argv = `${command} --prompt explain CMUX_SURFACE_ID=${OTHER_SURFACE}`;
+    expect(parseCmuxEnv(`${argv} HOME=/Users/me\n`, `${argv}\n`, exists)).toBeUndefined();
+    expect(parseCmuxEnv(`${argv}\n`, `${argv}\n`, exists)).toBeUndefined();
+  });
+
+  it('requires a readable complete argv prefix without trimming argument whitespace', () => {
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE}`), '', exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE}`), `${command} changed`, exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE}`), `${command}\nsecond row`, exists)).toBeUndefined();
+    const argv = `${command} CMUX_SURFACE_ID=${OTHER_SURFACE}  `;
+    expect(parseCmuxEnv(`${argv} HOME=/Users/me\n`, `${argv}\n`, exists)).toBeUndefined();
   });
 
   it('rejects a surface id that is not a UUID, so it can never read as a flag', () => {
-    expect(parseCmuxEnv(ps('CMUX_SURFACE_ID=--force'), exists)).toBeUndefined();
-    expect(parseCmuxEnv(ps('CMUX_SURFACE_ID=surface:2'), exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps('CMUX_SURFACE_ID=--force'), command, exists)).toBeUndefined();
+    expect(parseCmuxEnv(ps('CMUX_SURFACE_ID=surface:2'), command, exists)).toBeUndefined();
   });
 
   it('drops a socket path that is relative or missing, leaving discovery to the CLI', () => {
-    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=cmux.sock`), exists)?.socketPath)
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=cmux.sock`), command, exists)?.socketPath)
       .toBeUndefined();
-    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=/gone/cmux.sock`), () => false)?.socketPath)
+    expect(parseCmuxEnv(ps(`CMUX_SURFACE_ID=${SURFACE} CMUX_SOCKET_PATH=/gone/cmux.sock`), command, () => false)?.socketPath)
       .toBeUndefined();
   });
 });
@@ -241,6 +255,8 @@ describe('cmux rung', () => {
   const realPlatform = process.platform;
   const PID = 4242;
   let cmuxReply: (args: string[]) => ExecReply;
+  let command: string;
+  let environment: string;
 
   const cmuxArgs = () => execCalls.filter((c) => c.file === 'cmux').map((c) => c.args);
 
@@ -250,12 +266,13 @@ describe('cmux rung', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin' });
     execCalls.length = 0;
     cmuxReply = () => ({ stdout: 'OK' });
+    command = '/opt/homebrew/bin/claude';
+    environment = `HOME=/Users/me CMUX_SURFACE_ID=${SURFACE}`;
     execRoute = (file, args) => {
       if (file === 'tmux') return { code: 'ENOENT' };
       if (file === 'ps') {
-        return args.includes(String(PID))
-          ? { stdout: `/opt/homebrew/bin/claude HOME=/Users/me CMUX_SURFACE_ID=${SURFACE}\n` }
-          : { stdout: '/opt/homebrew/bin/claude HOME=/Users/me\n' };
+        const env = args.includes(String(PID)) ? environment : 'HOME=/Users/me';
+        return { stdout: `${command}${args.includes('-E') ? ` ${env}` : ''}\n` };
       }
       if (file === 'cmux') return cmuxReply(args);
       return { stdout: 'notfound' };
@@ -327,6 +344,28 @@ describe('cmux rung', () => {
     expect(r.ok).toBe(false);
     expect(cmuxArgs()).toEqual([]);
     expect(execCalls.some((c) => c.file === 'osascript')).toBe(true);
+  });
+
+  it.each(['text', 'selection'] as const)('ignores argv-only CMUX_SURFACE_ID in the %s ladder', async (kind) => {
+    command += ` --prompt explain CMUX_SURFACE_ID=${OTHER_SURFACE}`;
+    environment = 'HOME=/Users/me';
+    if (kind === 'text') await injectObservedText({ tty: 'ttys003', pid: PID }, 'hello');
+    else await injectObservedSelection({ tty: 'ttys003', pid: PID }, 0);
+    expect(cmuxArgs()).toEqual([]);
+    expect(execCalls.some(c => c.file === 'osascript')).toBe(true);
+  });
+
+  it.each(['changed', 'unreadable'] as const)('does not select cmux when argv is %s after the environment probe', async (failure) => {
+    const route = execRoute;
+    let plainReads = 0;
+    execRoute = (file, args) => {
+      if (file === 'ps' && !args.includes('-E') && ++plainReads === 2) {
+        return failure === 'unreadable' ? { code: 1 } : { stdout: `${command} changed\n` };
+      }
+      return route(file, args);
+    };
+    await injectObservedText({ tty: 'ttys003', pid: PID }, 'hello');
+    expect(cmuxArgs()).toEqual([]);
   });
 
   it('does not look for cmux when the agent pid is unknown', async () => {
