@@ -376,13 +376,20 @@ export function parseReferenceVerdict(text: string | null): ReturnType<typeof pa
  *  often the reference confirms that band (precision) and nothing wider. */
 export function pickReferenceCandidates(
   rows: readonly ApmeLocalVerdictRow[],
-  opts: { limit: number; skip: ReadonlySet<string>; seed: string; category?: string; localBand?: OutcomeBucket },
+  opts: {
+    limit: number; skip: ReadonlySet<string>; seed: string; category?: string; localBand?: OutcomeBucket;
+    /** Allow-list of project names (case-insensitive): only these projects'
+     *  task text may leave the machine. */
+    projects?: readonly string[];
+  },
 ): ApmeLocalVerdictRow[] {
   const rank = (id: string) => createHash('sha256').update(`${opts.seed}:${id}`).digest('hex');
+  const projects = opts.projects?.length ? new Set(opts.projects.map((p) => p.toLowerCase())) : null;
   return rows
     .filter((r) => !opts.skip.has(r.taskId)
       && (!opts.category || r.category === opts.category)
-      && (!opts.localBand || outcomeBucket(r.localOverall) === opts.localBand))
+      && (!opts.localBand || outcomeBucket(r.localOverall) === opts.localBand)
+      && (!projects || (r.project != null && projects.has(r.project.toLowerCase()))))
     .map((r) => ({ r, key: rank(r.taskId) }))
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     .slice(0, Math.max(0, opts.limit))
@@ -586,10 +593,12 @@ function groupStats(pairs: ReadonlyArray<AgreementPair & { key: string }>): Refe
 }
 
 /** The sampling-design label stored with each verdict. */
-export function referenceSampleLabel(filters: { category?: string; localBand?: string }): string {
+export function referenceSampleLabel(filters: { category?: string; localBand?: string; projects?: readonly string[] }): string {
+  const projects = [...new Set((filters.projects ?? []).map((p) => p.toLowerCase()))].sort();
   const parts = [
     ...(filters.category ? [`category=${filters.category}`] : []),
     ...(filters.localBand ? [`local_band=${filters.localBand}`] : []),
+    ...(projects.length ? [`project=${projects.join('|')}`] : []),
   ];
   return parts.length ? parts.join(',') : 'uniform';
 }

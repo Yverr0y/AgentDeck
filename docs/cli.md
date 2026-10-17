@@ -344,7 +344,7 @@ no subprocesses.
 | `agentdeck apme stop-health` | Stop-hook delivery rate — how turns actually closed (`--since 7d`, `--agent`) |
 | `agentdeck apme judge-health` | Judge coverage — whether closed work actually got a verdict (`--since 14d`, `--json`) |
 | `agentdeck apme prune` | Reclaim `apme.sqlite` disk space by clearing old tool payloads (`--older-than 30`, `--apply`, `--vacuum`) |
-| `agentdeck apme reference-judge` | Re-score tasks the local judge already scored with a stronger model through your Codex CLI login (dry run by default; `--run`, `--limit 10`, `--since 30d`, `--model`, `--effort high`, `--category`, `--local-band`) |
+| `agentdeck apme reference-judge` | Re-score tasks the local judge already scored with a stronger model through your Codex CLI login (dry run by default; `--run`, `--limit 10`, `--since 30d`, `--model`, `--effort high`, `--category`, `--local-band`, `--project`) |
 | `agentdeck apme agreement` | How closely the local judge agrees with the reference judge: MAE, bias, outcome bands, largest disagreements per judge and sampling design (`--judge`, `--sample`, `--since`, `--top`, `--json`) |
 | `agentdeck apme vibe <runId> <verdict>` | Label a run (`approve`/`reject`/`neutral`) |
 | `agentdeck apme tag <runId> <category>` | Manually set task category |
@@ -387,7 +387,9 @@ verdict whose run shows a tool call is discarded. The
 sample is uniform over the locally judged tasks in `--since`, in a stable
 hash order, so the dry run shows what `--run` sends and a rerun continues with
 new tasks; `--local-band fail` instead asks how many of the local judge's
-failures the reference confirms. The model defaults to the `model` in
+failures the reference confirms. `--project AgentDeck,other` is an allow-list:
+only those projects' tasks are picked, so a client project's text never leaves
+the machine. The dry run lists each task's project. The model defaults to the `model` in
 `~/.codex/config.toml`, effort to `high`. `apme agreement` reports every
 reference verdict so far per judge (model@effort). CLI only, Node daemon
 install: the App Store app spawns no subprocess, and no daemon path calls it.

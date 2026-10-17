@@ -744,6 +744,8 @@ export interface ApmeLocalVerdictRow {
   taskId: string;
   runId: string;
   agentType: string | null;
+  /** The run's `project_name`, as the Work board shows it. */
+  project: string | null;
   category: string | null;
   endedAt: number;
   summary: string | null;
@@ -1838,7 +1840,7 @@ export class ApmeStore {
   listLocallyJudgedTasks(opts: { sinceMs: number; limit: number }): ApmeLocalVerdictRow[] {
     if (!this.db) return [];
     const rows = this.db.prepare(
-      `SELECT t.id AS task_id, t.run_id, r.agent_type,
+      `SELECT t.id AS task_id, t.run_id, r.agent_type, r.project_name,
               COALESCE(NULLIF(t.task_category, 'unknown'), NULLIF(r.task_category, 'unknown')) AS category,
               t.ended_at, t.summary,
               e.score AS local_overall, e.judge_model, e.rubric_ver, e.created_at AS judged_at
@@ -1857,6 +1859,7 @@ export class ApmeStore {
       taskId: r.task_id as string,
       runId: r.run_id as string,
       agentType: (r.agent_type as string | null) ?? null,
+      project: (r.project_name as string | null) ?? null,
       category: (r.category as string | null) ?? null,
       endedAt: r.ended_at as number,
       summary: (r.summary as string | null) ?? null,

@@ -242,6 +242,9 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'apme-fake-codex-')); });
   afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
 
+  // Each stand-in is a cold node start. Under swap pressure one took over the
+  // 10 s default (2026-10-18), so these tests allow 30 s: runCodexJudge's own
+  // 20 s bound is the one that should fire, and it says what went wrong.
   function fakeCodex(body: string): string {
     const path = join(dir, 'codex');
     writeFileSync(path, `#!/usr/bin/env node\n${body}\n`);
@@ -277,7 +280,7 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
     expect(seen.args).toContain('--ignore-user-config');
     // The scratch directory is removed after the call.
     expect(readdirSync(tmpdir()).some((e) => e.startsWith('agentdeck-refjudge-') && seen.args.join(' ').includes(e))).toBe(false);
-  });
+  }, 30_000);
 
   it('kills a call that outlives its timeout and says so', async () => {
     const binary = fakeCodex(`process.stdin.resume(); setInterval(() => {}, 1000);`);
@@ -291,7 +294,7 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
     const result = await runCodexJudge('p', { model: 'nope', effort: 'low', schema: null, binary, timeoutMs: 20_000 });
     expect(result.text).toBeNull();
     expect(result.error).toBe("codex exited 2: error: unexpected argument '--disable' found");
-  });
+  }, 30_000);
 
   it('withholds a verdict the model reached through a tool', async () => {
     const binary = fakeCodex(`
@@ -301,7 +304,7 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
     const result = await runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary, timeoutMs: 20_000 });
     expect(result.text).toBeNull();
     expect(result.error).toBe('the reference called a tool (command_execution)');
-  });
+  }, 30_000);
 });
 
 describe('dry-run cost estimate', () => {
@@ -353,8 +356,8 @@ describe('redaction before egress', () => {
 });
 
 describe('sampling', () => {
-  const row = (taskId: string, category: string | null = 'coding'): ApmeLocalVerdictRow => ({
-    taskId, runId: `r-${taskId}`, agentType: 'claude-code', category, endedAt: 1, summary: null,
+  const row = (taskId: string, category: string | null = 'coding', project: string | null = 'AgentDeck'): ApmeLocalVerdictRow => ({
+    taskId, runId: `r-${taskId}`, agentType: 'claude-code', project, category, endedAt: 1, summary: null,
     localOverall: 1, localJudge: 'mlx:x', localRubricVer: 1, localJudgedAt: 1,
   });
 
@@ -379,6 +382,16 @@ describe('sampling', () => {
     const pool = [row('a', 'ops'), row('b', 'coding'), row('c', 'ops')];
     expect(pickReferenceCandidates(pool, { limit: 5, skip: new Set(), seed: 's', category: 'ops' }).map((r) => r.taskId).sort())
       .toEqual(['a', 'c']);
+  });
+
+  it('sends only allow-listed projects, matched case-insensitively; a task with no project never passes the list', () => {
+    const pool = [row('a', 'ops', 'AgentDeck'), row('b', 'ops', 'ClientWork'), row('c', 'ops', 'agentdeck'), row('d', 'ops', null)];
+    const pick = (projects?: string[]) =>
+      pickReferenceCandidates(pool, { limit: 10, skip: new Set(), seed: 's', projects }).map((r) => r.taskId).sort();
+    expect(pick(['agentdeck'])).toEqual(['a', 'c']);
+    expect(pick(['AgentDeck', 'ClientWork'])).toEqual(['a', 'b', 'c']);
+    expect(pick([])).toEqual(['a', 'b', 'c', 'd']);
+    expect(pick()).toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('filters by the local outcome band, at the task outcome thresholds', () => {
@@ -471,7 +484,7 @@ describe('reference verdicts in the store', () => {
 
   it('offers closed tasks with their latest local overall verdict, newest first', () => {
     const now = Date.now();
-    store.insertRun({ id: 'r', sessionId: 's', agentType: 'codex-cli', startedAt: now - 100_000 });
+    store.insertRun({ id: 'r', sessionId: 's', agentType: 'codex-cli', projectName: 'AgentDeck', startedAt: now - 100_000 });
     seedTask('judged-twice', now - 1000, [{ score: 0.2, createdAt: now - 900 }, { score: 1, createdAt: now - 800, judge: 'mlx:new' }]);
     seedTask('older', now - 5000, [{ score: 0, createdAt: now - 4000 }]);
     seedTask('unjudged', now - 2000, []);
@@ -479,7 +492,9 @@ describe('reference verdicts in the store', () => {
 
     const rows = store.listLocallyJudgedTasks({ sinceMs: now - 30 * 86_400_000, limit: 10 });
     expect(rows.map((r) => r.taskId)).toEqual(['judged-twice', 'older']);
-    expect(rows[0]).toMatchObject({ localOverall: 1, localJudge: 'mlx:new', localRubricVer: 7, agentType: 'codex-cli', category: 'coding' });
+    expect(rows[0]).toMatchObject({
+      localOverall: 1, localJudge: 'mlx:new', localRubricVer: 7, agentType: 'codex-cli', project: 'AgentDeck', category: 'coding',
+    });
   });
 
   it('stores attempts apart from evals; only successful verdicts count as scored', () => {
@@ -540,5 +555,8 @@ describe('reference verdicts in the store', () => {
     expect(referenceSampleLabel({})).toBe('uniform');
     expect(referenceSampleLabel({ localBand: 'fail' })).toBe('local_band=fail');
     expect(referenceSampleLabel({ category: 'ops', localBand: 'fail' })).toBe('category=ops,local_band=fail');
+    // One design however the list is spelled or ordered.
+    expect(referenceSampleLabel({ projects: ['Remin', 'AgentDeck', 'agentdeck'] })).toBe('project=agentdeck|remin');
+    expect(referenceSampleLabel({ projects: [] })).toBe('uniform');
   });
 });

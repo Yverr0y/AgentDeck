@@ -4844,6 +4844,7 @@ apme
   .option('--effort <effort>', 'Reasoning effort: low / medium / high / xhigh / max (default: high)')
   .option('--category <category>', 'Only tasks of this category')
   .option('--local-band <band>', 'Only tasks the local judge put in this band: success / partial / fail')
+  .option('--project <names>', 'Only tasks from these projects, comma-separated, as the Work board names them: an allow-list of what may be sent')
   .option('--seed <seed>', 'Sampling seed: the same seed keeps the same order', 'agentdeck')
   .option('--timeout <sec>', 'Per-task timeout in seconds', '300')
   .action(async (opts) => {
@@ -4870,13 +4871,17 @@ apme
       log(`Invalid --local-band: ${opts.localBand} (success / partial / fail)`);
       process.exit(1);
     }
+    const projects: string[] = typeof opts.project === 'string'
+      ? opts.project.split(',').map((p: string) => p.trim()).filter(Boolean)
+      : [];
+    if (opts.project !== undefined && projects.length === 0) { log(`Invalid --project: ${opts.project}`); process.exit(1); }
     const judge = ref.referenceJudgeTag(model, effort);
-    const sample = ref.referenceSampleLabel({ category: opts.category, localBand: opts.localBand });
+    const sample = ref.referenceSampleLabel({ category: opts.category, localBand: opts.localBand, projects });
 
     const pool = apme.store.listLocallyJudgedTasks({ sinceMs: Date.now() - windowMs, limit: 20_000 });
     const already = apme.store.referenceVerdictTaskIds(judge, sample);
     const picks = ref.pickReferenceCandidates(pool, {
-      limit, skip: already, seed: String(opts.seed), category: opts.category, localBand: opts.localBand,
+      limit, skip: already, seed: String(opts.seed), category: opts.category, localBand: opts.localBand, projects,
     });
 
     log(`\n  Reference judge ${judge} · sample ${sample}`);
@@ -4885,12 +4890,12 @@ apme
 
     const inputs = picks.map((pick) => ({ pick, input: buildTaskJudgeInput(apme.store, { runId: pick.runId, taskId: pick.taskId }) }));
     if (!opts.run) {
-      log(`  ${'Task'.padEnd(9)} ${'Category'.padEnd(12)} ${'Agent'.padEnd(12)} ${'Local'.padEnd(6)} ${'Local judge'.padEnd(30)} Prompt`);
+      log(`  ${'Task'.padEnd(9)} ${'Project'.padEnd(16)} ${'Category'.padEnd(12)} ${'Agent'.padEnd(12)} ${'Local'.padEnd(6)} ${'Local judge'.padEnd(30)} Prompt`);
       let tokens = 0;
       for (const { pick, input } of inputs) {
         const size = input.kind === 'ready' ? `${input.prompt.length} chars` : `skipped (${input.kind})`;
         if (input.kind === 'ready') tokens += ref.estimateCodexInputTokens(input.prompt);
-        log(`  ${pick.taskId.slice(0, 8).padEnd(9)} ${(pick.category ?? 'unknown').padEnd(12)} ${(pick.agentType ?? '?').padEnd(12)} ${pick.localOverall.toFixed(2).padEnd(6)} ${shortJudgeLabel(pick.localJudge).padEnd(30)} ${size}`);
+        log(`  ${pick.taskId.slice(0, 8).padEnd(9)} ${(pick.project ?? '?').slice(0, 16).padEnd(16)} ${(pick.category ?? 'unknown').padEnd(12)} ${(pick.agentType ?? '?').padEnd(12)} ${pick.localOverall.toFixed(2).padEnd(6)} ${shortJudgeLabel(pick.localJudge).padEnd(30)} ${size}`);
       }
       log(`\n  Estimated input: ~${Math.round(tokens / 1000)}k tokens (the prompts, plus ~${Math.round(ref.CODEX_FIXED_INPUT_TOKENS / 1000)}k of Codex's own instructions per call).`);
       log('  --run sends each prompt above, credentials redacted, to the model behind your Codex login.');

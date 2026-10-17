@@ -893,7 +893,7 @@ effort 기본값은 `high` — 사용자 Codex 기본값이 `ultra` 여도 따�
 
 **저장.** `reference_evals` 테이블(위 Data schema). `evals` 가 아니므로 scorecard·outcome·Work 판 어떤 쿼리도 reference 판정을 제품의 판정으로 읽지 않는다. 실패한 호출도 행이다.
 
-**표본.** `--since`(기본 30일 — `apme prune` 기본 창과 같아서 tool payload 가 아직 지워지지 않은 task 다) 안의 로컬 판정 task 위에서 균등하게, 순서는 (seed, task id) 해시. dry run 이 보여준 목록이 `--run` 이 보내는 목록이고, 재실행은 같은 설계에서 이미 판정한 task 를 건너뛰고 다음으로 간다. 다른 설계에서 판정한 task 는 건너뛰지 않는다 — 건너뛰면 그 task 가 이 설계의 표본에서 빠진다. 균등 순서 20·21번째가 fail 밴드 표본의 task 였으니, 건너뛰었다면 균등 표본이 fail 을 덜 셌을 것이다. `--local-band`·`--category` 는 표본을 좁힌다. 각 행은 자기 설계(`sample`: `uniform`, `local_band=fail` …)를 기록하고 보고서는 (judge, 설계)별로 따로 낸다 — 좁힌 표본의 MAE 는 모집단 추정이 아니라 그 조각의 값이고, `local_band=fail` 의 밴드 일치율은 로컬 fail 의 정밀도다.
+**표본.** `--since`(기본 30일 — `apme prune` 기본 창과 같아서 tool payload 가 아직 지워지지 않은 task 다) 안의 로컬 판정 task 위에서 균등하게, 순서는 (seed, task id) 해시. dry run 이 보여준 목록이 `--run` 이 보내는 목록이고, 재실행은 같은 설계에서 이미 판정한 task 를 건너뛰고 다음으로 간다. 다른 설계에서 판정한 task 는 건너뛰지 않는다 — 건너뛰면 그 task 가 이 설계의 표본에서 빠진다. 균등 순서 20·21번째가 fail 밴드 표본의 task 였으니, 건너뛰었다면 균등 표본이 fail 을 덜 셌을 것이다. `--local-band`·`--category` 는 표본을 좁힌다. `--project` 는 허용 목록이다 — 적은 프로젝트(Work 판의 `project_name`, 대소문자 무시)의 task 만 뽑으므로 나머지 프로젝트의 텍스트는 머신 밖으로 나가지 않는다. dry run 표에 task 마다 프로젝트가 나온다. 각 행은 자기 설계(`sample`: `uniform`, `local_band=fail` …)를 기록하고 보고서는 (judge, 설계)별로 따로 낸다 — 좁힌 표본의 MAE 는 모집단 추정이 아니라 그 조각의 값이고, `local_band=fail` 의 밴드 일치율은 로컬 fail 의 정밀도다.
 
 **지표**(`apme agreement`): n, MAE(95% 부트스트랩 CI), bias = 평균(local − reference)(양수 = 로컬이 후함), Spearman(동점은 평균 순위), outcome 밴드 일치율과 Cohen's κ(`deriveTaskOutcome` 의 0.75/0.5 경계), confusion matrix, 정확히 0 또는 1 인 점수 비율, 로컬 judge 모델·카테고리별 분해, 가장 큰 불일치(양쪽 요약 + reference 의 missed). judge 태그(`codex:<model>@<effort>`)마다 따로 — 다른 모델·effort 는 다른 계기다.
 
