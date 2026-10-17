@@ -8,6 +8,10 @@
  * cross-format claim is the one a hand-built fixture would agree with forever.
  */
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   supervisorStopPlan,
   supervisorStartPlan,
@@ -39,6 +43,44 @@ const LAUNCHD: SupervisorFacts = {
 };
 const SYSTEMD: SupervisorFacts = { kind: 'systemd', label: 'agentdeck-daemon.service', unitPath: '/home/x/.config/systemd/user/agentdeck-daemon.service' };
 const SCHTASKS: SupervisorFacts = { kind: 'schtasks', label: 'AgentDeckDaemon' };
+
+describe.runIf(process.platform === 'darwin')('LaunchAgent executable contract', () => {
+  const readPlist = (plist: string) => JSON.parse(execFileSync('/usr/bin/plutil',
+    ['-convert', 'json', '-o', '-', '-'], { input: plist, encoding: 'utf8' })) as {
+      ProgramArguments: string[]; StandardOutPath: string; StandardErrorPath: string;
+      EnvironmentVariables: { PATH: string };
+    };
+
+  it('executes a non-executable checkout script through the selected Node runtime', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agentdeck-launchd-'));
+    try {
+      const checkout = join(dir, 'checkout & space');
+      mkdirSync(checkout);
+      const cliJs = join(checkout, 'cli.js');
+      writeFileSync(cliJs, 'process.stdout.write(JSON.stringify(process.argv.slice(2)));', { mode: 0o644 });
+      const args = ['daemon', 'start', '--foreground', '--local', '--loopback'];
+      const plist = readPlist(buildPlist(['--local', '--loopback'], { node: process.execPath, cliJs }));
+      // Assert the fixture target before execution: never start the real daemon.
+      expect(plist.ProgramArguments).toEqual([process.execPath, cliJs, ...args]);
+      expect(statSync(cliJs).mode & 0o111).toBe(0);
+      const output = execFileSync(plist.ProgramArguments[0], plist.ProgramArguments.slice(1),
+        { encoding: 'utf8', timeout: 5000 });
+      expect(JSON.parse(output)).toEqual(args);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('round-trips XML-sensitive executable, log and PATH values without shell quoting', () => {
+    const node = '/runtime & tools/<node>/bin/node';
+    const cliJs = '/checkout "quoted" & space/cli.js';
+    const home = '/Users/A & B';
+    const pathEnv = '/tools/<bin>:/other "bin" & scripts';
+    const plist = readPlist(buildPlist(['--loopback'], { node, cliJs, home, pathEnv }));
+    expect(plist.ProgramArguments).toEqual([node, cliJs, 'daemon', 'start', '--foreground', '--loopback']);
+    expect(plist.StandardOutPath).toBe(join(home, '.agentdeck', 'daemon-stdout.log'));
+    expect(plist.StandardErrorPath).toBe(join(home, '.agentdeck', 'daemon-stderr.log'));
+    expect(plist.EnvironmentVariables.PATH).toBe(pathEnv);
+  });
+});
 
 describe('stop plans — a stop that stays stopped', () => {
   it('launchd boots the job OUT; `launchctl stop` is not a stop here', () => {
