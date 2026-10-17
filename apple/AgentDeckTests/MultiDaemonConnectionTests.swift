@@ -2,11 +2,34 @@
 import XCTest
 import Network
 import CryptoKit
+import Combine
 @testable import AgentDeck
 
 /// Real loopback handshakes exercise URLSession's two refusal shapes, including
 /// the close code that disappeared when teardown ran before classification.
 final class MultiDaemonConnectionTests: XCTestCase {
+    func testFreshConnectDuringOldRetryRearmsAutomaticRetries() throws {
+        let ready = expectation(description: "busy listener ready")
+        let server = try RefusalServer(code: 503) { ready.fulfill() }
+        defer { server.stop() }
+        wait(for: [ready], timeout: 5)
+        let connection = BridgeConnection()
+        defer { connection.prepareForTermination() }
+        let retrying = expectation(description: "initial attempt entered retry")
+        let subscription = connection.$isReconnecting.first(where: { $0 }).sink { _ in retrying.fulfill() }
+        defer { subscription.cancel() }
+        let url = "ws://127.0.0.1:\(try XCTUnwrap(server.port))"
+        connection.connect(to: url)
+        wait(for: [retrying], timeout: 8)
+        let initialRequests = server.requests
+        connection.disconnect()
+        connection.connect(to: url)
+        let settled = expectation(description: "fresh attempt also retries its first failure")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { settled.fulfill() }
+        wait(for: [settled], timeout: 7)
+        XCTAssertGreaterThanOrEqual(server.requests, initialRequests + 2)
+    }
+
     func testHTTP401StopsAndExplicitRetryWorks() throws { try refusal(401) }
     func testWebSocket4001StopsAndExplicitRetryWorks() throws { try refusal(4001) }
 
@@ -195,8 +218,8 @@ private final class RefusalServer: @unchecked Sendable {
             }
             self.lock.withLock { self.count += 1 }
             let approved = self.lock.withLock { self.approved }
-            if code == 401 && !approved {
-                peer.send(content: Data("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8), completion: .contentProcessed { _ in peer.cancel() })
+            if code < 4000 && !approved {
+                peer.send(content: Data("HTTP/1.1 \(code) \(code == 401 ? "Unauthorized" : "Service Unavailable")\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8), completion: .contentProcessed { _ in peer.cancel() })
                 return
             }
             let key = text.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("sec-websocket-key:") }?
