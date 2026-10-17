@@ -24,7 +24,7 @@ import { callFoundationModelsHelper, probeFoundationModelsHelper } from '../foun
 import type { SessionSample, TrajectoryEvent } from '@agentdeck/shared';
 import { runSampleScorers } from './scorers/index.js';
 import type { ApmeRunRow, ParsedJudge } from './types.js';
-import { execSync } from 'child_process';
+import { execFileText } from './process.js';
 
 /** Judge attempts per task before the backlog drain stops offering it. */
 const TASK_EVAL_MAX_ATTEMPTS = 2;
@@ -123,16 +123,16 @@ interface DetStepResult {
   command: string;
 }
 
-const DEFAULT_COMMANDS: Record<Lang, { lint?: string; build?: string; test?: string | ((cwd: string) => string | null) }> = {
+const DEFAULT_COMMANDS: Record<Lang, { lint?: string; build?: string; test?: string | ((cwd: string) => string | null | Promise<string | null>) }> = {
   typescript: {
     lint: 'pnpm -w lint',
     build: 'pnpm -r build',
     test: 'pnpm -w test',
   },
   swift: {
-    test: (cwd: string) => {
+    test: async (cwd: string) => {
       // Auto-detect scheme from the project — don't hardcode "AgentDeck".
-      const scheme = detectSwiftScheme(cwd);
+      const scheme = await detectSwiftScheme(cwd);
       return scheme ? `xcodebuild test -scheme ${scheme} -quiet` : null;
     },
   },
@@ -722,7 +722,7 @@ export class ApmeRunner {
         ?? this.store.getCurrentRubric('general');
       if (rubric) {
         try {
-          const prompt = buildJudgePrompt(run, rubric.prompt, layer1Passed, this.store);
+          const prompt = await buildJudgePrompt(run, rubric.prompt, layer1Passed, this.store);
           // Same fallback-aware labelling rule as runTaskEval — see comment there.
           const judgeResult = this.judgeOverride
             ? { text: await this.judgeOverride(prompt, cfg.judge), effectiveLabel: effectiveJudgeModelTag(cfg.judge) }
@@ -770,11 +770,10 @@ export class ApmeRunner {
 // ─── Language detection ───────────────────────────────────────────────────────
 
 /** Auto-detect the first testable Xcode scheme from a project directory. */
-function detectSwiftScheme(cwd: string): string | null {
+async function detectSwiftScheme(cwd: string): Promise<string | null> {
   try {
-    const out = execSync('xcodebuild -list -json', {
-      cwd, encoding: 'utf-8', timeout: 10_000,
-      maxBuffer: 512 * 1024, stdio: ['ignore', 'pipe', 'ignore'],
+    const out = await execFileText('xcodebuild', ['-list', '-json'], {
+      cwd, timeout: 10_000, maxBuffer: 512 * 1024,
     });
     const json = JSON.parse(out) as { project?: { schemes?: string[] } };
     const schemes = json.project?.schemes;
@@ -817,14 +816,14 @@ export async function runDeterministic(run: ApmeRunRow, cfg: ApmeConfig): Promis
   // Only run deterministic checks when there are actual changes from this run.
   // If gitBefore == gitAfter and no uncommitted diff, the agent didn't produce
   // code — running tests gives stale baseline data, so skip.
-  if (!hasChanges(run)) {
+  if (!await hasChanges(run)) {
     debug('APME', `runDeterministic skipped runId=${run.id} — no git diff`);
     return [];
   }
 
   const override = cfg.deterministic.commands[lang] ?? {};
   const defaults = DEFAULT_COMMANDS[lang];
-  const rawSteps: Array<{ metric: DetStepResult['metric']; cmd: string | ((cwd: string) => string | null) | undefined }> = [
+  const rawSteps: Array<{ metric: DetStepResult['metric']; cmd: string | ((cwd: string) => string | null | Promise<string | null>) | undefined }> = [
     { metric: 'lint_clean', cmd: override.lint ?? defaults.lint },
     { metric: 'build_ok',   cmd: override.build ?? defaults.build },
     { metric: 'tests_pass', cmd: override.test  ?? defaults.test },
@@ -833,7 +832,7 @@ export async function runDeterministic(run: ApmeRunRow, cfg: ApmeConfig): Promis
   const results: DetStepResult[] = [];
   for (const s of rawSteps) {
     // Resolve command: may be a string or a function(cwd) → string|null.
-    const command = typeof s.cmd === 'function' ? s.cmd(cwd) : s.cmd;
+    const command = typeof s.cmd === 'function' ? await s.cmd(cwd) : s.cmd;
     if (!command) continue;
     const r = await runCommand(command, cwd, cfg.deterministic.timeoutSec * 1000);
     results.push({
@@ -848,14 +847,13 @@ export async function runDeterministic(run: ApmeRunRow, cfg: ApmeConfig): Promis
   return results;
 }
 
-function hasChanges(run: ApmeRunRow): boolean {
+async function hasChanges(run: ApmeRunRow): Promise<boolean> {
   if (!run.projectPath) return false;
   if (run.gitBefore && run.gitAfter && run.gitBefore !== run.gitAfter) return true;
   // Check uncommitted diff (dirty worktree).
   try {
-    const status = execSync('git status --porcelain', {
-      cwd: run.projectPath, encoding: 'utf-8', timeout: 3000,
-      stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    const status = await execFileText('git', ['status', '--porcelain'], {
+      cwd: run.projectPath, timeout: 3000,
     });
     return status.trim().length > 0;
   } catch {
@@ -961,10 +959,10 @@ export function buildTrajectoryLines(sample: SessionSample, cap = 30): string[] 
 
 const NON_CODE_CATEGORIES = new Set(['conversation', 'planning', 'research', 'review']);
 
-export function buildJudgePrompt(
+export async function buildJudgePrompt(
   run: ApmeRunRow, rubricPrompt: string, layer1Passed: boolean | null,
   store?: import('./store.js').ApmeStore,
-): string {
+): Promise<string> {
   const task = (run.taskPrompt ?? '').slice(0, 4_000);
   const det = layer1Passed === null ? 'unknown' : layer1Passed ? 'passed' : 'failed';
   const isNonCode = run.taskCategory && NON_CODE_CATEGORIES.has(run.taskCategory);
@@ -995,7 +993,7 @@ export function buildJudgePrompt(
     }
   } else {
     // Code categories: include git diff
-    const diff = collectDiff(run);
+    const diff = await collectDiff(run);
     sections.push('', '--- DIFF (truncated) ---', diff || '(no diff captured)');
   }
 
@@ -1024,22 +1022,20 @@ export function readResponseKind(turn: Record<string, unknown>): ResponseKind {
   return toolCalls > 0 ? 'tool_only' : 'empty';
 }
 
-function collectDiff(run: ApmeRunRow): string {
+async function collectDiff(run: ApmeRunRow): Promise<string> {
   if (!run.projectPath) return '';
   try {
     // --no-ext-diff / --no-textconv: this diff is machine input for the judge,
     // so user-configured diff drivers must not run. External drivers execute
     // per matching file and can be arbitrarily slow (real case: a Java xlsx
     // comparator whose JVM startup alone exceeds this 4s budget) — and this
-    // is a synchronous spawn on the daemon event loop, so a slow driver both
-    // stalls every surface and still returns '' on timeout. Without drivers,
+    // can consume the entire query deadline. Without drivers,
     // driver-mapped files degrade to a fast "Binary files differ" line.
     const args = run.gitBefore && run.gitAfter && run.gitBefore !== run.gitAfter
       ? ['diff', '--no-ext-diff', '--no-textconv', '--unified=2', `${run.gitBefore}..${run.gitAfter}`]
       : ['diff', '--no-ext-diff', '--no-textconv', '--unified=2', 'HEAD'];
-    const out = execSync(`git ${args.join(' ')}`, {
-      cwd: run.projectPath, encoding: 'utf-8', timeout: 4000,
-      maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    const out = await execFileText('git', args, {
+      cwd: run.projectPath, timeout: 4000, maxBuffer: 8 * 1024 * 1024,
     });
     return out.length > 12_000 ? out.slice(0, 12_000) + '\n...[truncated]' : out;
   } catch {

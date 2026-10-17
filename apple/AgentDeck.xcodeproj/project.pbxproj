@@ -44,6 +44,7 @@
 		0D57DF3988B2D40AC1EE2436 /* LocalKiroObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B49DE4157BFB50F9F51EF40 /* LocalKiroObserverTests.swift */; };
 		0DB57F4D3BAAD25B7622574A /* PairingCodeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E856ECEDFDE623AA841E4F3 /* PairingCodeController.swift */; };
 		0E136B3EF9DD10F02BFC158D /* LocalPeerOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 685766B4F565619F7EC7DB28 /* LocalPeerOwnership.swift */; };
+		0E41A18BC8D9E0732CFD682A /* LocalPortProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2EC34C4CCC580125F6904D /* LocalPortProbe.swift */; };
 		0E60D3FBC7626624FF7B5A2E /* TopologyRailHelpersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D05CE505E1EC5729C69752E /* TopologyRailHelpersTests.swift */; };
 		0EB23ACEA6CBC43957822C9F /* ApmeClassifierRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C6550B652E631866F47C813 /* ApmeClassifierRules.generated.swift */; };
 		0ED91B65645B05541D82E446 /* NotificationPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC62763B9E0E57235CFDACED /* NotificationPermission.swift */; };
@@ -79,6 +80,7 @@
 		19ECE218BBAF3ED4EE451B0E /* ObservedAgentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F191BB05A8E86E61E7A12CCE /* ObservedAgentSettings.swift */; };
 		1A219C27AD260DD6199484E0 /* DashboardProviderVectorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCFFBDF3C8B9091DE9D5E376 /* DashboardProviderVectorsTests.swift */; };
 		1A25F581608D3C282D70FAF5 /* GaugeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEE70EEDDCA2199E894D275 /* GaugeBar.swift */; };
+		1B5F822F375E236D02BC69AC /* BridgeConnectionLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C821C177B92E74026E90370B /* BridgeConnectionLifetimeTests.swift */; };
 		1BE430CE7A81C3C2B7160250 /* StateColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4EB2E51F6EFD29341EB6127 /* StateColors.swift */; };
 		1BE9D6DCA23672DBE8540704 /* DockVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D66C7EEA9726686205AF8EC /* DockVisibilityController.swift */; };
 		1C24B8131EAD86B72FF0DF04 /* DotPaperCharacter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A24DADC358394A2EA21D82E7 /* DotPaperCharacter.swift */; };
@@ -227,6 +229,7 @@
 		4A61E2314046B98597B36C8E /* AquariumCommunications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98E76042DE187F12F34436B /* AquariumCommunications.swift */; };
 		4A948102669D8D93A2D2EEE0 /* MenuBarDensityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797940FBA5A10EC295F401FE /* MenuBarDensityPolicy.swift */; };
 		4AA7D220242CD3041FB589D8 /* SessionFocusRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 788166EF7E8CB65CDE3D3D67 /* SessionFocusRelay.swift */; };
+		4AB62E6F5AAD589513F54F32 /* ExternalAttachRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 375A2B92423D3DB509A61372 /* ExternalAttachRetryTests.swift */; };
 		4B12BD71DAC0B74F7FB41BDA /* OpenClawApprovalRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AF67EB1D0BDEE57B39E6E9F /* OpenClawApprovalRules.generated.swift */; };
 		4B1AADA88205A8EBD2E50248 /* AquariumPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8A8B97F270C72DDB67D85B5 /* AquariumPreview.swift */; };
 		4B34D6CBC040FE9BE5E51856 /* OctopusCreature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 776467350B975D0CA1A18E84 /* OctopusCreature.swift */; };
@@ -294,6 +297,7 @@
 		5FBCFE8F4EBDCB7937FECA50 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2D2F35C5E4DF5DAE1C93F54B /* Assets.xcassets */; };
 		604472724296A989DD86DEDE /* ApmeActivityHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AD17B846036A2F78B153024 /* ApmeActivityHistory.swift */; };
 		61B7229DFE7E8267CCFC5A8A /* ResidentLabelLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA30C4FE1630E93CEEAF4B1D /* ResidentLabelLayoutTests.swift */; };
+		622C3897EAE7C8205CA8D76C /* LocalPortProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2EC34C4CCC580125F6904D /* LocalPortProbe.swift */; };
 		6251CC9D4270E9F29E867B59 /* CodexObservationOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009D8008C77ADBF75BE67485 /* CodexObservationOwnership.swift */; };
 		62713ABC87653D9FE99C3830 /* DockVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D66C7EEA9726686205AF8EC /* DockVisibilityController.swift */; };
 		62D5FBB2899D2690B43FF0C5 /* DemoPlayback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8A40550B31856011EBBCB7 /* DemoPlayback.swift */; };
@@ -379,6 +383,7 @@
 		7EE9C9A65223FD18211B0C48 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 731118DC3B388D7BE3F1CDB7 /* DesignTokens.swift */; };
 		7F2EF2FA2C61302C14EC7D77 /* TopologyRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FF164B1E859BEE08BBF646 /* TopologyRail.swift */; };
 		7F401B71F68C95DEBD74DAFE /* TUITerrariumRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D80206C489734918E56FB0B /* TUITerrariumRenderer.swift */; };
+		7F65A19D102AACA5641BDF3B /* ApmeHotReadPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */; };
 		7F7AC94714D1AA6767605207 /* OpenCodeObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21073CA63BB9403D46212547 /* OpenCodeObserverTests.swift */; };
 		7F8830A8D7992D6BE9175043 /* HermesMermaidSprite.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14AF460DF0B759372BA1F6C6 /* HermesMermaidSprite.generated.swift */; };
 		7FBCD51766F94FE9BD969378 /* SetupNeededCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC179B8F91EF42F5EBDE911 /* SetupNeededCard.swift */; };
@@ -483,6 +488,7 @@
 		A2D382D31BFCC8EAEE6F19F4 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86E42A4F5681EFB215B43645 /* AppPreferences.swift */; };
 		A2D6228ECEFFE762B28EF6C9 /* CollaborationProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09E1BD51B5102E89060963B /* CollaborationProjectionTests.swift */; };
 		A320BAAC52861E8F41588F75 /* ApmeOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51DB3C4DCB23D09CFA856786 /* ApmeOutcome.swift */; };
+		A3DBC8520FF03E2696C3875E /* ApmeReadIndexes.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */; };
 		A45715C40465E13F9F57B786 /* OpenClawPluginApprovalRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9BAEA1AA19038A243F2806 /* OpenClawPluginApprovalRulesTests.swift */; };
 		A4B08716944AD6C71A09D7FE /* HermesObserverGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117F3C33248F92F5E98E4ECB /* HermesObserverGateTests.swift */; };
 		A50EA56C00F6A51F498DD20E /* MonitorScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B4E454713DFE2DECC4D154 /* MonitorScreen.swift */; };
@@ -677,6 +683,7 @@
 		DEEFDCA6FFBF0169F1AC78D4 /* MlxSafetyRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B0174D679C9D51A1F21AAF /* MlxSafetyRules.generated.swift */; };
 		DF275B0CF0206CCA29020B6F /* pocket-sans-world.manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = C49283AA6D01816E589516E8 /* pocket-sans-world.manifest.json */; };
 		DF804392C56333041A3C2784 /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E6BEE1A730418C1EBDC048 /* StatusBadge.swift */; };
+		DFB3FA4B30FB86B41C73DEEE /* BridgeConnectionLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C821C177B92E74026E90370B /* BridgeConnectionLifetimeTests.swift */; };
 		E082EDBFACADF5992BE8A9E0 /* AgentDeckApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D587189DB0E504028BE4BEF /* AgentDeckApp.swift */; };
 		E1027789C4EBBF134CA8D464 /* TerrariumCrayfishPresenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E75D955A31F999F568B7BED /* TerrariumCrayfishPresenceTests.swift */; };
 		E22E6C703C183F1E8C36E7D9 /* SquatterCleaner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B120CABC9029C801CF0A77A2 /* SquatterCleaner.swift */; };
@@ -695,9 +702,12 @@
 		E5B1774D921E5B4C508D73A0 /* AgentStateHolder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92F84E0AB4261F8308A45186 /* AgentStateHolder.swift */; };
 		E5DE7C344E43E9802FAAC406 /* CommunicationGraphModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148E9F88D28912838E6DF334 /* CommunicationGraphModel.swift */; };
 		E6298CFEC018553BFE64DED6 /* CommunicationGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 228A0A4D8F537A1C69CF4DE2 /* CommunicationGraphView.swift */; };
+		E6F363EAEBEE8D6CCBE47BDD /* LocalPortProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82B7842EE85B6D8BD64D95EF /* LocalPortProbeTests.swift */; };
 		E739E51365F230ED44B8C80B /* DotHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50AD86E0F9030974265A7C9 /* DotHost.swift */; };
 		E74A174A31340C8798090408 /* AppMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006CBD6A3ADAE5DCD1EBBDB3 /* AppMetadata.swift */; };
 		E8484D2A78F8F3C35EAD8204 /* KiroCreature.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF126528728AEF6E07C3C7ED /* KiroCreature.swift */; };
+		E849E1B5B40445D90BE3F55C /* ApmeHotReadPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */; };
+		E89EEE8867D7AFF8C70C8BBD /* LocalPortProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82B7842EE85B6D8BD64D95EF /* LocalPortProbeTests.swift */; };
 		E940E2714946D07856C8FB37 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5200B4548DFE9F98AEE8D504 /* ContentView.swift */; };
 		E98F3FC6D7134E8E65163D93 /* OnboardingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302810B07A9DC093700A7C31 /* OnboardingSheet.swift */; };
 		EA32929C78C6088451DDF476 /* TimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95824B0CF6571507DBAF27C5 /* TimelineStore.swift */; };
@@ -711,7 +721,9 @@
 		ED941D3D0148227D99EDDB0A /* PixooSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FFD673C1AD8EAF690B9E82 /* PixooSheet.swift */; };
 		EDB44E89F700BC28A7AB9A83 /* CodexConfigInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A70C6FAC4BDE4DAAFA08E74 /* CodexConfigInstaller.swift */; };
 		EE0D4A43834C984929AEFB6C /* DotSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED10CEC4D0AD8F6A3502E027 /* DotSettingsView.swift */; };
+		EE83F0F9F55D68644A722D50 /* ApmeReadIndexes.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */; };
 		EE91D7CCEFEA94B80A2A4FCD /* SetupNeededCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC179B8F91EF42F5EBDE911 /* SetupNeededCard.swift */; };
+		EFB490B9C3DFC1FC911A8E3C /* ExternalAttachRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 375A2B92423D3DB509A61372 /* ExternalAttachRetryTests.swift */; };
 		F04C9951C6E7B99B371B7A9D /* TaskGradeabilityRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A5E894C58B03EE5C8EF791 /* TaskGradeabilityRules.generated.swift */; };
 		F0C03AF0FCFD56AC72DE9FD3 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 908DB05568DE4E828CD7FCE6 /* Logger.swift */; };
 		F1AA123E5D16742D2C7B003C /* apme-dashboard.html in Resources */ = {isa = PBXBuildFile; fileRef = 766909A21820E709DA63C7C2 /* apme-dashboard.html */; };
@@ -833,6 +845,7 @@
 		21FC16ECE363684E997BE01E /* DaemonPosture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonPosture.swift; sourceTree = "<group>"; };
 		228A0A4D8F537A1C69CF4DE2 /* CommunicationGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunicationGraphView.swift; sourceTree = "<group>"; };
 		234CFF4B2832E6B1CA98AF10 /* GatewayParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayParityTests.swift; sourceTree = "<group>"; };
+		25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeReadIndexes.generated.swift; sourceTree = "<group>"; };
 		2695212E35C7579728C6F1ED /* CoordinationTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationTracker.swift; sourceTree = "<group>"; };
 		26A4C8A53C312709350735F5 /* ApmeJudgeOpenAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeJudgeOpenAI.swift; sourceTree = "<group>"; };
 		279EAD7034309F8B8641DF78 /* SpokenDigestParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenDigestParityTests.swift; sourceTree = "<group>"; };
@@ -865,6 +878,7 @@
 		337A9CAC731DB3377BFF5626 /* ApmeObservedHookNormalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeObservedHookNormalizationTests.swift; sourceTree = "<group>"; };
 		3607807E41599D2505463C5B /* DotWebhook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotWebhook.swift; sourceTree = "<group>"; };
 		362BC758256086C0D78EF7A8 /* TimeboxSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeboxSheet.swift; sourceTree = "<group>"; };
+		375A2B92423D3DB509A61372 /* ExternalAttachRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalAttachRetryTests.swift; sourceTree = "<group>"; };
 		38C2485BC8700CBDD9EDE70E /* StateTimelineGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateTimelineGenerator.swift; sourceTree = "<group>"; };
 		3A59CDD89266C18C80F6F324 /* 3d-residents.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = "3d-residents.usdz"; sourceTree = "<group>"; };
 		3A70C6FAC4BDE4DAAFA08E74 /* CodexConfigInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexConfigInstaller.swift; sourceTree = "<group>"; };
@@ -980,6 +994,7 @@
 		80BD296835DE366BFDBB15B9 /* DaemonService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonService.swift; sourceTree = "<group>"; };
 		80F5AD0F31E7A87406FF94F4 /* DashboardProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardProviders.swift; sourceTree = "<group>"; };
 		81ECEA1581963132423FB0C8 /* CodexTelemetryModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTelemetryModule.swift; sourceTree = "<group>"; };
+		82B7842EE85B6D8BD64D95EF /* LocalPortProbeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPortProbeTests.swift; sourceTree = "<group>"; };
 		832BF47EA8F4F9DE55F6EA4F /* UsageRelayFreshness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageRelayFreshness.swift; sourceTree = "<group>"; };
 		83589BA4C41B89C8EF1A46FD /* AdbModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdbModule.swift; sourceTree = "<group>"; };
 		83D5CE0F7637C0913938BA6B /* DeskPreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskPreviews.swift; sourceTree = "<group>"; };
@@ -1002,6 +1017,7 @@
 		908DB05568DE4E828CD7FCE6 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		911116AFCDB54393457A6EB6 /* OpenClawSessionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSessionSettings.swift; sourceTree = "<group>"; };
 		918C108FEF53B66BF6D944B7 /* DevicePairingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePairingWindow.swift; sourceTree = "<group>"; };
+		92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeHotReadPlanTests.swift; sourceTree = "<group>"; };
 		92F84E0AB4261F8308A45186 /* AgentStateHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStateHolder.swift; sourceTree = "<group>"; };
 		94B060A15BF6B6EFD1848C81 /* ApmeClassifierBackendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeClassifierBackendTests.swift; sourceTree = "<group>"; };
 		952A48256A53B55E304F7D67 /* MdnsIdentity.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MdnsIdentity.generated.swift; sourceTree = "<group>"; };
@@ -1018,6 +1034,7 @@
 		9DC487120E810897B3BF0FC4 /* CodexFreshnessRules.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexFreshnessRules.generated.swift; sourceTree = "<group>"; };
 		9E6E252A5DCAC5E298C21473 /* SessionBrand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionBrand.swift; sourceTree = "<group>"; };
 		9EDC925E6430AD4045865EDA /* DotOAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotOAuth.swift; sourceTree = "<group>"; };
+		9F2EC34C4CCC580125F6904D /* LocalPortProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPortProbe.swift; sourceTree = "<group>"; };
 		9F9B51FC480E3419A6334A20 /* SandDisturbance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SandDisturbance.swift; sourceTree = "<group>"; };
 		A0903C3EBD6675CB1D28C1FE /* HermesObserverGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesObserverGate.swift; sourceTree = "<group>"; };
 		A0B6AFDC194533BFA388DECA /* AppReviewPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReviewPrompt.swift; sourceTree = "<group>"; };
@@ -1079,6 +1096,7 @@
 		C671E2324E45E6745813C681 /* ESP32WifiForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32WifiForwardTests.swift; sourceTree = "<group>"; };
 		C6C4FB1F847E5695EF75A4FB /* DevicePreviewCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePreviewCatalog.swift; sourceTree = "<group>"; };
 		C7B2EDFD5ED44F2D0F6D7E71 /* PairingWindowStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingWindowStoreTests.swift; sourceTree = "<group>"; };
+		C821C177B92E74026E90370B /* BridgeConnectionLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeConnectionLifetimeTests.swift; sourceTree = "<group>"; };
 		CA37B6C7D35CA879C9BD8F75 /* GatewayHealthRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayHealthRules.swift; sourceTree = "<group>"; };
 		CAA529E02014523C9AD2CD0E /* UnauthorizedCloseCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnauthorizedCloseCodeTests.swift; sourceTree = "<group>"; };
 		CBAF5DDA8E8BC581088C6AAD /* PairingKnockStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingKnockStore.swift; sourceTree = "<group>"; };
@@ -1233,6 +1251,7 @@
 				0F083DDE39507B6693AED227 /* ApmeCategoryE2ETests.swift */,
 				94B060A15BF6B6EFD1848C81 /* ApmeClassifierBackendTests.swift */,
 				43F7DA99E490C72ED75FF711 /* ApmeExternalCloseSelectionTests.swift */,
+				92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */,
 				F6D5D47532E0BFEC96101B27 /* ApmeJudgeCrossDaemonTests.swift */,
 				337A9CAC731DB3377BFF5626 /* ApmeObservedHookNormalizationTests.swift */,
 				2DB04CEEDD6C769AD9056561 /* ApmeParseJudgeTests.swift */,
@@ -1241,6 +1260,7 @@
 				B2A10490A1827E5EC7D6FA08 /* AppMetadataTests.swift */,
 				6F0A3614C2DF6495CAB410B1 /* AppReviewPromptTests.swift */,
 				BC6DDE006B6FC16D2E76AFFE /* AuthTokenAdoptionTests.swift */,
+				C821C177B92E74026E90370B /* BridgeConnectionLifetimeTests.swift */,
 				44FA10A61851AAD5430F1685 /* CiWaitRulesTests.swift */,
 				ABBD412B771BBC8D6616B48D /* ClaudeBackgroundJobRulesTests.swift */,
 				160B2258BF46CD03C53B5AC0 /* ClaudePermissionRulesTests.swift */,
@@ -1264,6 +1284,7 @@
 				B41DA855405F8F1F5BA174D0 /* DockVisibilityPolicyTests.swift */,
 				FF123E62CA46345F1A78445F /* DotDirectHostingTests.swift */,
 				C671E2324E45E6745813C681 /* ESP32WifiForwardTests.swift */,
+				375A2B92423D3DB509A61372 /* ExternalAttachRetryTests.swift */,
 				A636D8963EF63909EB64131D /* GatewayHealthRulesTests.swift */,
 				14A41EA31C51D5B49399A788 /* GatewayLiveActivityTests.swift */,
 				234CFF4B2832E6B1CA98AF10 /* GatewayParityTests.swift */,
@@ -1278,6 +1299,7 @@
 				E51DE77A285EB334A6F2005B /* ListenerLeakTests.swift */,
 				8B49DE4157BFB50F9F51EF40 /* LocalKiroObserverTests.swift */,
 				09CAADD258896F0E3EA347D2 /* LocalModelPresentationTests.swift */,
+				82B7842EE85B6D8BD64D95EF /* LocalPortProbeTests.swift */,
 				5AA98B9C59A1E5068133D134 /* MdnsAdvertisementTests.swift */,
 				E0DF2FF90EE46351B4FC2F59 /* MenuBarDensityPolicyTests.swift */,
 				3B1754EEF69FF454C638CF1C /* MiniTomlTests.swift */,
@@ -1551,6 +1573,7 @@
 				26A4C8A53C312709350735F5 /* ApmeJudgeOpenAI.swift */,
 				51DB3C4DCB23D09CFA856786 /* ApmeOutcome.swift */,
 				86C2853DD31CC81F421A2A1F /* ApmePricing.swift */,
+				25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */,
 				C0A8B27A341D1DAE1FCF1D01 /* ApmeRecommender.swift */,
 				53D4EF93231AAC8CD23FB819 /* ApmeRunner.swift */,
 				758AAD78310D811B993ADA21 /* ApmeScorers.swift */,
@@ -1646,6 +1669,7 @@
 				A0903C3EBD6675CB1D28C1FE /* HermesObserverGate.swift */,
 				603AE403ECE592BCF9FAD994 /* KiroTimelineFeed.swift */,
 				D9DCDE7C19F4BE7649995B33 /* LocalKiroObserver.swift */,
+				9F2EC34C4CCC580125F6904D /* LocalPortProbe.swift */,
 				F191BB05A8E86E61E7A12CCE /* ObservedAgentSettings.swift */,
 				BB4AC33AE24184BF90D4CAFE /* ObservedSteering.swift */,
 				F9C1092C93CA846103C9692C /* OpenCodeObserver.swift */,
@@ -2072,6 +2096,7 @@
 				BDEDD6038EA83D66CC78F12C /* ApmeCategoryE2ETests.swift in Sources */,
 				11267120A1E59EB9DA314A75 /* ApmeClassifierBackendTests.swift in Sources */,
 				279790437C6EA1A11A0E8632 /* ApmeExternalCloseSelectionTests.swift in Sources */,
+				E849E1B5B40445D90BE3F55C /* ApmeHotReadPlanTests.swift in Sources */,
 				CE468A14B7D6D67F6649274C /* ApmeJudgeCrossDaemonTests.swift in Sources */,
 				D6CF0FA956C55413CA4A9E51 /* ApmeObservedHookNormalizationTests.swift in Sources */,
 				3AB4FFE7850E2A1AB615E162 /* ApmeParseJudgeTests.swift in Sources */,
@@ -2080,6 +2105,7 @@
 				26CD84217792773330924DA0 /* AppReviewPromptTests.swift in Sources */,
 				295942533870EAD425D871FE /* AppleBuildBoundaryTests.swift in Sources */,
 				797EB64211FFF8F679AD9729 /* AuthTokenAdoptionTests.swift in Sources */,
+				DFB3FA4B30FB86B41C73DEEE /* BridgeConnectionLifetimeTests.swift in Sources */,
 				8CB40A396077F92F9140E25F /* CiWaitRulesTests.swift in Sources */,
 				3AA3A8CEDFE2A89F0708D96E /* ClaudeBackgroundJobRulesTests.swift in Sources */,
 				ADC9C0B4303BEA1EEB33E969 /* ClaudePermissionRulesTests.swift in Sources */,
@@ -2103,6 +2129,7 @@
 				8FE3D8A54EF01D4165144E0E /* DockVisibilityPolicyTests.swift in Sources */,
 				CA87D544027881EBC6EE45D8 /* DotDirectHostingTests.swift in Sources */,
 				AECF975059EA0A725DB1A3E7 /* ESP32WifiForwardTests.swift in Sources */,
+				EFB490B9C3DFC1FC911A8E3C /* ExternalAttachRetryTests.swift in Sources */,
 				AE36799884B97124014BB0A2 /* GatewayHealthRulesTests.swift in Sources */,
 				35437B04ADEC279D861893EF /* GatewayLiveActivityTests.swift in Sources */,
 				D369DAE31A2E86FD08922453 /* GatewayParityTests.swift in Sources */,
@@ -2117,6 +2144,7 @@
 				ADC9DDBC633074D25AC9E37C /* ListenerLeakTests.swift in Sources */,
 				0D57DF3988B2D40AC1EE2436 /* LocalKiroObserverTests.swift in Sources */,
 				2E7C74FFF503BE4BA7DAB125 /* LocalModelPresentationTests.swift in Sources */,
+				E89EEE8867D7AFF8C70C8BBD /* LocalPortProbeTests.swift in Sources */,
 				EBF38B0F41450B16AA005EAA /* MdnsAdvertisementTests.swift in Sources */,
 				CB77E3E1CAFEB083339F155C /* MenuBarDensityPolicyTests.swift in Sources */,
 				23EA982402128EB1158AB6A9 /* MiniTomlTests.swift in Sources */,
@@ -2170,6 +2198,7 @@
 				38B8B9D479D582EE034C05DB /* ApmeCategoryE2ETests.swift in Sources */,
 				E2A2D16B6B22232302404F71 /* ApmeClassifierBackendTests.swift in Sources */,
 				DADAD3815A22603118F3EFBA /* ApmeExternalCloseSelectionTests.swift in Sources */,
+				7F65A19D102AACA5641BDF3B /* ApmeHotReadPlanTests.swift in Sources */,
 				50AA2C8BADDFB583CEF8355D /* ApmeJudgeCrossDaemonTests.swift in Sources */,
 				71E85F5B6C7CF77AE7A3162C /* ApmeObservedHookNormalizationTests.swift in Sources */,
 				8DE4D71A8BA18D7373FA3147 /* ApmeParseJudgeTests.swift in Sources */,
@@ -2178,6 +2207,7 @@
 				7E151A499F63C5A8F7896DD4 /* AppReviewPromptTests.swift in Sources */,
 				91690383EAD320DBC7CDFC1B /* AppleBuildBoundaryTests.swift in Sources */,
 				709FD2470C5B2365B1702151 /* AuthTokenAdoptionTests.swift in Sources */,
+				1B5F822F375E236D02BC69AC /* BridgeConnectionLifetimeTests.swift in Sources */,
 				C5F162AA9AB80292E55F6046 /* CiWaitRulesTests.swift in Sources */,
 				400DA2617A474B0330E9D615 /* ClaudeBackgroundJobRulesTests.swift in Sources */,
 				C984EE6C8F562962DBE4EB5B /* ClaudePermissionRulesTests.swift in Sources */,
@@ -2201,6 +2231,7 @@
 				4E3E8F33089962383FF83309 /* DockVisibilityPolicyTests.swift in Sources */,
 				7E98096A239A3DE29B739217 /* DotDirectHostingTests.swift in Sources */,
 				5E3FCF09BE50281AE6749762 /* ESP32WifiForwardTests.swift in Sources */,
+				4AB62E6F5AAD589513F54F32 /* ExternalAttachRetryTests.swift in Sources */,
 				31143189676B154BD1D7EAF5 /* GatewayHealthRulesTests.swift in Sources */,
 				22E17790915238FDB6934686 /* GatewayLiveActivityTests.swift in Sources */,
 				5E39A0DA9E8B9E175292E84D /* GatewayParityTests.swift in Sources */,
@@ -2215,6 +2246,7 @@
 				3F1819386BBAC531840FFCDF /* ListenerLeakTests.swift in Sources */,
 				CDABC5CCE965EF7FA30DE280 /* LocalKiroObserverTests.swift in Sources */,
 				BECD497445AFADE09BA38731 /* LocalModelPresentationTests.swift in Sources */,
+				E6F363EAEBEE8D6CCBE47BDD /* LocalPortProbeTests.swift in Sources */,
 				65A8A69BC77EC2A72BAA51E6 /* MdnsAdvertisementTests.swift in Sources */,
 				12A61DA6C5A4704361746C1D /* MenuBarDensityPolicyTests.swift in Sources */,
 				A7E6158A1A9242B77356F1E8 /* MiniTomlTests.swift in Sources */,
@@ -2289,6 +2321,7 @@
 				47D7A8AAFBDADBA4FC75EB34 /* ApmeJudgeOpenAI.swift in Sources */,
 				06C6D342554422542396AC74 /* ApmeOutcome.swift in Sources */,
 				270A86EE461D911332A98A39 /* ApmePricing.swift in Sources */,
+				A3DBC8520FF03E2696C3875E /* ApmeReadIndexes.generated.swift in Sources */,
 				67BC9141429FBD039D306858 /* ApmeRecommender.swift in Sources */,
 				E510E70B26F457C5035A70BF /* ApmeRunner.swift in Sources */,
 				89B569F2096B99D8C6ED3044 /* ApmeScorers.swift in Sources */,
@@ -2412,6 +2445,7 @@
 				C60311E11652C03785B9F449 /* LocalKiroObserver.swift in Sources */,
 				4302A33FCB525D5678FB8401 /* LocalModelPresentation.swift in Sources */,
 				CD0FEA280FA39493518D285A /* LocalPeerOwnership.swift in Sources */,
+				0E41A18BC8D9E0732CFD682A /* LocalPortProbe.swift in Sources */,
 				E35D8D73F3FFFCD795B1236A /* LocalSessionDiscovery.swift in Sources */,
 				3935F4C5BEE0F6FA479AB2A6 /* Logger.swift in Sources */,
 				9197CE4EF7351E7C83BBE89F /* MatrixExpression.swift in Sources */,
@@ -2564,6 +2598,7 @@
 				B88EAABE4E7D9CEB126CE830 /* ApmeJudgeOpenAI.swift in Sources */,
 				A320BAAC52861E8F41588F75 /* ApmeOutcome.swift in Sources */,
 				584C4C85DE3E5789C8B8DBF9 /* ApmePricing.swift in Sources */,
+				EE83F0F9F55D68644A722D50 /* ApmeReadIndexes.generated.swift in Sources */,
 				4A0D8F7C56E1BEB0167E62CB /* ApmeRecommender.swift in Sources */,
 				BBEB24AC6D843E71B5C8D517 /* ApmeRunner.swift in Sources */,
 				5DCD91335EFB1B6500CA830E /* ApmeScorers.swift in Sources */,
@@ -2688,6 +2723,7 @@
 				63934274932C59864347F6AB /* LocalKiroObserver.swift in Sources */,
 				2C1EFC41BE967569FC761A6A /* LocalModelPresentation.swift in Sources */,
 				0E136B3EF9DD10F02BFC158D /* LocalPeerOwnership.swift in Sources */,
+				622C3897EAE7C8205CA8D76C /* LocalPortProbe.swift in Sources */,
 				5B1640167CAEBC66B8D0BE35 /* LocalSessionDiscovery.swift in Sources */,
 				F0C03AF0FCFD56AC72DE9FD3 /* Logger.swift in Sources */,
 				365E273D40DBDE66988AE8E2 /* MatrixExpression.swift in Sources */,

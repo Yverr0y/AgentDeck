@@ -3332,6 +3332,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // Codex observation backstops — which sessions each source believes in.
         // A session present here but absent from sessions_list means the ps
         // observer found it too and won, which is the expected steady state.
+        passiveObserver: passiveSessionObserver.diagnostics(),
+        apmeHistoryReader: apme?.historyReader?.diagnostics() ?? null,
         hookCodexSessions: hookCodexSessions.snapshot(),
         codexOtelThreads: codexOtel.snapshot(),
         pocketAutonomy: pocketAutonomy.diagnostics(),
@@ -7701,6 +7703,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     });
 
     let judgeReprobeInFlight = false;
+    let outcomeSweepInFlight = false;
     const apmeEvalTimer = setInterval(() => {
       // 1. Enqueue unevaluated runs for deterministic + judge
       const pending = apme!.store.listUnevaluatedRuns(5);
@@ -7745,15 +7748,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       }
       // 2. Run outcome detection + composite scoring on recently closed runs
       // that don't have an outcome yet.
-      const closedRuns = apme!.store.listRuns({ limit: 20 });
-      for (const run of closedRuns) {
-        if (run.endedAt && !run.outcome) {
-          // Wait at least 10s after close before judging outcome
-          const elapsed = Date.now() - run.endedAt;
-          if (elapsed > 10_000) {
-            evaluateOutcome(apme!.store, run.id);
+      if (!outcomeSweepInFlight) {
+        const store = apme!.store;
+        const closedRuns = store.listRuns({ limit: 20 });
+        outcomeSweepInFlight = true;
+        void (async () => {
+          for (const run of closedRuns) {
+            if (!store.enabled) break;
+            // One bounded Git probe at a time, including across timer ticks.
+            if (run.endedAt && !run.outcome && Date.now() - run.endedAt > 10_000) {
+              await evaluateOutcome(store, run.id);
+            }
           }
-        }
+        })().catch(() => {
+          debug('APME', 'outcome sweep failed; retrying on the next tick');
+        }).finally(() => { outcomeSweepInFlight = false; });
       }
       // 3. Classify unclassified runs (fire-and-forget from session bridge may
       //    have been killed by process exit — daemon retries here).
@@ -7879,6 +7888,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
 
   // ===== Shutdown =====
   core.onShutdown(async () => {
+    apme?.historyReader?.close();
     await dotHost?.stop();
     ciPollingStopped = true;
     clearInterval(coordinationTimer);

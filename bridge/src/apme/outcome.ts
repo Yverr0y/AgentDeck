@@ -7,7 +7,8 @@
  * composite score from outcome + judge + efficiency + vibe.
  */
 
-import { execSync } from 'child_process';
+import { execFileText } from './process.js';
+import { readGitHead } from './git-head.js';
 import { debug } from '../logger.js';
 import type { ApmeStore } from './store.js';
 import type { ApmeRunRow } from './types.js';
@@ -157,10 +158,10 @@ export function detectOutcome(store: ApmeStore, run: ApmeRunRow): OutcomeResult 
 
 // ─── Efficiency ──────────────────────────────────────────────────────────────
 
-export function computeEfficiency(run: ApmeRunRow): EfficiencyMetrics {
+export async function computeEfficiency(run: ApmeRunRow): Promise<EfficiencyMetrics> {
   const totalTokens = (run.inputTokens ?? 0) + (run.outputTokens ?? 0);
   const durationSec = run.endedAt && run.startedAt ? (run.endedAt - run.startedAt) / 1000 : null;
-  const diffLines = countDiffLines(run);
+  const diffLines = await countDiffLines(run);
 
   // Parse task_signals for tool call count
   let toolCalls = 0;
@@ -180,15 +181,14 @@ export function computeEfficiency(run: ApmeRunRow): EfficiencyMetrics {
   };
 }
 
-function countDiffLines(run: ApmeRunRow): number | null {
+async function countDiffLines(run: ApmeRunRow): Promise<number | null> {
   if (!run.projectPath) return null;
   try {
     const args = run.gitBefore && run.gitAfter && run.gitBefore !== run.gitAfter
-      ? `diff --shortstat ${run.gitBefore}..${run.gitAfter}`
-      : 'diff --shortstat HEAD';
-    const out = execSync(`git ${args}`, {
-      cwd: run.projectPath, encoding: 'utf-8', timeout: 3000,
-      stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+      ? ['diff', '--no-ext-diff', '--no-textconv', '--shortstat', `${run.gitBefore}..${run.gitAfter}`]
+      : ['diff', '--no-ext-diff', '--no-textconv', '--shortstat', 'HEAD'];
+    const out = await execFileText('git', args, {
+      cwd: run.projectPath, timeout: 3000,
     });
     // "3 files changed, 45 insertions(+), 12 deletions(-)"
     const ins = out.match(/(\d+) insertion/);
@@ -265,17 +265,22 @@ export function computeComposite(
 // ─── Full evaluation pass ────────────────────────────────────────────────────
 
 /** Run outcome detection + efficiency + composite scoring on a single run. */
-export function evaluateOutcome(store: ApmeStore, runId: string): {
+export async function evaluateOutcome(store: ApmeStore, runId: string): Promise<{
   outcome: OutcomeResult;
   efficiency: EfficiencyMetrics;
   composite: CompositeBreakdown;
-} | null {
+} | null> {
   const run = store.getRun(runId);
   if (!run || !run.endedAt) return null;
 
   const outcome = detectOutcome(store, run);
-  const efficiency = computeEfficiency(run);
-  const composite = computeComposite(store, run, outcome, efficiency);
+  const efficiency = await computeEfficiency(run);
+  // Git may finish after shutdown or after another writer assigned an outcome.
+  // Never overwrite that newer decision with the snapshot from before the await.
+  if (!store.enabled) return null;
+  const current = store.getRun(runId);
+  if (!current?.endedAt || current.outcome !== run.outcome) return null;
+  const composite = computeComposite(store, current, outcome, efficiency);
 
   // Persist
   store.updateRun(runId, {
@@ -302,17 +307,5 @@ export function recomputeComposite(store: ApmeStore, runId: string): void {
     debug('APME', `recomputeComposite ${runId.slice(0, 8)}: ${composite.composite}`);
   } catch (err) {
     debug('APME', `recomputeComposite failed ${runId.slice(0, 8)}: ${String(err)}`);
-  }
-}
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-function readGitHead(cwd: string): string | null {
-  try {
-    return execSync('git rev-parse HEAD', {
-      cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, windowsHide: true,
-    }).trim() || null;
-  } catch {
-    return null;
   }
 }

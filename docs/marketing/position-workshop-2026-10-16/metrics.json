@@ -1,0 +1,2377 @@
+{
+ "collected_at_utc": "2026-10-15T15:43:39Z",
+ "repo": {
+  "full_name": "puritysb/AgentDeck",
+  "created_at": "2026-02-20T15:48:57Z",
+  "pushed_at": "2026-10-15T15:41:39Z",
+  "stars": 264,
+  "forks": 53,
+  "watchers_subscribers": 3,
+  "watchers_count_legacy_equals_stars": 264,
+  "open_issues_incl_prs": 6,
+  "license": "MIT",
+  "topics": [
+   "ai-agents",
+   "android",
+   "claude-code",
+   "developer-tools",
+   "esp32",
+   "hardware",
+   "iot",
+   "monorepo",
+   "stream-deck",
+   "swiftui"
+  ],
+  "language": "TypeScript",
+  "homepage": "https://puritysb.github.io/AgentDeck/",
+  "has_discussions": true,
+  "size_kb": 1152361,
+  "graphql": {
+   "issues_total": 95,
+   "issues_open": 5,
+   "issues_closed": 90,
+   "prs_total": 454,
+   "prs_open": 1,
+   "prs_merged": 430,
+   "prs_closed": 23,
+   "discussions": 1,
+   "releases": 136,
+   "watchers": 3
+  },
+  "age_days": 236
+ },
+ "traffic": {
+  "views_14d": {
+   "count": 743,
+   "uniques": 323,
+   "first_day": "2026-10-01T00:00:00Z",
+   "last_day": "2026-10-14T00:00:00Z",
+   "days": 14,
+   "series": [
+    [
+     "2026-10-01",
+     50,
+     28
+    ],
+    [
+     "2026-10-02",
+     67,
+     37
+    ],
+    [
+     "2026-10-03",
+     46,
+     26
+    ],
+    [
+     "2026-10-04",
+     38,
+     27
+    ],
+    [
+     "2026-10-05",
+     57,
+     35
+    ],
+    [
+     "2026-10-06",
+     49,
+     29
+    ],
+    [
+     "2026-10-07",
+     79,
+     29
+    ],
+    [
+     "2026-10-08",
+     82,
+     36
+    ],
+    [
+     "2026-10-09",
+     42,
+     24
+    ],
+    [
+     "2026-10-10",
+     32,
+     16
+    ],
+    [
+     "2026-10-11",
+     53,
+     25
+    ],
+    [
+     "2026-10-12",
+     48,
+     27
+    ],
+    [
+     "2026-10-13",
+     57,
+     31
+    ],
+    [
+     "2026-10-14",
+     43,
+     25
+    ]
+   ]
+  },
+  "clones_14d": {
+   "count": 7779,
+   "uniques": 675,
+   "first_day": "2026-10-01T00:00:00Z",
+   "last_day": "2026-10-14T00:00:00Z",
+   "days": 14,
+   "series": [
+    [
+     "2026-10-01",
+     162,
+     38
+    ],
+    [
+     "2026-10-02",
+     312,
+     63
+    ],
+    [
+     "2026-10-03",
+     137,
+     53
+    ],
+    [
+     "2026-10-04",
+     223,
+     51
+    ],
+    [
+     "2026-10-05",
+     387,
+     76
+    ],
+    [
+     "2026-10-06",
+     3187,
+     88
+    ],
+    [
+     "2026-10-07",
+     488,
+     50
+    ],
+    [
+     "2026-10-08",
+     283,
+     83
+    ],
+    [
+     "2026-10-09",
+     471,
+     112
+    ],
+    [
+     "2026-10-10",
+     223,
+     34
+    ],
+    [
+     "2026-10-11",
+     538,
+     119
+    ],
+    [
+     "2026-10-12",
+     545,
+     88
+    ],
+    [
+     "2026-10-13",
+     668,
+     98
+    ],
+    [
+     "2026-10-14",
+     155,
+     47
+    ]
+   ]
+  },
+  "referrers": [
+   {
+    "referrer": "Google",
+    "count": 137,
+    "uniques": 104
+   },
+   {
+    "referrer": "github.com",
+    "count": 42,
+    "uniques": 25
+   },
+   {
+    "referrer": "reddit.com",
+    "count": 27,
+    "uniques": 19
+   },
+   {
+    "referrer": "puritysb.github.io",
+    "count": 19,
+    "uniques": 16
+   },
+   {
+    "referrer": "search.brave.com",
+    "count": 5,
+    "uniques": 5
+   },
+   {
+    "referrer": "marketplace.elgato.com",
+    "count": 5,
+    "uniques": 4
+   },
+   {
+    "referrer": "my.feishu.cn",
+    "count": 4,
+    "uniques": 2
+   },
+   {
+    "referrer": "npmjs.com",
+    "count": 2,
+    "uniques": 2
+   },
+   {
+    "referrer": "DuckDuckGo",
+    "count": 2,
+    "uniques": 1
+   },
+   {
+    "referrer": "anker-in.feishu.cn",
+    "count": 2,
+    "uniques": 1
+   }
+  ],
+  "paths": [
+   {
+    "path": "/puritysb/AgentDeck",
+    "title": "Overview",
+    "count": 383,
+    "uniques": 271
+   },
+   {
+    "path": "/puritysb/AgentDeck/issues",
+    "title": "/issues",
+    "count": 46,
+    "uniques": 22
+   },
+   {
+    "path": "/puritysb/AgentDeck/blob/master/docs/streamdeck-layout.md",
+    "title": "/blob/master/docs/streamdeck-layout.md",
+    "count": 25,
+    "uniques": 19
+   },
+   {
+    "path": "/puritysb/AgentDeck/tree/master",
+    "title": "/tree/master",
+    "count": 17,
+    "uniques": 11
+   },
+   {
+    "path": "/puritysb/AgentDeck/blob/master/docs/media/desk-overview.jpg",
+    "title": "/blob/master/docs/media/desk-overview.jpg",
+    "count": 14,
+    "uniques": 13
+   },
+   {
+    "path": "/puritysb/AgentDeck/releases",
+    "title": "/releases",
+    "count": 14,
+    "uniques": 7
+   },
+   {
+    "path": "/puritysb/AgentDeck/blob/master/docs/media/tui-dashboard.png",
+    "title": "/blob/master/docs/media/tui-dashboard.png",
+    "count": 13,
+    "uniques": 12
+   },
+   {
+    "path": "/puritysb/AgentDeck/blob/master/docs/media/streamdeck-plus.jpg",
+    "title": "/blob/master/docs/media/streamdeck-plus.jpg",
+    "count": 10,
+    "uniques": 9
+   },
+   {
+    "path": "/puritysb/AgentDeck/blob/master/docs/windows.md",
+    "title": "/blob/master/docs/windows.md",
+    "count": 10,
+    "uniques": 4
+   },
+   {
+    "path": "/puritysb/AgentDeck/blob/master/docs/android.md",
+    "title": "/blob/master/docs/android.md",
+    "count": 9,
+    "uniques": 8
+   }
+  ]
+ },
+ "stars": {
+  "total": 264,
+  "distinct_users": 264,
+  "first": "2026-02-24T20:33:17Z",
+  "last": "2026-10-15T09:37:04Z",
+  "by_month": {
+   "2026-02": 15,
+   "2026-03": 23,
+   "2026-04": 16,
+   "2026-05": 12,
+   "2026-06": 49,
+   "2026-07": 52,
+   "2026-08": 46,
+   "2026-09": 41,
+   "2026-10": 10
+  },
+  "cumulative_by_month": {
+   "2026-02": 15,
+   "2026-03": 38,
+   "2026-04": 54,
+   "2026-05": 66,
+   "2026-06": 115,
+   "2026-07": 167,
+   "2026-08": 213,
+   "2026-09": 254,
+   "2026-10": 264
+  },
+  "last_7d": 7,
+  "last_14d": 10,
+  "last_30d": 27,
+  "last_90d": 121,
+  "top_days": [
+   [
+    "2026-06-24",
+    12
+   ],
+   [
+    "2026-06-18",
+    11
+   ],
+   [
+    "2026-02-25",
+    10
+   ],
+   [
+    "2026-07-16",
+    9
+   ],
+   [
+    "2026-07-18",
+    8
+   ],
+   [
+    "2026-06-19",
+    6
+   ]
+  ]
+ },
+ "forks": {
+  "listed": 54,
+  "by_month": {
+   "2026-02": 4,
+   "2026-03": 2,
+   "2026-04": 5,
+   "2026-05": 1,
+   "2026-06": 9,
+   "2026-07": 9,
+   "2026-08": 11,
+   "2026-09": 11,
+   "2026-10": 2
+  },
+  "pushed_after_create": 27,
+  "with_stars": [
+   {
+    "owner": "leonj1",
+    "created_at": "2026-07-08T11:43:33Z",
+    "pushed_at": "2026-07-08T00:17:01Z",
+    "stars": 1,
+    "pushed_after_create": false,
+    "size": 137735
+   },
+   {
+    "owner": "cpiprint",
+    "created_at": "2026-02-25T00:23:38Z",
+    "pushed_at": "2026-02-24T18:57:02Z",
+    "stars": 1,
+    "pushed_after_create": false,
+    "size": 6506
+   }
+  ],
+  "recent_activity_list": [
+   {
+    "owner": "dudziakl",
+    "created_at": "2026-09-14T13:35:47Z",
+    "pushed_at": "2026-10-13T18:44:08Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 864492
+   },
+   {
+    "owner": "huhao121",
+    "created_at": "2026-10-13T06:12:31Z",
+    "pushed_at": "2026-10-13T07:12:26Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 1151343
+   },
+   {
+    "owner": "cskwork",
+    "created_at": "2026-08-04T11:25:21Z",
+    "pushed_at": "2026-10-09T03:33:46Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 607587
+   },
+   {
+    "owner": "andremarquezz",
+    "created_at": "2026-10-07T18:17:18Z",
+    "pushed_at": "2026-10-08T03:12:11Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 1135022
+   },
+   {
+    "owner": "Yverr0y",
+    "created_at": "2026-09-10T22:36:07Z",
+    "pushed_at": "2026-10-04T23:00:45Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 1089912
+   },
+   {
+    "owner": "bhardwajRahul",
+    "created_at": "2026-09-05T06:47:24Z",
+    "pushed_at": "2026-09-29T20:30:44Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 1088885
+   },
+   {
+    "owner": "bryanwills",
+    "created_at": "2026-06-28T22:28:11Z",
+    "pushed_at": "2026-09-29T19:13:27Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 1239632
+   },
+   {
+    "owner": "IAMAl",
+    "created_at": "2026-08-11T17:21:56Z",
+    "pushed_at": "2026-09-24T17:55:49Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 620913
+   },
+   {
+    "owner": "kohei-tsukano",
+    "created_at": "2026-09-23T13:04:41Z",
+    "pushed_at": "2026-09-23T14:12:35Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 1062741
+   },
+   {
+    "owner": "pjodoin",
+    "created_at": "2026-09-15T19:23:39Z",
+    "pushed_at": "2026-09-22T23:46:51Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 865984
+   },
+   {
+    "owner": "jurri",
+    "created_at": "2026-09-09T16:40:58Z",
+    "pushed_at": "2026-09-14T14:32:01Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 865646
+   },
+   {
+    "owner": "tju-wang",
+    "created_at": "2026-08-23T16:14:27Z",
+    "pushed_at": "2026-09-14T07:05:00Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 865642
+   },
+   {
+    "owner": "epicsagas",
+    "created_at": "2026-09-11T01:44:17Z",
+    "pushed_at": "2026-09-11T05:20:19Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 649631
+   },
+   {
+    "owner": "joshuadweck124",
+    "created_at": "2026-09-08T19:25:14Z",
+    "pushed_at": "2026-09-09T20:29:28Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 644033
+   },
+   {
+    "owner": "kasuteru",
+    "created_at": "2026-08-27T13:55:01Z",
+    "pushed_at": "2026-08-27T15:35:01Z",
+    "stars": 0,
+    "pushed_after_create": true,
+    "size": 630546
+   }
+  ]
+ },
+ "contributors_api": [
+  {
+   "login": "puritysb",
+   "contributions": 2447,
+   "type": "User"
+  },
+  {
+   "login": "doug-w",
+   "contributions": 25,
+   "type": "User"
+  },
+  {
+   "login": "dudziakl",
+   "contributions": 6,
+   "type": "User"
+  },
+  {
+   "login": "jcarberator",
+   "contributions": 4,
+   "type": "User"
+  },
+  {
+   "login": "pjodoin",
+   "contributions": 2,
+   "type": "User"
+  },
+  {
+   "login": "claude",
+   "contributions": 1,
+   "type": "User"
+  },
+  {
+   "login": "r-dent",
+   "contributions": 1,
+   "type": "User"
+  },
+  {
+   "login": "jurri",
+   "contributions": 1,
+   "type": "User"
+  },
+  {
+   "login": "uto-usui",
+   "contributions": 1,
+   "type": "User"
+  }
+ ],
+ "git_shortlog_2026": [
+  "2058\tSeungBeom Choi",
+  "   382\tsamuel.choi",
+  "    18\tdoug-w",
+  "     7\tDoug Warren",
+  "     6\tLukasz D",
+  "     4\tjcarberator",
+  "     2\tpjodoin",
+  "     1\tClaude",
+  "     1\tRoman Schlagowsky",
+  "     1\tjurri",
+  "     1\tuto"
+ ],
+ "git_meta": [
+  "HEAD: 0bd68d80 2026-10-16T00:40:02+09:00",
+  "total commits on HEAD: 2481",
+  "first commit: 2026-02-21T00:15:46+09:00 92618897",
+  "commits since 2026-01-01: 2481",
+  "-- commits per month (committer date, since 2026-01-01) --",
+  "  96 2026-02",
+  " 217 2026-03",
+  " 321 2026-04",
+  "  89 2026-05",
+  " 199 2026-06",
+  " 529 2026-07",
+  " 352 2026-08",
+  " 443 2026-09",
+  " 235 2026-10"
+ ],
+ "issues": {
+  "total": 95,
+  "states": {
+   "OPEN": 5,
+   "CLOSED": 90
+  },
+  "by_author": [
+   [
+    "puritysb",
+    64
+   ],
+   [
+    "doug-w",
+    5
+   ],
+   [
+    "shin-sforzando",
+    3
+   ],
+   [
+    "dudziakl",
+    3
+   ],
+   [
+    "jcarberator",
+    3
+   ],
+   [
+    "neW1-",
+    3
+   ],
+   [
+    "houtacheng",
+    2
+   ],
+   [
+    "Madfater",
+    1
+   ],
+   [
+    "Reverbr8",
+    1
+   ],
+   [
+    "ckirk",
+    1
+   ],
+   [
+    "jurri",
+    1
+   ],
+   [
+    "webdany2k",
+    1
+   ],
+   [
+    "stefanvn",
+    1
+   ],
+   [
+    "gmarchand",
+    1
+   ],
+   [
+    "MargoHospitality",
+    1
+   ],
+   [
+    "jamesUBDau",
+    1
+   ],
+   [
+    "dakipro",
+    1
+   ],
+   [
+    "eprouveze",
+    1
+   ],
+   [
+    "Daou",
+    1
+   ]
+  ],
+  "owner_count": 64,
+  "bot_authors": [],
+  "bot_count": 0,
+  "external_count": 31,
+  "external_distinct_authors": [
+   "Daou",
+   "Madfater",
+   "MargoHospitality",
+   "Reverbr8",
+   "ckirk",
+   "dakipro",
+   "doug-w",
+   "dudziakl",
+   "eprouveze",
+   "gmarchand",
+   "houtacheng",
+   "jamesUBDau",
+   "jcarberator",
+   "jurri",
+   "neW1-",
+   "shin-sforzando",
+   "stefanvn",
+   "webdany2k"
+  ],
+  "external_states": {
+   "CLOSED": 29,
+   "OPEN": 2
+  },
+  "by_month_all": {
+   "2026-02": 1,
+   "2026-03": 1,
+   "2026-06": 3,
+   "2026-07": 14,
+   "2026-08": 24,
+   "2026-09": 34,
+   "2026-10": 18
+  },
+  "by_month_external": {
+   "2026-02": 1,
+   "2026-03": 1,
+   "2026-06": 3,
+   "2026-07": 5,
+   "2026-08": 10,
+   "2026-09": 7,
+   "2026-10": 4
+  },
+  "by_month_owner": {
+   "2026-07": 9,
+   "2026-08": 14,
+   "2026-09": 27,
+   "2026-10": 14
+  },
+  "external_items": [
+   {
+    "number": 1,
+    "author": "Daou",
+    "state": "CLOSED",
+    "created": "2026-02-25",
+    "title": "pnpm build fails on fresh clone — missing @types/node in shared package"
+   },
+   {
+    "number": 3,
+    "author": "eprouveze",
+    "state": "CLOSED",
+    "created": "2026-03-19",
+    "title": "posix_spawnp failed on Node.js 24 — prebuilt node-pty binary incompatible"
+   },
+   {
+    "number": 9,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-06-19",
+    "title": "Detail view renders the MODEL tile twice (Claude PROCESSING + OpenClaw idle)"
+   },
+   {
+    "number": 12,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-06-19",
+    "title": "Daemon crashes on Windows: uncaught EHOSTUNREACH to mDNS multicast (224.0.0.251:5353)"
+   },
+   {
+    "number": 24,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-06-26",
+    "title": "Attach remote sessions to a central daemon and control them from one Stream Deck (mDNS + explicit ho"
+   },
+   {
+    "number": 39,
+    "author": "dakipro",
+    "state": "CLOSED",
+    "created": "2026-07-01",
+    "title": "Any chance for a regular (non +) stream deck plugin?"
+   },
+   {
+    "number": 63,
+    "author": "neW1-",
+    "state": "CLOSED",
+    "created": "2026-07-13",
+    "title": "StreamDeck mini support"
+   },
+   {
+    "number": 65,
+    "author": "jamesUBDau",
+    "state": "CLOSED",
+    "created": "2026-07-16",
+    "title": "TestFlight invite request — iOS dashboard app"
+   },
+   {
+    "number": 85,
+    "author": "neW1-",
+    "state": "CLOSED",
+    "created": "2026-07-29",
+    "title": "iDotMatrix scripts missing from npm"
+   },
+   {
+    "number": 88,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-07-30",
+    "title": "AgentDeck v1.0.2 on Elgato Marketplace marked as Mac Only"
+   },
+   {
+    "number": 94,
+    "author": "MargoHospitality",
+    "state": "CLOSED",
+    "created": "2026-08-01",
+    "title": "Stream Deck + XL (36 keys / 6 dials) support?"
+   },
+   {
+    "number": 99,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-08-02",
+    "title": "Surface Claude per-model scoped usage limits (weekly caps) on the E2 encoder + a keypad button"
+   },
+   {
+    "number": 103,
+    "author": "gmarchand",
+    "state": "CLOSED",
+    "created": "2026-08-04",
+    "title": "feat(kiro): support Kiro CLI and Kiro IDE as first-class agents"
+   },
+   {
+    "number": 115,
+    "author": "neW1-",
+    "state": "CLOSED",
+    "created": "2026-08-04",
+    "title": "BLE discovery only matches device names starting with \"IDM-\" — iPixel displays not picked up"
+   },
+   {
+    "number": 145,
+    "author": "jcarberator",
+    "state": "CLOSED",
+    "created": "2026-08-06",
+    "title": "Security feedback"
+   },
+   {
+    "number": 149,
+    "author": "jcarberator",
+    "state": "CLOSED",
+    "created": "2026-08-07",
+    "title": "security feedback #2"
+   },
+   {
+    "number": 171,
+    "author": "jcarberator",
+    "state": "CLOSED",
+    "created": "2026-08-09",
+    "title": "Can't get mobile app to work"
+   },
+   {
+    "number": 174,
+    "author": "stefanvn",
+    "state": "CLOSED",
+    "created": "2026-08-10",
+    "title": "Ulanzi D200X support"
+   },
+   {
+    "number": 221,
+    "author": "houtacheng",
+    "state": "CLOSED",
+    "created": "2026-08-17",
+    "title": "[Feature]: \"Menu bar only\" mode (hide the Dock icon)"
+   },
+   {
+    "number": 246,
+    "author": "houtacheng",
+    "state": "CLOSED",
+    "created": "2026-08-20",
+    "title": "Community integration: Bitfocus Companion module for AgentDeck"
+   },
+   {
+    "number": 281,
+    "author": "webdany2k",
+    "state": "CLOSED",
+    "created": "2026-09-03",
+    "title": "Windows: install/runtime Node drift leaves better-sqlite3 unusable and APME disabled"
+   },
+   {
+    "number": 303,
+    "author": "jurri",
+    "state": "CLOSED",
+    "created": "2026-09-09",
+    "title": "[Bug]: Connected: AgentDeck [DISCONNECTED]"
+   },
+   {
+    "number": 331,
+    "author": "dudziakl",
+    "state": "CLOSED",
+    "created": "2026-09-14",
+    "title": "Windows: every Claude Code hook fails — Git Bash strips $variables from the inline PowerShell -Comma"
+   },
+   {
+    "number": 332,
+    "author": "dudziakl",
+    "state": "CLOSED",
+    "created": "2026-09-14",
+    "title": "Windows: observed-session roster flashes then empties, and the hub latches at disconnected"
+   },
+   {
+    "number": 339,
+    "author": "dudziakl",
+    "state": "CLOSED",
+    "created": "2026-09-15",
+    "title": "Windows: daemon autostart leaves a permanent console window (Task Scheduler action is the daemon its"
+   },
+   {
+    "number": 343,
+    "author": "ckirk",
+    "state": "CLOSED",
+    "created": "2026-09-16",
+    "title": "[Feature]: Access to full Claude Code hook data"
+   },
+   {
+    "number": 367,
+    "author": "Reverbr8",
+    "state": "CLOSED",
+    "created": "2026-09-23",
+    "title": "observed Claude session can remain idle during live hook-driven work"
+   },
+   {
+    "number": 445,
+    "author": "Madfater",
+    "state": "CLOSED",
+    "created": "2026-10-03",
+    "title": "Ulanzi plugin stays OFFLINE when the daemon runs in WSL2 (daemon.json discovery only)"
+   },
+   {
+    "number": 541,
+    "author": "shin-sforzando",
+    "state": "OPEN",
+    "created": "2026-10-14",
+    "title": "[Feature]: Deliver voice prompts to Claude Code sessions running in cmux"
+   },
+   {
+    "number": 544,
+    "author": "shin-sforzando",
+    "state": "OPEN",
+    "created": "2026-10-14",
+    "title": "[Feature]: Telling apart sessions that share a project name on the deck"
+   },
+   {
+    "number": 545,
+    "author": "shin-sforzando",
+    "state": "CLOSED",
+    "created": "2026-10-14",
+    "title": "[Bug]: A session ending or an app restart leaves the working session stuck at \"disconnected\""
+   }
+  ]
+ },
+ "prs": {
+  "total": 454,
+  "states": {
+   "OPEN": 1,
+   "MERGED": 430,
+   "CLOSED": 23
+  },
+  "by_author": [
+   [
+    "puritysb",
+    408
+   ],
+   [
+    "doug-w",
+    24
+   ],
+   [
+    "jcarberator",
+    7
+   ],
+   [
+    "dudziakl",
+    4
+   ],
+   [
+    "pjodoin",
+    2
+   ],
+   [
+    "Roja430",
+    2
+   ],
+   [
+    "jurri",
+    1
+   ],
+   [
+    "uto-usui",
+    1
+   ],
+   [
+    "bruna-peteco",
+    1
+   ],
+   [
+    "shotaisaam",
+    1
+   ],
+   [
+    "eprouveze",
+    1
+   ],
+   [
+    "pakuda",
+    1
+   ],
+   [
+    "r-dent",
+    1
+   ]
+  ],
+  "owner_count": 408,
+  "bot_authors": [],
+  "bot_count": 0,
+  "external_count": 46,
+  "external_distinct_authors": [
+   "Roja430",
+   "bruna-peteco",
+   "doug-w",
+   "dudziakl",
+   "eprouveze",
+   "jcarberator",
+   "jurri",
+   "pakuda",
+   "pjodoin",
+   "r-dent",
+   "shotaisaam",
+   "uto-usui"
+  ],
+  "external_states": {
+   "MERGED": 32,
+   "CLOSED": 14
+  },
+  "by_month_all": {
+   "2026-02": 1,
+   "2026-04": 3,
+   "2026-06": 28,
+   "2026-07": 40,
+   "2026-08": 163,
+   "2026-09": 117,
+   "2026-10": 102
+  },
+  "by_month_external": {
+   "2026-02": 1,
+   "2026-04": 1,
+   "2026-06": 7,
+   "2026-07": 15,
+   "2026-08": 15,
+   "2026-09": 6,
+   "2026-10": 1
+  },
+  "by_month_owner": {
+   "2026-04": 2,
+   "2026-06": 21,
+   "2026-07": 25,
+   "2026-08": 148,
+   "2026-09": 111,
+   "2026-10": 101
+  },
+  "external_items": [
+   {
+    "number": 2,
+    "author": "r-dent",
+    "state": "MERGED",
+    "created": "2026-02-25",
+    "title": "fix: node-pty spawn-helper permissions on macOS with pnpm"
+   },
+   {
+    "number": 4,
+    "author": "pakuda",
+    "state": "CLOSED",
+    "created": "2026-04-10",
+    "title": "fix: session slots empty on first launch (4 root causes)"
+   },
+   {
+    "number": 8,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-06-19",
+    "title": "Windows 11 port (bridge, hooks, plugin, setup)"
+   },
+   {
+    "number": 10,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-06-19",
+    "title": "fix(plugin): render MODEL detail tile exactly once"
+   },
+   {
+    "number": 11,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-06-19",
+    "title": "docs(readme): document -c passthrough for resume / remote-control"
+   },
+   {
+    "number": 13,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-06-19",
+    "title": "fix(bridge): tolerate mDNS EHOSTUNREACH multicast failure on Windows"
+   },
+   {
+    "number": 14,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-06-19",
+    "title": "fix(plugin): hide READY/idle tile while a session is PROCESSING"
+   },
+   {
+    "number": 22,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-06-26",
+    "title": "fix(mdns): pin multicast egress to LAN interface on Windows"
+   },
+   {
+    "number": 23,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-06-26",
+    "title": "feat(bridge): Windows daemon autostart via per-user Scheduled Task"
+   },
+   {
+    "number": 43,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-03",
+    "title": "fix(codex): Windows support for Codex hooks (PowerShell lifecycle hooks + working notify fallback)"
+   },
+   {
+    "number": 50,
+    "author": "eprouveze",
+    "state": "CLOSED",
+    "created": "2026-07-08",
+    "title": "docs: trim CLAUDE.md to <120 lines"
+   },
+   {
+    "number": 51,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-07-09",
+    "title": "fix(claude): UTF-8 stdin + POST body in Windows hook one-liner"
+   },
+   {
+    "number": 52,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-07-09",
+    "title": "feat(sessions): --weight sort override to pin deck/tab order"
+   },
+   {
+    "number": 53,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-10",
+    "title": "feat(bridge): opt-in remote daemon attach for cross-machine sessions"
+   },
+   {
+    "number": 54,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-10",
+    "title": "feat(bridge): Linux port — systemd daemon autostart + POSIX fixes"
+   },
+   {
+    "number": 55,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-07-10",
+    "title": "fix(bridge): correctly render AskUserQuestion / permission / diff prompts on the deck"
+   },
+   {
+    "number": 56,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-11",
+    "title": "fix(windows): make Claude Code hooks preserve UTF-8 payloads"
+   },
+   {
+    "number": 61,
+    "author": "shotaisaam",
+    "state": "CLOSED",
+    "created": "2026-07-11",
+    "title": "feat(codex): Stream Deck監視をCLIとDesktopに対応"
+   },
+   {
+    "number": 62,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-12",
+    "title": "feat(sessions): --weight sort override to pin deck/tab order (resubmit of #52)"
+   },
+   {
+    "number": 80,
+    "author": "Roja430",
+    "state": "CLOSED",
+    "created": "2026-07-26",
+    "title": "fix(windows): protocol generator, console flashing, and the hooks response channel"
+   },
+   {
+    "number": 81,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-28",
+    "title": "fix(apme): disable user diff drivers in judge/artifact git diffs"
+   },
+   {
+    "number": 82,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-07-28",
+    "title": "fix(apme): judge failure backoff + skip darwin-only judge backends off-macOS"
+   },
+   {
+    "number": 83,
+    "author": "doug-w",
+    "state": "CLOSED",
+    "created": "2026-07-28",
+    "title": "fix(docs): re-render hardware spec cards (unbreaks the design-system gate on master)"
+   },
+   {
+    "number": 86,
+    "author": "bruna-peteco",
+    "state": "CLOSED",
+    "created": "2026-07-29",
+    "title": "Surface per-model weekly usage limits (Fable) on the Pixoo HUD"
+   },
+   {
+    "number": 93,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-08-01",
+    "title": "feat(cli): env-var default args for session commands"
+   },
+   {
+    "number": 95,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-08-01",
+    "title": "fix(tests): green the Windows suite — LF working tree + platform-aware tests"
+   },
+   {
+    "number": 96,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-08-01",
+    "title": "feat(plugin): cross-platform system layer — Windows joins macOS"
+   },
+   {
+    "number": 97,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-08-02",
+    "title": "feat(plugin): Stream Deck + XL and XL first-class support (DeviceType 13/2)"
+   },
+   {
+    "number": 98,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-08-02",
+    "title": "fix(bridge): resolve Claude usage OAuth credentials on Windows/Linux"
+   },
+   {
+    "number": 102,
+    "author": "doug-w",
+    "state": "MERGED",
+    "created": "2026-08-04",
+    "title": "feat(usage): surface Claude per-model scoped usage limits (#99)"
+   },
+   {
+    "number": 150,
+    "author": "jcarberator",
+    "state": "MERGED",
+    "created": "2026-08-07",
+    "title": "fix(security): stop leaking pairing credentials over UDP and logs"
+   },
+   {
+    "number": 161,
+    "author": "jcarberator",
+    "state": "CLOSED",
+    "created": "2026-08-08",
+    "title": "fix(plugin): reject expired Claude usage windows"
+   },
+   {
+    "number": 162,
+    "author": "jcarberator",
+    "state": "MERGED",
+    "created": "2026-08-08",
+    "title": "fix(observer): expire silent Claude processing states"
+   },
+   {
+    "number": 163,
+    "author": "jcarberator",
+    "state": "CLOSED",
+    "created": "2026-08-08",
+    "title": "feat(codex): surface persistent goals as read-only tiles"
+   },
+   {
+    "number": 164,
+    "author": "jcarberator",
+    "state": "MERGED",
+    "created": "2026-08-08",
+    "title": "feat(plugin): add device-aware Stream Deck profiles"
+   },
+   {
+    "number": 165,
+    "author": "Roja430",
+    "state": "CLOSED",
+    "created": "2026-08-08",
+    "title": "Windows codex micro"
+   },
+   {
+    "number": 168,
+    "author": "jcarberator",
+    "state": "CLOSED",
+    "created": "2026-08-09",
+    "title": "feat: add read-only Hermes session observation"
+   },
+   {
+    "number": 170,
+    "author": "jcarberator",
+    "state": "MERGED",
+    "created": "2026-08-09",
+    "title": "feat(plugin): label Claude and Codex usage encoders"
+   },
+   {
+    "number": 176,
+    "author": "uto-usui",
+    "state": "MERGED",
+    "created": "2026-08-12",
+    "title": "fix(bridge): preserve multi-byte UTF-8 across stdin chunk boundaries"
+   },
+   {
+    "number": 304,
+    "author": "jurri",
+    "state": "MERGED",
+    "created": "2026-09-09",
+    "title": "docs(windows): run the checkout CLI without a global link"
+   },
+   {
+    "number": 329,
+    "author": "dudziakl",
+    "state": "MERGED",
+    "created": "2026-09-14",
+    "title": "fix(hooks): invoke the Windows hook as a script file, not an inline -Command"
+   },
+   {
+    "number": 330,
+    "author": "dudziakl",
+    "state": "MERGED",
+    "created": "2026-09-14",
+    "title": "fix(bridge): stop blanking the observed roster and latching the hub at disconnected"
+   },
+   {
+    "number": 336,
+    "author": "dudziakl",
+    "state": "MERGED",
+    "created": "2026-09-14",
+    "title": "fix(windows): run the autostart daemon with no console window"
+   },
+   {
+    "number": 342,
+    "author": "pjodoin",
+    "state": "MERGED",
+    "created": "2026-09-15",
+    "title": "fix(streamdeck): keep Claude usage views per action"
+   },
+   {
+    "number": 363,
+    "author": "pjodoin",
+    "state": "MERGED",
+    "created": "2026-09-22",
+    "title": "fix(usage): retry Claude recovery and honor CLI override"
+   },
+   {
+    "number": 534,
+    "author": "dudziakl",
+    "state": "MERGED",
+    "created": "2026-10-13",
+    "title": "fix(cli): resolve the agentdeck binary with `where` on Windows"
+   }
+  ]
+ },
+ "external_union_authors": [
+  "Daou",
+  "Madfater",
+  "MargoHospitality",
+  "Reverbr8",
+  "Roja430",
+  "bruna-peteco",
+  "ckirk",
+  "dakipro",
+  "doug-w",
+  "dudziakl",
+  "eprouveze",
+  "gmarchand",
+  "houtacheng",
+  "jamesUBDau",
+  "jcarberator",
+  "jurri",
+  "neW1-",
+  "pakuda",
+  "pjodoin",
+  "r-dent",
+  "shin-sforzando",
+  "shotaisaam",
+  "stefanvn",
+  "uto-usui",
+  "webdany2k"
+ ],
+ "external_both_authors": [
+  "doug-w",
+  "dudziakl",
+  "eprouveze",
+  "jcarberator",
+  "jurri"
+ ],
+ "external_author_table": [
+  [
+   "doug-w",
+   {
+    "issues": 5,
+    "prs": 24,
+    "prs_merged": 19,
+    "first": "2026-06-19",
+    "last": "2026-08-04"
+   }
+  ],
+  [
+   "jcarberator",
+   {
+    "issues": 3,
+    "prs": 7,
+    "prs_merged": 4,
+    "first": "2026-08-06",
+    "last": "2026-08-09"
+   }
+  ],
+  [
+   "dudziakl",
+   {
+    "issues": 3,
+    "prs": 4,
+    "prs_merged": 4,
+    "first": "2026-09-14",
+    "last": "2026-10-13"
+   }
+  ],
+  [
+   "neW1-",
+   {
+    "issues": 3,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-07-13",
+    "last": "2026-08-04"
+   }
+  ],
+  [
+   "shin-sforzando",
+   {
+    "issues": 3,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-10-14",
+    "last": "2026-10-14"
+   }
+  ],
+  [
+   "Roja430",
+   {
+    "issues": 0,
+    "prs": 2,
+    "prs_merged": 0,
+    "first": "2026-07-26",
+    "last": "2026-08-08"
+   }
+  ],
+  [
+   "eprouveze",
+   {
+    "issues": 1,
+    "prs": 1,
+    "prs_merged": 0,
+    "first": "2026-03-19",
+    "last": "2026-07-08"
+   }
+  ],
+  [
+   "houtacheng",
+   {
+    "issues": 2,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-08-17",
+    "last": "2026-08-20"
+   }
+  ],
+  [
+   "jurri",
+   {
+    "issues": 1,
+    "prs": 1,
+    "prs_merged": 1,
+    "first": "2026-09-09",
+    "last": "2026-09-09"
+   }
+  ],
+  [
+   "pjodoin",
+   {
+    "issues": 0,
+    "prs": 2,
+    "prs_merged": 2,
+    "first": "2026-09-15",
+    "last": "2026-09-22"
+   }
+  ],
+  [
+   "Daou",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-02-25",
+    "last": "2026-02-25"
+   }
+  ],
+  [
+   "Madfater",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-10-03",
+    "last": "2026-10-03"
+   }
+  ],
+  [
+   "MargoHospitality",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-08-01",
+    "last": "2026-08-01"
+   }
+  ],
+  [
+   "Reverbr8",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-09-23",
+    "last": "2026-09-23"
+   }
+  ],
+  [
+   "bruna-peteco",
+   {
+    "issues": 0,
+    "prs": 1,
+    "prs_merged": 0,
+    "first": "2026-07-29",
+    "last": "2026-07-29"
+   }
+  ],
+  [
+   "ckirk",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-09-16",
+    "last": "2026-09-16"
+   }
+  ],
+  [
+   "dakipro",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-07-01",
+    "last": "2026-07-01"
+   }
+  ],
+  [
+   "gmarchand",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-08-04",
+    "last": "2026-08-04"
+   }
+  ],
+  [
+   "jamesUBDau",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-07-16",
+    "last": "2026-07-16"
+   }
+  ],
+  [
+   "pakuda",
+   {
+    "issues": 0,
+    "prs": 1,
+    "prs_merged": 0,
+    "first": "2026-04-10",
+    "last": "2026-04-10"
+   }
+  ],
+  [
+   "r-dent",
+   {
+    "issues": 0,
+    "prs": 1,
+    "prs_merged": 1,
+    "first": "2026-02-25",
+    "last": "2026-02-25"
+   }
+  ],
+  [
+   "shotaisaam",
+   {
+    "issues": 0,
+    "prs": 1,
+    "prs_merged": 0,
+    "first": "2026-07-11",
+    "last": "2026-07-11"
+   }
+  ],
+  [
+   "stefanvn",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-08-10",
+    "last": "2026-08-10"
+   }
+  ],
+  [
+   "uto-usui",
+   {
+    "issues": 0,
+    "prs": 1,
+    "prs_merged": 1,
+    "first": "2026-08-12",
+    "last": "2026-08-12"
+   }
+  ],
+  [
+   "webdany2k",
+   {
+    "issues": 1,
+    "prs": 0,
+    "prs_merged": 0,
+    "first": "2026-09-03",
+    "last": "2026-09-03"
+   }
+  ]
+ ],
+ "external_first_seen": {
+  "Daou": "2026-02-25",
+  "r-dent": "2026-02-25",
+  "eprouveze": "2026-03-19",
+  "pakuda": "2026-04-10",
+  "doug-w": "2026-06-19",
+  "dakipro": "2026-07-01",
+  "shotaisaam": "2026-07-11",
+  "neW1-": "2026-07-13",
+  "jamesUBDau": "2026-07-16",
+  "Roja430": "2026-07-26",
+  "bruna-peteco": "2026-07-29",
+  "MargoHospitality": "2026-08-01",
+  "gmarchand": "2026-08-04",
+  "jcarberator": "2026-08-06",
+  "stefanvn": "2026-08-10",
+  "uto-usui": "2026-08-12",
+  "houtacheng": "2026-08-17",
+  "webdany2k": "2026-09-03",
+  "jurri": "2026-09-09",
+  "dudziakl": "2026-09-14",
+  "pjodoin": "2026-09-15",
+  "ckirk": "2026-09-16",
+  "Reverbr8": "2026-09-23",
+  "Madfater": "2026-10-03",
+  "shin-sforzando": "2026-10-14"
+ },
+ "external_new_authors_by_month": {
+  "2026-02": 2,
+  "2026-03": 1,
+  "2026-04": 1,
+  "2026-06": 1,
+  "2026-07": 6,
+  "2026-08": 6,
+  "2026-09": 6,
+  "2026-10": 2
+ },
+ "releases": {
+  "total": 136,
+  "channels": {
+   "android": {
+    "count": 22,
+    "drafts": 0,
+    "prereleases": 0,
+    "first": "2026-06-26",
+    "last": "2026-10-13",
+    "first_tag": "android-v0.1.0",
+    "last_tag": "android-v1.10.1",
+    "downloads": 55,
+    "assets": 22
+   },
+   "apple": {
+    "count": 21,
+    "drafts": 0,
+    "prereleases": 0,
+    "first": "2026-07-10",
+    "last": "2026-10-13",
+    "first_tag": "apple-v0.1.0",
+    "last_tag": "apple-v1.9.1",
+    "downloads": 0,
+    "assets": 0
+   },
+   "esp32": {
+    "count": 21,
+    "drafts": 0,
+    "prereleases": 0,
+    "first": "2026-06-26",
+    "last": "2026-10-13",
+    "first_tag": "esp32-v0.1.1",
+    "last_tag": "esp32-v1.9.2",
+    "downloads": 1336,
+    "assets": 1032
+   },
+   "npm": {
+    "count": 42,
+    "drafts": 0,
+    "prereleases": 0,
+    "first": "2026-07-20",
+    "last": "2026-10-13",
+    "first_tag": "npm-v1.0.0",
+    "last_tag": "npm-v1.9.2",
+    "downloads": 0,
+    "assets": 0
+   },
+   "other": {
+    "count": 2,
+    "drafts": 0,
+    "prereleases": 2,
+    "first": "2026-07-30",
+    "last": "2026-10-01",
+    "first_tag": "verification-streamdeck-v1.0.3-windows.1",
+    "last_tag": "assets-hermes-character-candidate",
+    "downloads": 13,
+    "assets": 13
+   },
+   "streamdeck": {
+    "count": 14,
+    "drafts": 0,
+    "prereleases": 0,
+    "first": "2026-06-26",
+    "last": "2026-10-13",
+    "first_tag": "streamdeck-v0.1.0",
+    "last_tag": "streamdeck-v1.8.1",
+    "downloads": 86,
+    "assets": 14
+   },
+   "ulanzi": {
+    "count": 14,
+    "drafts": 0,
+    "prereleases": 0,
+    "first": "2026-06-26",
+    "last": "2026-10-13",
+    "first_tag": "ulanzi-v0.1.0",
+    "last_tag": "ulanzi-v1.8.1",
+    "downloads": 32,
+    "assets": 14
+   }
+  },
+  "other_tags": [
+   "assets-hermes-character-candidate",
+   "verification-streamdeck-v1.0.3-windows.1"
+  ],
+  "assets_without_release_row": [],
+  "release_rows_without_assets": [],
+  "total_downloads": 1522,
+  "total_assets": 1095,
+  "top_assets": [
+   [
+    42,
+    "esp32-v1.4.0",
+    "manifest.json"
+   ],
+   [
+    41,
+    "esp32-v1.8.0",
+    "manifest.json"
+   ],
+   [
+    38,
+    "esp32-v1.6.0",
+    "manifest.json"
+   ],
+   [
+    37,
+    "esp32-v1.3.0",
+    "manifest.json"
+   ],
+   [
+    32,
+    "esp32-v1.2.2",
+    "manifest.json"
+   ],
+   [
+    28,
+    "esp32-v1.0.8",
+    "manifest.json"
+   ],
+   [
+    26,
+    "esp32-v1.0.7",
+    "manifest.json"
+   ],
+   [
+    17,
+    "streamdeck-v0.1.0",
+    "bound.serendipity.agentdeck.streamDeckPlugin"
+   ],
+   [
+    16,
+    "streamdeck-v1.0.2",
+    "bound.serendipity.agentdeck.streamDeckPlugin"
+   ],
+   [
+    15,
+    "esp32-v1.2.3",
+    "manifest.json"
+   ],
+   [
+    14,
+    "esp32-v1.7.0",
+    "manifest.json"
+   ],
+   [
+    13,
+    "esp32-v1.2.1",
+    "manifest.json"
+   ]
+  ],
+  "assets_with_nonzero_downloads": 720,
+  "by_month_all": {
+   "2026-06": 4,
+   "2026-07": 20,
+   "2026-08": 45,
+   "2026-09": 41,
+   "2026-10": 26
+  },
+  "by_month_by_channel": {
+   "android": {
+    "2026-06": 1,
+    "2026-07": 3,
+    "2026-08": 6,
+    "2026-09": 7,
+    "2026-10": 5
+   },
+   "apple": {
+    "2026-07": 4,
+    "2026-08": 6,
+    "2026-09": 7,
+    "2026-10": 4
+   },
+   "esp32": {
+    "2026-06": 1,
+    "2026-07": 1,
+    "2026-08": 7,
+    "2026-09": 7,
+    "2026-10": 5
+   },
+   "npm": {
+    "2026-07": 6,
+    "2026-08": 19,
+    "2026-09": 12,
+    "2026-10": 5
+   },
+   "other": {
+    "2026-07": 1,
+    "2026-10": 1
+   },
+   "streamdeck": {
+    "2026-06": 1,
+    "2026-07": 3,
+    "2026-08": 3,
+    "2026-09": 4,
+    "2026-10": 3
+   },
+   "ulanzi": {
+    "2026-06": 1,
+    "2026-07": 2,
+    "2026-08": 4,
+    "2026-09": 4,
+    "2026-10": 3
+   }
+  },
+  "channel_latest_release_downloads": {
+   "npm": [
+    "npm-v1.9.2",
+    0
+   ],
+   "esp32": [
+    "esp32-v1.9.2",
+    78
+   ],
+   "apple": [
+    "apple-v1.9.1",
+    0
+   ],
+   "android": [
+    "android-v1.10.1",
+    1
+   ],
+   "streamdeck": [
+    "streamdeck-v1.8.1",
+    3
+   ],
+   "ulanzi": [
+    "ulanzi-v1.8.1",
+    2
+   ],
+   "other": [
+    "assets-hermes-character-candidate",
+    9
+   ]
+  }
+ },
+ "npm": {
+  "setup": {
+   "latest": "1.9.2",
+   "created": "2026-02-28T03:19:42.573Z",
+   "modified": "2026-10-13T18:17:57.362Z",
+   "versions": 45,
+   "versions_by_month": {
+    "2026-02": 1,
+    "2026-04": 1,
+    "2026-07": 6,
+    "2026-08": 20,
+    "2026-09": 12,
+    "2026-10": 5
+   },
+   "last_month": 2062,
+   "last_month_window": [
+    "2026-09-13",
+    "2026-10-12"
+   ],
+   "last_week": 318,
+   "last_week_window": [
+    "2026-10-06",
+    "2026-10-12"
+   ],
+   "range_window": [
+    "2026-01-01",
+    "2026-10-16"
+   ],
+   "range_total": 7948,
+   "by_month": {
+    "2026-01": 0,
+    "2026-02": 25,
+    "2026-03": 57,
+    "2026-04": 170,
+    "2026-05": 51,
+    "2026-06": 118,
+    "2026-07": 1134,
+    "2026-08": 3519,
+    "2026-09": 2264,
+    "2026-10": 610
+   },
+   "first_nonzero_day": "2026-02-28",
+   "max_day": {
+    "downloads": 676,
+    "day": "2026-08-07"
+   },
+   "last_14_days": [
+    [
+     "2026-10-03",
+     48
+    ],
+    [
+     "2026-10-04",
+     215
+    ],
+    [
+     "2026-10-05",
+     0
+    ],
+    [
+     "2026-10-06",
+     0
+    ],
+    [
+     "2026-10-07",
+     29
+    ],
+    [
+     "2026-10-08",
+     20
+    ],
+    [
+     "2026-10-09",
+     11
+    ],
+    [
+     "2026-10-10",
+     6
+    ],
+    [
+     "2026-10-11",
+     9
+    ],
+    [
+     "2026-10-12",
+     243
+    ],
+    [
+     "2026-10-13",
+     0
+    ],
+    [
+     "2026-10-14",
+     0
+    ],
+    [
+     "2026-10-15",
+     0
+    ],
+    [
+     "2026-10-16",
+     0
+    ]
+   ]
+  },
+  "bridge": {
+   "latest": "1.9.2",
+   "created": "2026-02-28T03:19:36.460Z",
+   "modified": "2026-10-13T18:17:53.223Z",
+   "versions": 47,
+   "versions_by_month": {
+    "2026-02": 1,
+    "2026-04": 3,
+    "2026-07": 6,
+    "2026-08": 20,
+    "2026-09": 12,
+    "2026-10": 5
+   },
+   "last_month": 2183,
+   "last_month_window": [
+    "2026-09-13",
+    "2026-10-12"
+   ],
+   "last_week": 317,
+   "last_week_window": [
+    "2026-10-06",
+    "2026-10-12"
+   ],
+   "range_window": [
+    "2026-01-01",
+    "2026-10-16"
+   ],
+   "range_total": 8731,
+   "by_month": {
+    "2026-01": 0,
+    "2026-02": 26,
+    "2026-03": 57,
+    "2026-04": 403,
+    "2026-05": 87,
+    "2026-06": 141,
+    "2026-07": 1233,
+    "2026-08": 3740,
+    "2026-09": 2384,
+    "2026-10": 660
+   },
+   "first_nonzero_day": "2026-02-28",
+   "max_day": {
+    "downloads": 730,
+    "day": "2026-08-07"
+   },
+   "last_14_days": [
+    [
+     "2026-10-03",
+     48
+    ],
+    [
+     "2026-10-04",
+     228
+    ],
+    [
+     "2026-10-05",
+     33
+    ],
+    [
+     "2026-10-06",
+     0
+    ],
+    [
+     "2026-10-07",
+     47
+    ],
+    [
+     "2026-10-08",
+     25
+    ],
+    [
+     "2026-10-09",
+     20
+    ],
+    [
+     "2026-10-10",
+     5
+    ],
+    [
+     "2026-10-11",
+     16
+    ],
+    [
+     "2026-10-12",
+     204
+    ],
+    [
+     "2026-10-13",
+     0
+    ],
+    [
+     "2026-10-14",
+     0
+    ],
+    [
+     "2026-10-15",
+     0
+    ],
+    [
+     "2026-10-16",
+     0
+    ]
+   ]
+  },
+  "shared": {
+   "latest": "1.9.2",
+   "created": "2026-02-28T03:19:29.728Z",
+   "modified": "2026-10-13T18:16:16.761Z",
+   "versions": 45,
+   "versions_by_month": {
+    "2026-02": 1,
+    "2026-04": 1,
+    "2026-07": 6,
+    "2026-08": 20,
+    "2026-09": 12,
+    "2026-10": 5
+   },
+   "last_month": 2306,
+   "last_month_window": [
+    "2026-09-13",
+    "2026-10-12"
+   ],
+   "last_week": 301,
+   "last_week_window": [
+    "2026-10-06",
+    "2026-10-12"
+   ],
+   "range_window": [
+    "2026-01-01",
+    "2026-10-16"
+   ],
+   "range_total": 8398,
+   "by_month": {
+    "2026-01": 0,
+    "2026-02": 30,
+    "2026-03": 51,
+    "2026-04": 186,
+    "2026-05": 56,
+    "2026-06": 103,
+    "2026-07": 1133,
+    "2026-08": 3699,
+    "2026-09": 2429,
+    "2026-10": 711
+   },
+   "first_nonzero_day": "2026-02-28",
+   "max_day": {
+    "downloads": 739,
+    "day": "2026-08-07"
+   },
+   "last_14_days": [
+    [
+     "2026-10-03",
+     80
+    ],
+    [
+     "2026-10-04",
+     214
+    ],
+    [
+     "2026-10-05",
+     80
+    ],
+    [
+     "2026-10-06",
+     0
+    ],
+    [
+     "2026-10-07",
+     32
+    ],
+    [
+     "2026-10-08",
+     28
+    ],
+    [
+     "2026-10-09",
+     12
+    ],
+    [
+     "2026-10-10",
+     8
+    ],
+    [
+     "2026-10-11",
+     15
+    ],
+    [
+     "2026-10-12",
+     206
+    ],
+    [
+     "2026-10-13",
+     0
+    ],
+    [
+     "2026-10-14",
+     0
+    ],
+    [
+     "2026-10-15",
+     0
+    ],
+    [
+     "2026-10-16",
+     0
+    ]
+   ]
+  },
+  "hooks": {
+   "latest": "1.9.2",
+   "created": "2026-04-27T16:16:05.778Z",
+   "modified": "2026-10-13T18:16:01.197Z",
+   "versions": 44,
+   "versions_by_month": {
+    "2026-04": 1,
+    "2026-07": 6,
+    "2026-08": 20,
+    "2026-09": 12,
+    "2026-10": 5
+   },
+   "last_month": 2205,
+   "last_month_window": [
+    "2026-09-13",
+    "2026-10-12"
+   ],
+   "last_week": 306,
+   "last_week_window": [
+    "2026-10-06",
+    "2026-10-12"
+   ],
+   "range_window": [
+    "2026-01-01",
+    "2026-10-16"
+   ],
+   "range_total": 8038,
+   "by_month": {
+    "2026-01": 0,
+    "2026-02": 0,
+    "2026-03": 0,
+    "2026-04": 70,
+    "2026-05": 29,
+    "2026-06": 26,
+    "2026-07": 1097,
+    "2026-08": 3754,
+    "2026-09": 2417,
+    "2026-10": 645
+   },
+   "first_nonzero_day": "2026-04-27",
+   "max_day": {
+    "downloads": 775,
+    "day": "2026-08-07"
+   },
+   "last_14_days": [
+    [
+     "2026-10-03",
+     38
+    ],
+    [
+     "2026-10-04",
+     219
+    ],
+    [
+     "2026-10-05",
+     46
+    ],
+    [
+     "2026-10-06",
+     0
+    ],
+    [
+     "2026-10-07",
+     30
+    ],
+    [
+     "2026-10-08",
+     27
+    ],
+    [
+     "2026-10-09",
+     15
+    ],
+    [
+     "2026-10-10",
+     3
+    ],
+    [
+     "2026-10-11",
+     13
+    ],
+    [
+     "2026-10-12",
+     218
+    ],
+    [
+     "2026-10-13",
+     0
+    ],
+    [
+     "2026-10-14",
+     0
+    ],
+    [
+     "2026-10-15",
+     0
+    ],
+    [
+     "2026-10-16",
+     0
+    ]
+   ]
+  }
+ },
+ "npm_plugin_private": [
+  "npm error code E404",
+  "npm error 404 Not Found - GET https://registry.npmjs.org/@agentdeck%2fplugin - Not found",
+  "npm error 404"
+ ]
+}

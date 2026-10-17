@@ -23,7 +23,8 @@ export const COLLABORATION_PRESENTATION = {
     // Never classify a clipped summary: a later sentence can waive a reply.
     maxCharacters: 16_000,
     whitespace: String.raw`[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]`,
-    noReply: String.raw`\b(?:no (?:reply|response) (?:is )?(?:needed|required|necessary)|do not reply|don't reply|no need to (?:reply|respond))\b|(?:답장|답변|응답|회신)\s*(?:[은는이가]\s*)?(?:불필요|필요\s*없|하지\s*마|안\s*해도)|세션\s*사이\s*알림`,
+    // A waiver can contain the positive phrase "reply is requested"; match it first.
+    noReply: String.raw`\b(?:no (?:reply|response) (?:is )?(?:needed|required|necessary|requested|expected)|(?:reply|response) is not (?:needed|required|necessary|requested|expected)|(?:do not|don't) (?:reply|respond|send (?:a |any )?(?:reply|response))|no need to (?:reply|respond))\b|(?:답장|답변|응답|회신)\s*(?:[은는이가]\s*)?(?:불필요|필요\s*없|하지\s*마|안\s*해도)|세션\s*사이\s*알림`,
     request: String.raw`\b(?:please (?:reply|respond|confirm|report back)|(?:can|could|would) you (?:reply|respond|confirm)|(?:reply|response) (?:is )?(?:required|requested)|let me know|send me (?:the |your )?(?:results|findings|answer))\b|(?:^|[.!?\n;:])\s*report back\b|(?:답장|답변|응답|회신)(?:을|를)?\s*(?:부탁|요청|해\s*줘|해주|해\s*주|바랍|주세요)|(?:알려|보고해|공유해)\s*(?:줘|주세|주시|주면)`,
     response: String.raw`\b(?:in reply to|in response to|here (?:are|is) (?:the |your )?requested (?:results|findings|answer))\b|(?:답변|회신)(?:입니다|드립니다)|요청하신[^.!?\n]{0,50}(?:결과|답변|보고)`,
     notification: String.raw`\b(?:fyi|heads[ -]up|pong|for (?:your )?information|notification|status update)\b|(?:참고용|단순\s*알림|결과\s*보고|완료\s*보고)`,

@@ -11,7 +11,7 @@
  * neutral behavior.
  */
 
-import { execFileSync } from 'child_process';
+import { execFileText } from './process.js';
 import { debug } from '../logger.js';
 
 export interface HwSnapshot {
@@ -29,18 +29,16 @@ export interface HwSnapshot {
   timestamp: number;
 }
 
-function safeSysctl(key: string): string | null {
+async function safeSysctl(key: string): Promise<string | null> {
   try {
-    return execFileSync('sysctl', ['-n', key], {
-      encoding: 'utf-8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return (await execFileText('sysctl', ['-n', key], { timeout: 1000 })).trim();
   } catch {
     return null;
   }
 }
 
-function readMacMemory(): { total?: number; used?: number } {
-  const total = safeSysctl('hw.memsize');
+async function readMacMemory(): Promise<{ total?: number; used?: number }> {
+  const total = await safeSysctl('hw.memsize');
   let memTotal: number | undefined;
   if (total) {
     const n = Number(total);
@@ -49,9 +47,7 @@ function readMacMemory(): { total?: number; used?: number } {
 
   let memUsed: number | undefined;
   try {
-    const out = execFileSync('vm_stat', [], {
-      encoding: 'utf-8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const out = await execFileText('vm_stat', [], { timeout: 1000 });
     // vm_stat prints "page size of N bytes" on the first line, then
     // "Pages active:   N." style lines.
     const pageSizeMatch = out.match(/page size of (\d+) bytes/);
@@ -71,8 +67,8 @@ function readMacMemory(): { total?: number; used?: number } {
   return { total: memTotal, used: memUsed };
 }
 
-function readMacCpu(): { load?: number; count?: number } {
-  const count = safeSysctl('hw.logicalcpu');
+async function readMacCpu(): Promise<{ load?: number; count?: number }> {
+  const count = await safeSysctl('hw.logicalcpu');
   let cpuCount: number | undefined;
   if (count) {
     const n = Number(count);
@@ -82,9 +78,7 @@ function readMacCpu(): { load?: number; count?: number } {
   let cpuLoad: number | undefined;
   try {
     // `uptime` prints "... load averages: 1.23 1.45 1.67"
-    const out = execFileSync('uptime', [], {
-      encoding: 'utf-8', timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const out = await execFileText('uptime', [], { timeout: 1000 });
     const m = out.match(/load averages?:\s+([0-9.]+)/);
     if (m && cpuCount) {
       const load1 = parseFloat(m[1]);
@@ -99,17 +93,23 @@ function readMacCpu(): { load?: number; count?: number } {
 }
 
 export class ApmeHwSampler {
-  async snapshot(): Promise<HwSnapshot> {
+  private pending: Promise<HwSnapshot> | null = null;
+  snapshot(): Promise<HwSnapshot> {
+    if (this.pending) return this.pending;
+    const pending = this.sample().finally(() => { if (this.pending === pending) this.pending = null; });
+    this.pending = pending;
+    return pending;
+  }
+
+  private async sample(): Promise<HwSnapshot> {
     const snap: HwSnapshot = { platform: process.platform, timestamp: Date.now() };
     if (process.platform !== 'darwin') return snap;
     try {
-      const mem = readMacMemory();
-      const cpu = readMacCpu();
+      const [mem, cpu, model] = await Promise.all([readMacMemory(), readMacCpu(), safeSysctl('hw.model')]);
       snap.memTotal = mem.total;
       snap.memUsed = mem.used;
       snap.cpuLoad = cpu.load;
       snap.cpuCount = cpu.count;
-      const model = safeSysctl('hw.model');
       if (model) snap.model = model;
     } catch (err) {
       debug('APME', `hw-sampler failed: ${String(err)}`);

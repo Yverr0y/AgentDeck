@@ -33,14 +33,24 @@ describe('APME background queues avoid payload table scans', () => {
     db.close(); store.close(); rmSync(dir, { recursive: true, force: true });
   });
 
-  function planFor(call: () => unknown): string {
+  function planFor(call: () => unknown, params: number[] = [5]): string {
     const spy = vi.spyOn(Database.prototype, 'prepare');
     call();
     const sql = spy.mock.calls[0][0];
     spy.mockRestore();
-    return (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(5) as { detail: string }[])
+    return (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[])
       .map(row => row.detail).join('\n');
   }
+
+  it('bounds the orphan and unjudged queues before touching prompt-bearing rows', () => {
+    const orphan = planFor(() => store.listOrphanedRuns());
+    expect(orphan).toContain('idx_runs_empty_open');
+    expect(orphan).not.toContain('SCAN r');
+    const backlog = planFor(() => store.listTasksNeedingSummary(20, 0), [0, 20]);
+    expect(backlog).toContain('idx_tasks_unjudged_queue');
+    expect(backlog).not.toContain('SCAN t');
+    expect(backlog).not.toContain('TEMP B-TREE');
+  });
 
   it('orders the closed-run queue from a covering index and still excludes open/empty runs', () => {
     expect(store.listUnevaluatedRuns(5).map(row => row.id)).toEqual(['new', 'old']);

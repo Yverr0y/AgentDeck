@@ -49,6 +49,8 @@ export const CODEX_AMBIENT_PROMPT_PATTERNS: readonly RegExp[] = [
   // marker is optional so a stripped copy still matches.
   /^\s*(?:#+\s*)?Overview\s+Generate 0 to 3 hyperpersonalized suggestions\b/i,
   /^\s*You are an expert at upholding safety and compliance standards for Codex ambient suggestions\b/i,
+  // Composer suggestions identify themselves explicitly in current Desktop.
+  /^\s*This is an app-generated request for a suggested next user message\.\s+The user did not write this message\.(?:\s|$)/i,
 ];
 
 /** Prompt text as Codex hooks carry it (`prompt`, some builds `user_prompt`). */

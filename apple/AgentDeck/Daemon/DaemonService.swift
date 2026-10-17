@@ -92,6 +92,23 @@ final class DaemonService: ObservableObject {
     private var isStarting = false
     private var readyUrl: String?
     private var healthMonitorTask: Task<Void, Never>?
+    private var externalAttachRetryTask: Task<Void, Never>?
+    /// Stop, a new connection intent, or local startup invalidates suspended
+    /// probes too, including retries that have already cleared their task handle.
+    private var externalAttachGeneration: UInt64 = 0
+
+    struct ExternalAttachDependencies {
+        var probeHealth: (Int) async -> [String: Any]? = {
+            await SessionRegistry.shared.probeDaemonHealth(port: $0)
+        }
+        var portStatus: (Int) async -> LocalPortProbe.Status = {
+            await LocalPortProbe.status(port: $0)
+        }
+        var retryDelay: () async throws -> Void = {
+            try await Task.sleep(for: .seconds(5))
+        }
+    }
+    private let externalAttach: ExternalAttachDependencies
     private var externalFailureCount = 0
     private var localFailureCount = 0
     /// The activity projection changes slowly compared with live dashboard
@@ -208,7 +225,9 @@ final class DaemonService: ObservableObject {
         return next
     }
 
-    init() {
+    init(automaticallyStart: Bool = true, externalAttach: ExternalAttachDependencies = .init()) {
+        self.externalAttach = externalAttach
+        guard automaticallyStart else { return }
         // Hosted XCTest launches the app too. Tests must not acquire the live
         // daemon, rewrite integrations or probe connected devices at startup.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
@@ -232,6 +251,7 @@ final class DaemonService: ObservableObject {
             }
             return
         }
+        invalidateExternalAttach()
         isStarting = true
         errorMessage = nil
         bindFailureReason = nil; blockingProcesses = []
@@ -358,6 +378,7 @@ final class DaemonService: ObservableObject {
 
     /// Stop daemon
     func stop() async {
+        invalidateExternalAttach()
         takeoverRetryTask?.cancel()
         takeoverRetryTask = nil
         healthMonitorTask?.cancel()
@@ -449,15 +470,27 @@ final class DaemonService: ObservableObject {
         await withBudget(seconds: 8, "daemon release") { await current.shutdown() }
     }
 
-    private func connectToExternalDaemon(port knownPort: Int? = nil) async {
+    private func invalidateExternalAttach() {
+        externalAttachRetryTask?.cancel()
+        externalAttachRetryTask = nil
+        externalAttachGeneration &+= 1
+    }
+
+    private func externalAttachIsCurrent(generation: UInt64, epoch: UInt64) -> Bool {
+        !Task.isCancelled && generation == externalAttachGeneration
+            && !Self.externalTransitionIsStale(entryEpoch: epoch, currentEpoch: inProcessDaemonEpoch)
+    }
+
+    func connectToExternalDaemon(port knownPort: Int? = nil) async {
+        invalidateExternalAttach()
+        let entryGeneration = externalAttachGeneration
         let entryEpoch = inProcessDaemonEpoch
-        /// Abandon this transition when `start()` has since taken ownership.
+        /// Abandon on stop, a newer connection intent, or new local ownership.
         /// Returns true when the caller must return without writing anything.
         func abandonIfStale(_ stage: String) -> Bool {
-            guard Self.externalTransitionIsStale(entryEpoch: entryEpoch,
-                                                 currentEpoch: inProcessDaemonEpoch) else { return false }
+            guard !externalAttachIsCurrent(generation: entryGeneration, epoch: entryEpoch) else { return false }
             DaemonLogger.shared.info(
-                "Abandoning client transition at \(stage) — a newer in-process daemon owns port \(port)")
+                "Abandoning client transition at \(stage) — cancelled or superseded (current daemon port \(port))")
             return true
         }
         let registry = SessionRegistry.shared
@@ -472,6 +505,7 @@ final class DaemonService: ObservableObject {
         guard var resolvedPort else {
             if abandonIfStale("port lookup") { return }
             await self.releaseInProcessDaemon()
+            if abandonIfStale("port lookup teardown") { return }
             self.isRunning = false
             self.changeOwnership(.toreDown)
             self.port = 0
@@ -486,7 +520,8 @@ final class DaemonService: ObservableObject {
             // since `start()`'s `isStarting` guard is still held here.
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.start()
+                guard let self, self.externalAttachIsCurrent(generation: entryGeneration, epoch: entryEpoch) else { return }
+                self.start()
             }
             return
         }
@@ -519,12 +554,14 @@ final class DaemonService: ObservableObject {
                incomingPort != resolvedPort {
                 resolvedPort = incomingPort
             }
-            health = await registry.probeDaemonHealth(port: resolvedPort)
+            health = await externalAttach.probeHealth(resolvedPort)
+            if abandonIfStale("health probe") { return }
             let isIncomingDaemon = health?["mode"] as? String == "daemon"
                 && DaemonParityRules.acceptsDaemonRuntime(isSwift: health?["isSwift"] as? Bool, expectingNode: yieldUntil != nil)
             if isIncomingDaemon { break }
             if Date() >= deadline { break }
             try? await Task.sleep(for: .milliseconds(knownPort != nil ? 300 : 200))
+            if abandonIfStale("health retry") { return }
         }
         // Consumed: a takeover that has been answered must not lengthen an
         // unrelated reconnect later.
@@ -533,10 +570,33 @@ final class DaemonService: ObservableObject {
         if answered { yieldUntil = nil }
 
         guard let health, answered else {
-            // External daemon never responded — stale registry. Clean up and start our own.
+            // A silent HTTP peer is not a vacant port. Keep the selected host
+            // while it is listening (or we could not look), rather than binding
+            // a second hub and replacing its roster with our smaller local one.
+            if health == nil {
+                let status = await externalAttach.portStatus(resolvedPort)
+                if abandonIfStale("port liveness check") { return }
+                if status != .notListening {
+                    DaemonLogger.shared.throttledDebug(
+                        "Daemon", key: "external-attach-wait:\(resolvedPort)",
+                        "External daemon health unavailable on \(resolvedPort), TCP status \(status) — retaining selected host",
+                        minInterval: 30)
+                    let retryPort = resolvedPort
+                    externalAttachRetryTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        do { try await self.externalAttach.retryDelay() } catch { return }
+                        guard !self.isRunning,
+                              self.externalAttachIsCurrent(generation: entryGeneration, epoch: entryEpoch) else { return }
+                        self.externalAttachRetryTask = nil
+                        await self.connectToExternalDaemon(port: retryPort)
+                    }
+                    return
+                }
+            }
             if abandonIfStale("stale-registry check") { return }
             DaemonLogger.shared.info("External daemon on port \(resolvedPort) is stale — starting local daemon instead")
             await self.releaseInProcessDaemon()
+            if abandonIfStale("stale-registry teardown") { return }
             self.isRunning = false
             self.changeOwnership(.toreDown)
             self.port = 0
@@ -552,7 +612,8 @@ final class DaemonService: ObservableObject {
             // Same idiom as the squatter-cleanup retry path.
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(1))
-                self?.start()
+                guard let self, self.externalAttachIsCurrent(generation: entryGeneration, epoch: entryEpoch) else { return }
+                self.start()
             }
             return
         }
@@ -573,6 +634,7 @@ final class DaemonService: ObservableObject {
             if abandonIfStale("ownership check") { return }
             DaemonLogger.shared.info("Daemon on port \(resolvedPort) belongs to another user — not attaching to it; starting our own daemon instead")
             await self.releaseInProcessDaemon()
+            if abandonIfStale("ownership teardown") { return }
             self.isRunning = false
             self.changeOwnership(.toreDown)
             self.port = 0
@@ -584,7 +646,8 @@ final class DaemonService: ObservableObject {
             // swallowed with no log and no retry — leaving the app daemonless.
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.start()
+                guard let self, self.externalAttachIsCurrent(generation: entryGeneration, epoch: entryEpoch) else { return }
+                self.start()
             }
             return
         }
@@ -595,11 +658,11 @@ final class DaemonService: ObservableObject {
         // paired board is currently holding. Adopt it now, while we are the
         // client — if the CLI daemon later quits and we are promoted to owner,
         // the fleet must not have to be re-provisioned to keep talking to us.
-        AuthManager.shared.adoptPeerToken(health["pairingToken"] as? String)
-
         if abandonIfStale("client handover") { return }
         let wsUrl = "ws://127.0.0.1:\(resolvedPort)"
         await self.releaseInProcessDaemon()
+        if abandonIfStale("client handover teardown") { return }
+        AuthManager.shared.adoptPeerToken(health["pairingToken"] as? String)
         self.port = UInt16(resolvedPort)
         self.isRunning = false
         self.changeOwnership(.becameClient)
@@ -820,6 +883,7 @@ final class DaemonService: ObservableObject {
             // hub flip flaps serial/Pixoo ownership. Worst-case failover for a
             // genuinely dead daemon is ~30s, fine for a passive fallback.
             let health = await registry.probeDaemonHealth(port: currentPort, patient: true)
+            guard !Task.isCancelled, isUsingExternalDaemon, Int(port) == currentPort else { return }
             let daemonAlive = (health?["mode"] as? String) == "daemon"
             if daemonAlive {
                 externalFailureCount = 0
@@ -870,10 +934,14 @@ final class DaemonService: ObservableObject {
             // If the canonical port is still held, the owner is almost
             // certainly just restarting: stay in client mode and keep probing
             // so we reattach cleanly the moment it answers. Only a genuinely
-            // dead daemon frees the port → isPortBindable → real promotion.
-            let canonical = AppPreferences.shared.daemonPort
-            if currentPort == canonical, !(await registry.isPortBindable(canonical)) {
-                DaemonLogger.shared.info("External daemon on \(currentPort) missed probe but port still held — owner likely restarting; staying in client mode")
+            // dead daemon refuses TCP on both families → real promotion.
+            let status = await LocalPortProbe.status(port: currentPort)
+            guard !Task.isCancelled, isUsingExternalDaemon, Int(port) == currentPort else { return }
+            guard status == .notListening else {
+                DaemonLogger.shared.throttledDebug(
+                    "Daemon", key: "external-retained:\(currentPort)",
+                    "External daemon on \(currentPort) missed health probes, TCP status \(status) — staying in client mode",
+                    minInterval: 30)
                 return
             }
             DaemonLogger.shared.error("External daemon on port \(currentPort) disappeared — promoting this app to own the daemon")
@@ -934,16 +1002,16 @@ final class DaemonService: ObservableObject {
             await connectToExternalDaemon(port: canonical)
             return
         }
-        guard await registry.isPortBindable(canonical) else { return }
-        // `isPortBindable` is a raw BSD-socket probe; NWListener applies NECP on
-        // top and can still fail EADDRINUSE on a port that probes as free. When
+        guard await LocalPortProbe.status(port: canonical) == .notListening else { return }
+        // No TCP listener does not guarantee NWListener can bind: NECP can
+        // retain a reservation after listener cancellation. When
         // we've actually watched that happen recently, believe the listener over
         // the probe — reclaiming costs a full teardown of a WORKING fallback hub
         // (and a device-module restart) to land right back here.
         guard !failedBindPorts.contains(canonical) else {
             DaemonLogger.shared.throttledDebug(
                 "Daemon", key: "reclaim-blocked:\(canonical)",
-                "Canonical port \(canonical) probes bindable but NWListener failed on it recently — staying on fallback port \(port)",
+                "Canonical port \(canonical) has no TCP listener but NWListener failed on it recently — staying on fallback port \(port)",
                 minInterval: 60)
             return
         }

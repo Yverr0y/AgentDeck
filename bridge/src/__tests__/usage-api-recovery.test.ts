@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFile, execSync } from 'child_process';
 
 const io = vi.hoisted(() => ({ files: new Map<string, string>(), credentials: '', recover: vi.fn() }));
 vi.mock('fs', async importOriginal => ({ ...await importOriginal<typeof import('fs')>(),
@@ -13,6 +14,7 @@ vi.mock('fs', async importOriginal => ({ ...await importOriginal<typeof import('
 }));
 vi.mock('child_process', async importOriginal => ({ ...await importOriginal<typeof import('child_process')>(),
   execSync: vi.fn(() => io.credentials),
+  execFile: vi.fn((_file, _args, _options, callback) => callback(null, io.credentials)),
 }));
 vi.mock('../claude-usage-recovery.js', () => ({ claudeUsageRecovery: { recover: io.recover } }));
 
@@ -33,6 +35,41 @@ beforeEach(async () => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('usage fetching and recovery', () => {
+  it.runIf(process.platform === 'darwin')('yields during Keychain lookup and keeps rendering reads out of the subprocess path', async () => {
+    let release: (error: Error | null, stdout: string) => void = () => {};
+    vi.mocked(execSync).mockClear();
+    vi.mocked(execFile).mockImplementationOnce((_file, _args, _options, callback) => {
+      release = callback as typeof release;
+      return {} as ReturnType<typeof execFile>;
+    });
+    let settled = false;
+    const fetch = api.fetchUsageFromApi().finally(() => { settled = true; });
+    expect(settled).toBe(false);
+    for (let i = 0; i < 10; i++) expect(api.hasOAuthToken()).toBe(false);
+    let heartbeat = false;
+    setTimeout(() => { heartbeat = true; }, 10);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(heartbeat).toBe(true);
+    expect(settled).toBe(false);
+    expect(execSync).not.toHaveBeenCalled();
+    release(null, io.credentials);
+    expect((await fetch)?.fresh).toBe(true);
+    expect(api.hasOAuthToken()).toBe(true);
+  });
+
+  it.runIf(process.platform === 'darwin')('retains known credentials and serves stale quota when Keychain cannot be inspected', async () => {
+    await api.fetchUsageFromApi();
+    const cache = JSON.parse(io.files.get(cachePath())!);
+    io.files.set(cachePath(), JSON.stringify({ ...cache, fetchedAt: Date.now() - 600_000 }));
+    vi.mocked(execFile).mockImplementationOnce((_file, _args, _options, callback) => {
+      (callback as (error: Error | null, stdout: string) => void)(Object.assign(new Error('unavailable'), { code: 'ETIMEDOUT' }), '');
+      return {} as ReturnType<typeof execFile>;
+    });
+    expect((await api.fetchUsageFromApi())?.fresh).toBe(false);
+    expect(api.hasOAuthToken()).toBe(true);
+    expect(api.getTokenStatus()).toBe('valid');
+  });
+
   // The 429 branch stamped `retryAfter` onto the snapshot read at the START of
   // the call, so a fresher reading another bridge wrote in between was rolled
   // back — a throttle response silently reverting live quota numbers (#286).
