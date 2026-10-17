@@ -18,12 +18,9 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type { ApmeModule } from './index.js';
 import { loadApmeConfig } from './settings.js';
 import { apmeDashboardHtml } from './dashboard-html.js';
-import { agentCoordinationSummary, deriveTaskTitle, foldActionCounts, EVAL_SCHEMA_VERSION, COLLABORATION_PRESENTATION } from '@agentdeck/shared';
-import { readNotGradeable } from './task-gradeability.js';
-import type { ApmeTaskView } from '@agentdeck/shared';
+import { EVAL_SCHEMA_VERSION } from '@agentdeck/shared';
+import { historyProjection, type HistoryKind } from './history-projection.js';
 import { activitySnapshotForStore } from './activity-history.js';
-
-const TASK_VIEWS: readonly ApmeTaskView[] = ['attention', 'inprogress', 'judged', 'reported', 'orphaned'];
 
 export async function handleApmeRequest(
   req: IncomingMessage,
@@ -43,19 +40,7 @@ export async function handleApmeRequest(
 
   try {
     if (method === 'GET' && path === '/apme/communications') {
-      if (!apme.store.enabled) {
-        sendJson(res, 503, { error: 'Communication history unavailable' });
-        return true;
-      }
-      const policy = COLLABORATION_PRESENTATION.network;
-      const capturedAt = Date.now();
-      const since = capturedAt - policy.historyWindowMs;
-      const events = apme.store.listCommunicationEvents(since, policy.eventLimit + 1);
-      sendJson(res, 200, { schema: 'agentdeck-communications/v1', capturedAt, since,
-        truncated: events.length > policy.eventLimit,
-        events: events.slice(0, policy.eventLimit).map(e => ({ ...e,
-          detail: typeof e.detail === 'string' ? [...e.detail].slice(0, policy.detailCharacters).join('') : null,
-        })) });
+      await sendHistory(res, apme, 'communications', url.searchParams);
       return true;
     }
     // ── Dashboard HTML ─────────────────────────────────────────────────────
@@ -144,53 +129,7 @@ export async function handleApmeRequest(
     // "every work unit processed" at all. Paged + filtered + faceted so the
     // list stays usable as the store grows past thousands of units.
     if (method === 'GET' && path === '/apme/tasks') {
-      const limit = clampInt(url.searchParams.get('limit'), 1, 500, 50);
-      const offset = clampInt(url.searchParams.get('offset'), 0, 1_000_000, 0);
-      const stateParam = url.searchParams.get('state');
-      const viewParam = url.searchParams.get('view');
-      const view = TASK_VIEWS.find((v) => v === viewParam);
-      const filters = {
-        ...(url.searchParams.get('agent') ? { agentType: url.searchParams.get('agent')! } : {}),
-        ...(url.searchParams.get('session') ? { sessionId: url.searchParams.get('session')! } : {}),
-        ...(url.searchParams.get('project') ? { projectName: url.searchParams.get('project')! } : {}),
-        ...(url.searchParams.get('category') ? { category: url.searchParams.get('category')! } : {}),
-        ...(url.searchParams.get('outcome') ? { outcome: url.searchParams.get('outcome')! } : {}),
-        ...(url.searchParams.get('q') ? { q: url.searchParams.get('q')! } : {}),
-      };
-      const { total, tasks } = apme.store.listTaskPage({
-        limit, offset,
-        ...filters,
-        ...(stateParam === 'closed' || stateParam === 'open' ? { state: stateParam } : {}),
-        ...(view ? { view } : {}),
-        // Attention-first is the Work board's ordering and ONLY the Work
-        // board's — every other listTaskPage consumer keeps pure recency.
-        ...(url.searchParams.get('sort') === 'attention' ? { order: 'attention' as const } : {}),
-      });
-      // Work-board display projections, enriched here so the store keeps
-      // returning raw facts: intent title (deriveTaskTitle SSOT — the same
-      // rules that name the timeline's task_start header, over the task's OWN
-      // first prompt, never the run fallback) and the folded action line
-      // (foldActionCounts SSOT) over one grouped tool query.
-      const toolCounts = apme.store.toolCountsForTasks(tasks.map((t) => t.id));
-      const enriched = tasks.map((t) => {
-        const tools = toolCounts.get(t.id) ?? [];
-        return {
-          ...t,
-          title: deriveTaskTitle(t.ownFirstPrompt),
-          actionFold: foldActionCounts({ tools, filesTouched: t.filesTouched }),
-          coordination: agentCoordinationSummary(tools),
-          // Why the judge declined, when it did — so "unjudged" never reads
-          // as a backlog for a task nobody can score.
-          notGradeable: readNotGradeable((t as { notesJson?: unknown }).notesJson),
-        };
-      });
-      sendJson(res, 200, {
-        schema: EVAL_SCHEMA_VERSION,
-        total, limit, offset, tasks: enriched,
-        facets: apme.store.taskFacets(),
-        // Badges honor the same narrowing filters as the rows.
-        viewCounts: apme.store.taskViewCounts(filters),
-      });
+      await sendHistory(res, apme, 'tasks', url.searchParams);
       return true;
     }
 
@@ -342,6 +281,22 @@ export async function handleApmeRequest(
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────────
+
+async function sendHistory(res: ServerResponse, apme: ApmeModule, kind: HistoryKind, params: URLSearchParams): Promise<void> {
+  try {
+    if (!apme.historyReader) {
+      sendJson(res, 200, historyProjection(apme.store, kind, params));
+      return;
+    }
+    const bytes = await apme.historyReader.read(kind, params.toString());
+    if (res.destroyed || res.writableEnded) return;
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+    res.end(Buffer.from(bytes));
+  } catch {
+    // Never retry synchronously on the real-time daemon after a worker timeout.
+    if (!res.destroyed && !res.writableEnded) sendJson(res, 503, { error: 'APME history temporarily unavailable' });
+  }
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {

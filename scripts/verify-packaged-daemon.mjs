@@ -346,6 +346,20 @@ try {
     await waitFor('initial roster', () => dashboard.roster());
     return { port, pid: h.pid, build: h.build, version: h.version, isSwift: h.isSwift };
   });
+  await check('packaged read-only history worker serves both dashboard projections', async () => {
+    for (const [path, field] of [['tasks?limit=20&sort=attention', 'tasks'], ['communications', 'events']]) {
+      const response = await fetch(`http://127.0.0.1:${daemon.port}/apme/${path}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      assert.equal(response.status, 200);
+      assert(Array.isArray((await response.json())[field]));
+    }
+    const response = await fetch(`http://127.0.0.1:${daemon.port}/diag`, { signal: AbortSignal.timeout(2000) });
+    const diag = await response.json();
+    assert.equal(diag.apmeHistoryReader.workerActive, true);
+    assert.equal(diag.apmeHistoryReader.timeouts, 0);
+    return { taskProjection: true, communicationProjection: true, workerActive: true };
+  });
   await check('installed Claude hook snippet discovers only the temporary daemon', async () => {
     const installed = await import(pathToFileURL(join(prefix, 'node_modules/@agentdeck/hooks/dist/install.js')));
     const sid = 'package-hook-snippet';

@@ -723,16 +723,25 @@ export class ApmeStore {
    *    1. better-sqlite3 native binding missing (CI / setups without build tools)
    *    2. DB file unreadable / DDL fails (disk full, permissions, WAL lock from a
    *       crashed prior process). */
-  async init(): Promise<boolean> {
+  async init(options: { readOnly?: boolean } = {}): Promise<boolean> {
     try {
-      let Ctor: (new (path: string) => BetterSqliteDb) | null = null;
+      let Ctor: new (path: string, options?: { readonly: boolean; fileMustExist: boolean }) => BetterSqliteDb;
       try {
-        Ctor = require('better-sqlite3') as new (path: string) => BetterSqliteDb;
+        Ctor = require('better-sqlite3') as typeof Ctor;
       } catch (err) {
         this.lastInitError =
           `better-sqlite3 native binding unavailable (${String(err).slice(0, 200)})`;
         debug('APME', this.lastInitError);
         return false;
+      }
+      if (options.readOnly) {
+        // The daemon owns migrations. History workers must never create a DB,
+        // run DDL, or become another writer during startup/handover.
+        this.db = new Ctor(this.dbPath, { readonly: true, fileMustExist: true });
+        this.db.pragma('query_only = ON');
+        this.enabled = true;
+        this.lastInitError = null;
+        return true;
       }
       const dir = dirname(this.dbPath);
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -748,6 +757,7 @@ export class ApmeStore {
       return true;
     } catch (err) {
       this.lastInitError = `store init failed at ${this.dbPath}: ${String(err).slice(0, 300)}`;
+      this.close();
       debug('APME', this.lastInitError);
       return false;
     }
@@ -757,6 +767,12 @@ export class ApmeStore {
     try { this.db?.close(); } catch { /* ignore */ }
     this.db = null;
     this.enabled = false;
+  }
+
+  /** Read uncached history facts in one WAL snapshot; existing badge TTLs remain. */
+  readSnapshot<T>(read: () => T): T {
+    if (!this.db) throw new Error('APME history store unavailable');
+    return this.db.transaction(read)();
   }
 
   /** Add columns that may be missing from databases created before this version. */

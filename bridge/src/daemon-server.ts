@@ -3333,6 +3333,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // A session present here but absent from sessions_list means the ps
         // observer found it too and won, which is the expected steady state.
         passiveObserver: passiveSessionObserver.diagnostics(),
+        apmeHistoryReader: apme?.historyReader?.diagnostics() ?? null,
         hookCodexSessions: hookCodexSessions.snapshot(),
         codexOtelThreads: codexOtel.snapshot(),
         pocketAutonomy: pocketAutonomy.diagnostics(),
@@ -7887,6 +7888,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
 
   // ===== Shutdown =====
   core.onShutdown(async () => {
+    apme?.historyReader?.close();
     await dotHost?.stop();
     ciPollingStopped = true;
     clearInterval(coordinationTimer);

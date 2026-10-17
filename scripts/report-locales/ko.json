@@ -180,6 +180,7 @@
   "APME evaluation": "APME 평가",
   "Are turns and tasks segmented, judged and scored correctly, and does the recommender rank models honestly?": "턴과 작업을 정확히 분할·판정·채점하고 추천기가 모델 순위를 근거에 맞게 계산하는가?",
   "Are turns and tasks segmented, judged and scored correctly, are metadata reads bounded by index plans, and does the recommender rank models honestly?": "턴과 작업을 정확히 분할·판정·채점하고, 메타데이터 조회를 인덱스 계획으로 제한하며, 추천기가 모델 순위를 근거에 맞게 계산하는가?",
+  "Are turns and tasks segmented, judged and scored correctly, do read-only history workers keep slow queries off real-time health and hooks, are metadata reads bounded by index plans, and does the recommender rank models honestly?": "턴과 작업을 정확히 분할·판정·채점하고, 읽기 전용 기록 워커가 느린 조회를 실시간 health·hook 처리에서 격리하며, 메타데이터 조회를 인덱스 계획으로 제한하고 추천기가 모델 순위를 근거에 맞게 계산하는가?",
   "OpenClaw Gateway": "OpenClaw 게이트웨이",
   "Does the Gateway proxy stay subscribed, attribute runs and approvals, and report its health truthfully?": "Gateway 프록시가 구독을 유지하고 실행과 승인을 올바르게 연결하며 상태를 정확히 보고하는가?",
   "Devices & display surfaces": "기기와 디스플레이",
