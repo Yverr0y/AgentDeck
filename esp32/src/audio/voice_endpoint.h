@@ -8,7 +8,7 @@
 namespace Audio {
 class VoiceEndpoint {
 public:
-    static constexpr uint32_t SilenceMs=1200, NoSpeechMs=6000, CueGuardMs=450;
+    static constexpr uint32_t SilenceMs=1200, NoSpeechMs=3500, CueGuardMs=450;
     enum class Result { Continue, Complete, NoSpeech };
     void observeNoise(uint16_t rms) {
         history_[cursor_]=rms;cursor_=(cursor_+1)%128;
