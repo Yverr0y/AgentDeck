@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileProbe } from '@agentdeck/shared';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -15,14 +15,12 @@ const DB_PATH = join(
   'Library/Application Support/Antigravity/User/globalStorage/state.vscdb',
 );
 
-function sqliteValue(key: string): string | null {
+async function sqliteValue(key: string): Promise<string | null> {
   if (!existsSync(DB_PATH)) return null;
   try {
-    const hex = execFileSync(
-      '/usr/bin/sqlite3',
+    const hex = (await execFileProbe('/usr/bin/sqlite3',
       [DB_PATH, `select hex(value) from ItemTable where key = '${key.replace(/'/g, "''")}' limit 1;`],
-      { encoding: 'utf8', timeout: 3000 },
-    ).trim();
+      { timeout: 3000 })).trim();
     if (!hex) return null;
     return Buffer.from(hex, 'hex').toString('utf8');
   } catch {
@@ -173,16 +171,17 @@ function parseSubscriptionActiveUntil(authStatusText: string | null): string | u
   return undefined;
 }
 
-export function readAntigravityLocalStatus(): AntigravityStatusInfo | undefined {
-  const planName = parsePlanName(sqliteValue('antigravityAuthStatus'));
+export async function readAntigravityLocalStatus(): Promise<AntigravityStatusInfo | undefined> {
+  const authStatus = await sqliteValue('antigravityAuthStatus');
+  const planName = parsePlanName(authStatus);
   if (!planName) return undefined;
 
-  const subscriptionActiveUntil = parseSubscriptionActiveUntil(sqliteValue('antigravityAuthStatus'));
+  const subscriptionActiveUntil = parseSubscriptionActiveUntil(authStatus);
 
   // Remaining model credits live under a separate vscdb key. This is the same
   // local value the Antigravity IDE shows to the user — reading their own local
   // state DB, no Google/Antigravity API call (within ToS).
-  const credits = parseModelCredits(sqliteValue('antigravityUnifiedStateSync.modelCredits'));
+  const credits = parseModelCredits(await sqliteValue('antigravityUnifiedStateSync.modelCredits'));
 
   return {
     planName,

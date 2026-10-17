@@ -23,8 +23,9 @@
  * This pins the PLAN, not a timing: a timing test passes on a small fixture
  * whatever the plan, and the plan is the thing that regressed.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
+import { outputs } from '../../../scripts/generate-apme-read-indexes.mjs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import Database from 'better-sqlite3';
@@ -40,8 +41,32 @@ describe('Work board page query plan', () => {
     await store.init();
   });
   afterEach(() => {
+    vi.restoreAllMocks();
     try { store.close?.(); } catch { /* ignore */ }
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps both generated index sets in sync with the canonical SQL', () => {
+    for (const { current, expected } of outputs()) expect(current).toBe(expected);
+  });
+
+  it('keeps Work board metadata probes out of prompt/response rows and temporary sorts', () => {
+    const spy = vi.spyOn(Database.prototype, 'prepare');
+    store.listTaskPage({ order: 'recency', limit: 20 });
+    const sql = spy.mock.calls.find(([query]) => query.includes('SELECT t.*'))?.[0];
+    spy.mockRestore();
+    expect(sql).toBeDefined();
+    const db = new Database(join(dir, 'apme.sqlite'), { readonly: true });
+    try {
+      const plan = (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(20, 0) as { detail: string }[])
+        .map(row => row.detail).join('\n');
+      for (const index of ['idx_turns_task_files', 'idx_turns_task_answered', 'idx_turns_task_unanswered', 'idx_turns_task_position', 'idx_evals_task_metric_recent']) {
+        expect(plan).toContain(index);
+      }
+      expect(plan).toContain('COVERING INDEX idx_turns_task_files');
+      expect(plan).toContain('COVERING INDEX idx_evals_task_metric_recent');
+      expect(plan).not.toContain('TEMP B-TREE');
+    } finally { db.close(); }
   });
 
   it('serves the per-task tool count from a (task_id, kind) covering index, never from the kind index', () => {

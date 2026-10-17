@@ -98,12 +98,14 @@ final class BridgeConnection: ObservableObject, @unchecked Sendable {
     // MARK: - Connect
 
     func connect(to urlString: String) {
+        let generation = connectionGeneration
         queue.async { [weak self] in
-            self?.connectInternal(urlString)
+            guard let self, self.connectionGeneration == generation else { return }
+            self.connectInternal(urlString, reconnecting: false)
         }
     }
 
-    private func connectInternal(_ urlString: String) {
+    private func connectInternal(_ urlString: String, reconnecting: Bool) {
         guard !isTerminating else { return }
 
         connectionGeneration += 1
@@ -114,8 +116,13 @@ final class BridgeConnection: ObservableObject, @unchecked Sendable {
         isHandlingDisconnect = false
 
         // Clean up previous socket without resetting reconnect state
-        let wasReconnecting = isReconnecting
-        let savedAttempt = reconnectAttempt
+        // Explicit caller intent is independent of a queued @Published update
+        // from the old socket. A fresh disconnect/connect must rearm retries.
+        let savedAttempt = reconnecting ? reconnectAttempt : 0
+        if !reconnecting {
+            shouldReconnect = true
+            backoffMs = Self.initialBackoffMs
+        }
         pingSource?.cancel()  // Already on queue — direct access safe
         pingSource = nil
         webSocket?.cancel(with: .goingAway, reason: nil)
@@ -130,23 +137,16 @@ final class BridgeConnection: ObservableObject, @unchecked Sendable {
             return
         }
 
+        let publishingGeneration = connectionGeneration
         DispatchQueue.main.async {
+            guard self.connectionGeneration == publishingGeneration else { return }
             self.url = urlString
             self.status = .connecting
             self.lastError = nil
             self.authenticationRequiredURL = nil
             self.hasReceivedMessage = false
-            // Only enable shouldReconnect for fresh connections.
-            // Reconnect-originated calls already have it set; re-setting it
-            // would undo a concurrent disconnect(reconnect: false) call.
-            if !wasReconnecting {
-                self.shouldReconnect = true
-            }
-            // Preserve reconnecting state across reconnect attempts
-            if wasReconnecting {
-                self.isReconnecting = true
-                self.reconnectAttempt = savedAttempt
-            }
+            self.isReconnecting = reconnecting
+            self.reconnectAttempt = savedAttempt
         }
 
         print("[BridgeConnection] connecting to \(urlString)")
@@ -164,11 +164,11 @@ final class BridgeConnection: ObservableObject, @unchecked Sendable {
         #else
         // macOS: network is always up — fast failure enables quicker reconnect
         config.waitsForConnectivity = false
-        // Half-open detection: abort reads that idle longer than this. Live sockets
-        // produce traffic via pingIntervalSec so healthy connections never trip it;
-        // after sleep/wake the dead socket fails within the window and reconnect fires.
-        config.timeoutIntervalForResource = 120
         #endif
+        // Keep URLSession's default resource lifetime. This is an absolute
+        // task deadline, NOT an idle timeout: 120s disconnected healthy sockets
+        // every two minutes even while state frames and pongs kept arriving.
+        // The bounded connect and ping deadlines below detect silent peers.
         let session = URLSession(configuration: config)
         self.urlSession = session
         // A URLRequest rather than the bare URL so the handshake can carry this
@@ -539,7 +539,7 @@ final class BridgeConnection: ObservableObject, @unchecked Sendable {
                 guard let self, self.connectionGeneration == gen,
                       !self.isTerminating,
                       self.shouldReconnect, let url = self.url else { return }
-                self.connectInternal(url)
+                self.connectInternal(url, reconnecting: true)
             }
             self.reconnectWork = work
             self.queue.asyncAfter(deadline: .now() + delay, execute: work)

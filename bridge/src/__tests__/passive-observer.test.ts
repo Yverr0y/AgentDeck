@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   activeKiroCliProcesses,
   CodexRolloutCache,
   collectCodexSessionsFromRollouts,
+  confirmMissingProcesses,
   foldHeadlessCodexSessions,
   type ProcInfo,
   collectKiroSessionsFromSnapshots,
@@ -19,6 +23,7 @@ import {
   parseClaudeTranscript,
   parseCodexRollout,
   parseLsofRollouts,
+  parseLsofRolloutProbe,
   parseProcessTable,
   selectClaudeConversationFiles,
   type ClaudeSessionFile,
@@ -895,6 +900,209 @@ describe('passive-observer scan resilience', () => {
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
   }
 
+  it('re-reads live or inaccessible missing PIDs and only confirms ESRCH exits', async () => {
+    const recovered = { pid: 42, ppid: 1, rssKb: 1024, command: 'claude' };
+    const reread = vi.fn(async () => [recovered]);
+    expect(await confirmMissingProcesses([42, 43, 44], pid => pid === 43 ? false : undefined, reread))
+      .toEqual({ processes: [recovered], exited: 1, unknownPids: [44] });
+    expect(reread).toHaveBeenCalledWith([42, 44]);
+  });
+
+  it('does not call a failed targeted read an exit while the PID still exists', async () => {
+    expect(await confirmMissingProcesses([42], () => true, async () => { throw new Error('ps timeout'); }))
+      .toEqual({ processes: [], exited: 0, unknownPids: [42] });
+    let calls = 0;
+    expect(await confirmMissingProcesses([42], () => ++calls === 1, async () => []))
+      .toEqual({ processes: [], exited: 1, unknownPids: [] });
+  });
+
+  it('applies exits, replacements and new sessions while retaining only an inconclusive PID', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentdeck-mixed-processes-'));
+    vi.stubEnv('HOME', directory);
+    vi.stubEnv('CLAUDE_CONFIG_DIR', join(directory, '.claude'));
+    mkdirSync(join(directory, '.claude', 'sessions'), { recursive: true });
+    const hosts = [42, 43, 44, 45].map(pid => ({ pid, ppid: 1, rssKb: 100, command: 'claude' }));
+    for (const { pid } of hosts) {
+      writeFileSync(join(directory, '.claude', 'sessions', `${pid}.json`), JSON.stringify({
+        pid, sessionId: `mixed-${pid}`, cwd: directory, startedAt: Date.now(),
+      }));
+    }
+    let processes = [...table, ...hosts.slice(0, 3)];
+    let inconclusive = true;
+    const observer = new PassiveSessionObserver(async () => processes,
+      pids => confirmMissingProcesses(pids, pid => pid === 43 && inconclusive ? undefined : false,
+        async () => []));
+    const refreshed = vi.fn();
+    observer.onRefreshed = refreshed;
+    try {
+      vi.useFakeTimers({ now: Date.now() });
+      observer.collect([]); await settle();
+      const retained = observer.collect([]).find(row => row.pid === 43);
+      expect(retained).toBeDefined();
+      const stamp = observer.processSnapshot().capturedAt;
+      // Even readable replacement metadata cannot refresh an unobserved owner.
+      writeFileSync(join(directory, '.claude', 'sessions', '43.json'), JSON.stringify({
+        pid: 43, sessionId: 'unconfirmed-replacement', cwd: directory, startedAt: Date.now(),
+      }));
+      processes = [...table, { ...hosts[2], command: '/bin/zsh' }, hosts[3]];
+      vi.advanceTimersByTime(6_000);
+      observer.collect([]); await settle();
+      expect(observer.collect([]).map(row => row.id).sort()).toEqual([
+        'observed:claude:mixed-43', 'observed:claude:mixed-45',
+      ]);
+      expect(observer.collect([]).find(row => row.pid === 43)).toEqual(retained);
+      expect(observer.processes()).toEqual([...processes, hosts[1]]);
+      expect(observer.processSnapshot().capturedAt).toBe(stamp);
+      expect(observer.diagnostics().processContinuity).toMatchObject({ exited: 1, unknown: 1 });
+      expect(refreshed).toHaveBeenCalledTimes(2);
+
+      inconclusive = false;
+      vi.advanceTimersByTime(6_000);
+      observer.collect([]); await settle();
+      expect(observer.collect([]).map(row => row.id)).toEqual(['observed:claude:mixed-45']);
+      expect(observer.processes()).toEqual(processes);
+      expect(observer.processSnapshot().capturedAt).toBeGreaterThan(stamp);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('recovers a partial nonempty scan and preserves freshness when revalidation is unknown', async () => {
+    const claude = { pid: 42, ppid: 1, rssKb: 1024, command: 'claude' };
+    let processes = [...table, claude];
+    let unknown = 0;
+    let command = 'claude';
+    const observer = new PassiveSessionObserver(async () => processes, async pids => ({
+      processes: unknown ? [] : pids.map(() => ({ ...claude, command })), exited: 0, unknownPids: unknown ? pids : [],
+    }));
+    observer.collect([]); await settle();
+    const seed = [{ id: 'observed:claude:abc', agentType: 'claude-code', pid: 42 }];
+    (observer as unknown as { cached: unknown[] }).cached = seed;
+    processes = table;
+    vi.useFakeTimers({ now: Date.now() + 60_000 });
+    observer.collect([]); await settle();
+    expect(observer.processes()).toEqual([...table, claude]);
+    expect(table).toHaveLength(1);
+    expect(observer.diagnostics().processContinuity).toMatchObject({ missing: 1, recovered: 1, unknown: 0 });
+    (observer as unknown as { cached: unknown[] }).cached = seed;
+    const stamp = observer.processSnapshot().capturedAt;
+    unknown = 1;
+    vi.advanceTimersByTime(60_000);
+    observer.collect([]); await settle();
+    expect(observer.collect([])).toEqual(seed);
+    expect(observer.processes()).toEqual([...table, claude]);
+    expect(observer.processSnapshot().capturedAt).toBe(stamp);
+    expect(observer.diagnostics().processContinuity).toMatchObject({ missing: 1, unknown: 1 });
+    expect(observer.diagnostics().processContinuity).toMatchObject({ recoveredScans: 1, recoveredPids: 1, inconclusiveScans: 1 });
+    unknown = 0;
+    command = '/bin/zsh';
+    vi.advanceTimersByTime(60_000);
+    observer.collect([]); await settle();
+    expect(observer.collect([])).toEqual([]);
+    expect(observer.processes().find(row => row.pid === 42)?.command).toBe('/bin/zsh');
+  });
+
+  it('does not replace established Desktop identities after an unreadable rollout probe', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-probe-'));
+    const path = join(dir, 'rollout-app.jsonl');
+    writeFileSync(path, jsonl([{ type: 'session_meta', payload: {
+      id: 'app-kept', cwd: '/repo', source: 'vscode', originator: 'Codex Desktop',
+    } }]));
+    const host = { pid: 42, ppid: 1, rssKb: 100, command: '/Applications/ChatGPT.app/Contents/Resources/codex app-server' };
+    let mode: 'known' | 'unknown' | 'closed' = 'known';
+    const observer = new PassiveSessionObserver(async () => [...table, host],
+      async () => ({ processes: [], exited: 0, unknownPids: [] }), async () => {
+        if (mode === 'unknown') throw new Error('lsof deadline');
+        return mode === 'known' ? new Map([[42, [path]]]) : new Map();
+      });
+    try {
+      vi.useFakeTimers({ now: Date.now() });
+      const first = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await first; await settle();
+      const seeded = observer.collect([]);
+      expect(seeded).toHaveLength(1);
+      expect(seeded[0]).toMatchObject({ id: 'observed:codex-app:app-kept', pid: 42 });
+      const stamp = observer.diagnostics().codexRolloutCapturedAt;
+      mode = 'unknown'; vi.advanceTimersByTime(6_000);
+      observer.collect([]); await settle();
+      expect(observer.collect([])).toEqual(seeded);
+      expect(observer.diagnostics().codexRolloutCapturedAt).toBe(stamp);
+      expect(observer.processSnapshot().capturedAt).toBeGreaterThan(stamp);
+      expect(observer.diagnostics().codexRolloutReadFailures).toBe(1);
+      mode = 'closed'; vi.advanceTimersByTime(6_000);
+      const closed = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await closed; await settle();
+      expect(observer.collect([])).toEqual([]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('still removes a confirmed exited owner while another Codex probe is unavailable', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-probe-exit-'));
+    const paths = ['a', 'b'].map(id => {
+      const path = join(dir, `rollout-${id}.jsonl`);
+      writeFileSync(path, jsonl([{ type: 'session_meta', payload: { id, cwd: '/repo', originator: 'Codex Desktop' } }]));
+      return path;
+    });
+    const hosts = [42, 43].map(pid => ({ pid, ppid: 1, rssKb: 100, command: '/Applications/ChatGPT.app/Contents/Resources/codex app-server' }));
+    let exit = false;
+    const observer = new PassiveSessionObserver(async () => [...table, ...(exit ? [hosts[1]] : hosts)],
+      async pids => ({ processes: [], exited: pids.length, unknownPids: [] }), async () => {
+        if (exit) throw new Error('lsof unavailable');
+        return new Map([[42, [paths[0]]], [43, [paths[1]]]]);
+      });
+    try {
+      vi.useFakeTimers({ now: Date.now() });
+      const first = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await first; await settle();
+      expect(observer.collect([])).toHaveLength(2);
+      exit = true; vi.advanceTimersByTime(6_000);
+      const next = new Promise<void>(resolve => { observer.onRefreshed = resolve; });
+      observer.collect([]); await next; await settle();
+      expect(observer.collect([]).map(row => row.id)).toEqual(['observed:codex-app:b']);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('keeps an inconclusive Desktop owner through a mixed scan and a subsequent rollout failure', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codex-mixed-probe-'));
+    const hosts = [42, 43, 44].map(pid => ({ pid, ppid: 1, rssKb: 100,
+      command: '/Applications/ChatGPT.app/Contents/Resources/codex app-server' }));
+    const paths = hosts.map(({ pid }) => {
+      const path = join(dir, `rollout-${pid}.jsonl`);
+      writeFileSync(path, jsonl([{ type: 'session_meta', payload: {
+        id: `mixed-${pid}`, cwd: '/repo', originator: 'Codex Desktop',
+      } }]));
+      return path;
+    });
+    let step = 0;
+    const observer = new PassiveSessionObserver(async () => [...table,
+      ...(step === 0 ? hosts.slice(0, 2) : step === 1 ? [hosts[2]] : hosts.slice(1))],
+    pids => confirmMissingProcesses(pids, pid => pid === 43 ? undefined : false, async () => []),
+    async pids => {
+      if (step === 2) throw new Error('lsof unavailable after owner recovery');
+      return new Map(pids.map(pid => [pid, [paths[pid - 42]]]));
+    });
+    try {
+      vi.useFakeTimers({ now: Date.now() });
+      observer.collect([]); await vi.waitFor(() => expect(observer.collect([])).toHaveLength(2));
+      await settle();
+      for (step = 1; step <= 2; step += 1) {
+        vi.advanceTimersByTime(6_000);
+        observer.collect([]);
+        await vi.waitFor(() => expect(observer.collect([]).map(row => row.id).sort()).toEqual([
+          'observed:codex-app:mixed-43', 'observed:codex-app:mixed-44',
+        ]));
+        await settle();
+      }
+      expect(observer.diagnostics().codexRolloutReadFailures).toBe(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('treats a partial nonempty lsof frame as unknown, but accepts a known process with no rollout', () => {
+    expect(() => parseLsofRolloutProbe('p42\nn/tmp/rollout-a.jsonl\n', [42, 99])).toThrow('Incomplete');
+    expect(parseLsofRolloutProbe('p42\nn/bin/codex\n', [42])).toEqual(new Map());
+  });
+
   it('retains the process table when a scan comes back empty', async () => {
     let processes = table;
     const observer = new PassiveSessionObserver(async () => processes);
@@ -1062,5 +1270,63 @@ describe('selectClaudeConversationFiles', () => {
       file({ pid: 2, sessionId: 'b', kind: 'bg', jobId: 'b' }),
     ];
     expect(ids(selectClaudeConversationFiles(rows))).toEqual(['a', 'b']);
+  });
+});
+
+
+describe('Claude identity read continuity', () => {
+  let directory: string | undefined;
+  afterEach(() => {
+    vi.useRealTimers(); vi.unstubAllEnvs();
+    if (directory) rmSync(directory, { recursive: true, force: true });
+    directory = undefined;
+  });
+
+  async function settle(): Promise<void> { for (let i = 0; i < 20; i += 1) await Promise.resolve(); }
+  async function fixture() {
+    directory = mkdtempSync(join(tmpdir(), 'agentdeck-claude-continuity-'));
+    vi.stubEnv('HOME', directory); vi.stubEnv('CLAUDE_CONFIG_DIR', join(directory, '.claude'));
+    const path = join(directory, '.claude', 'sessions', '43210.json');
+    mkdirSync(join(directory, '.claude', 'sessions'), { recursive: true });
+    const file = { pid: 43210, sessionId: 'continuity-session', cwd: directory, startedAt: Date.now() };
+    writeFileSync(path, JSON.stringify(file));
+    let processes: ProcInfo[] = [{ pid: 43210, ppid: 1, rssKb: 1024, command: 'claude' }];
+    // This fixture owns a synthetic process table, including its exit signal;
+    // never consult an unrelated real machine PID that happens to be 43210.
+    const observer = new PassiveSessionObserver(async () => processes,
+      async pids => ({ processes: [], exited: pids.length, unknownPids: [] }));
+    observer.collect([]); await settle();
+    expect(observer.collect([]).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
+    const scan = async () => { vi.useFakeTimers({ now: Date.now() + 60_000 }); observer.collect([]); await settle(); return observer.collect([]); };
+    return { path, file, observer, scan, setProcesses: (next: ProcInfo[]) => { processes = next; } };
+  }
+
+  it('retains a known live Claude when its session file is temporarily malformed or missing', async () => {
+    const f = await fixture();
+    writeFileSync(f.path, '{"pid":');
+    expect((await f.scan()).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
+    expect(f.observer.diagnostics().claudeIdentityReads).toEqual({ candidates: 1, unreadable: 1, retained: 1 });
+    rmSync(f.path);
+    expect((await f.scan()).map(s => s.id)).toEqual(['observed:claude:continuity-session']);
+    writeFileSync(f.path, JSON.stringify({ ...f.file, sessionId: 'replacement' }));
+    expect((await f.scan()).map(s => s.id)).toEqual(['observed:claude:replacement']);
+    expect(f.observer.diagnostics().claudeIdentityReads.retained).toBe(0);
+  });
+
+  it('still removes an ended process and never invents an identity for an unreadable new process', async () => {
+    const f = await fixture(); rmSync(f.path);
+    f.setProcesses([{ pid: 1, ppid: 0, rssKb: 1024, command: '/sbin/launchd' },
+      { pid: 43211, ppid: 1, rssKb: 1024, command: 'claude' }]);
+    expect(await f.scan()).toEqual([]);
+    expect(f.observer.diagnostics().claudeIdentityReads.retained).toBe(0);
+  });
+
+  it('does not retain an explicitly spare process or one that execed another command', async () => {
+    const f = await fixture();
+    writeFileSync(f.path, JSON.stringify({ ...f.file, spare: true }));
+    expect(await f.scan()).toEqual([]);
+    writeFileSync(f.path, JSON.stringify(f.file)); await f.scan();
+    f.setProcesses([{ pid: 43210, ppid: 1, rssKb: 1024, command: '/bin/zsh' }]);
+    expect(await f.scan()).toEqual([]);
   });
 });

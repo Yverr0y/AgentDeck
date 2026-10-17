@@ -540,7 +540,9 @@
         "bridge/src/__tests__/matrix-expression.test.ts",
         "bridge/src/__tests__/tui-terrarium-snapshots.test.ts",
         "bridge/src/__tests__/daemon-supervisor.test.ts",
-        "bridge/src/__tests__/fm-helper-build.test.ts"
+        "bridge/src/__tests__/fm-helper-build.test.ts",
+        "bridge/src/__tests__/usage-api-recovery.test.ts",
+        "bridge/src/__tests__/apme-async-probes.test.ts"
       ],
       "proves": [
         "the Node rules and their generated Swift mirrors execute the same vectors and agree: daemon policies, the CI-wait command classifier, the IPS10 roster kernel, matrix expressions (including iDotMatrix creature ownership, attention preemption, background lower bounds and CI/child separation) and the native TUI samples",
@@ -608,7 +610,7 @@
       "trigger": "PRs and pushes touching apple/**, shared/** or generated/protocol/**",
       "blocking": true,
       "command": "verify-build.sh macOS Debug / Release / DotPreviewRelease; verify-build.sh iOS Release / DotPreviewRelease; validate-appstore-submission.sh",
-      "evidence": ["apple/AgentDeckTests/AgentDeckPathsTests.swift", "apple/AgentDeckTests/TerrariumCloudFoldTests.swift", "apple/AgentDeckTests/CommunicationGraphTests.swift"],
+      "evidence": ["apple/AgentDeckTests/AgentDeckPathsTests.swift", "apple/AgentDeckTests/TerrariumCloudFoldTests.swift", "apple/AgentDeckTests/CommunicationGraphTests.swift", "apple/AgentDeckTests/LocalPortProbeTests.swift", "apple/AgentDeckTests/BridgeConnectionLifetimeTests.swift"],
       "proves": [
         "the macOS app and its in-process Swift daemon build and pass XCTest",
         "communication graphs keep unrelated sessions isolated, resolve only explicit peer identity, retain one-way burst ages, and distinguish crossed messages and unavailable history; native graph rendering uses synthetic sessions; habitat currents require visible peers and follow resident parent and camera transforms",
@@ -912,6 +914,8 @@
         "bridge/src/__tests__/windows-*.test.ts",
         "bridge/src/__tests__/wake-detector.test.ts",
         "bridge/src/__tests__/event-loop-telemetry.test.ts",
+        "shared/src/__tests__/net-utils-route.test.ts",
+        "shared/src/__tests__/exec-file-probe.test.ts",
         "bridge/src/__tests__/*-diagnostics.test.ts",
         "bridge/src/__tests__/cli.test.ts",
         "bridge/src/__tests__/legacy-rearm-ledger.test.ts",
@@ -922,7 +926,7 @@
     {
       "id": "observed",
       "name": "Agent observation & hooks",
-      "question": "Are Claude, Codex, OpenCode, Kiro, Antigravity and Hermes sessions seen, attributed and gated correctly from their hooks and transcripts, including Hermes observer setup/discovery diagnostics, explicit loopback delivery without a registry, captured Hermes child suppression, and background work (Claude snapshots, Codex rollout terminals, OpenCode and Hermes plugin reports) through one tracker with executable Node/Swift parity?",
+      "question": "Are Claude, Codex, OpenCode, Kiro, Antigravity and Hermes sessions seen, attributed and gated correctly from their hooks and transcripts, including missing-PID revalidation for partial process snapshots, Hermes observer setup/discovery diagnostics, explicit loopback delivery without a registry, captured Hermes child suppression, and background work (Claude snapshots, Codex rollout terminals, OpenCode and Hermes plugin reports) through one tracker with executable Node/Swift parity?",
       "icon": "◈",
       "match": [
         "hooks/src/__tests__/*.test.ts",
@@ -1011,7 +1015,7 @@
     {
       "id": "apme",
       "name": "APME evaluation",
-      "question": "Are turns and tasks segmented, judged and scored correctly, and does the recommender rank models honestly?",
+      "question": "Are turns and tasks segmented, judged and scored correctly, do read-only history workers keep slow queries off real-time health and hooks, are metadata reads bounded by index plans, and does the recommender rank models honestly?",
       "icon": "◇",
       "match": [
         "bridge/src/__tests__/apme-*.test.ts",
@@ -1043,7 +1047,7 @@
     {
       "id": "devices",
       "name": "Devices & display surfaces",
-      "question": "Do ESP32, Pixoo, Timebox, iDotMatrix, ADB and mDNS paths discover, flash and render correctly?",
+      "question": "Do ESP32, Pixoo, Timebox, iDotMatrix, ADB and mDNS paths discover, flash and render correctly, including bounded serial opens and cleanup of late descriptors?",
       "icon": "▦",
       "match": [
         "bridge/src/__tests__/esp32-*.test.ts",
