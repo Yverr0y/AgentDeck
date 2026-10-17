@@ -1046,6 +1046,12 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             s.fiveHourResetsAt = nil
             s.sevenDayResetsAt = nil
             s.scopedLimits = nil
+        } else if e.claudeUsageSnapshot == true {
+            s.fiveHourPercent = e.fiveHourPercent
+            s.sevenDayPercent = e.sevenDayPercent
+            s.fiveHourResetsAt = e.fiveHourResetsAt
+            s.sevenDayResetsAt = e.sevenDayResetsAt
+            s.scopedLimits = e.scopedLimits
         } else {
             s.fiveHourPercent = e.fiveHourPercent ?? s.fiveHourPercent
             s.sevenDayPercent = e.sevenDayPercent ?? s.sevenDayPercent
@@ -1061,6 +1067,11 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             s.extraUsageMonthlyLimit = nil
             s.extraUsageUsedCredits = nil
             s.extraUsageUtilization = nil
+        } else if e.claudeUsageSnapshot == true {
+            s.extraUsageEnabled = e.extraUsageEnabled
+            s.extraUsageMonthlyLimit = e.extraUsageMonthlyLimit
+            s.extraUsageUsedCredits = e.extraUsageUsedCredits
+            s.extraUsageUtilization = e.extraUsageUtilization
         } else {
             s.extraUsageEnabled = e.extraUsageEnabled ?? s.extraUsageEnabled
             s.extraUsageMonthlyLimit = e.extraUsageMonthlyLimit ?? s.extraUsageMonthlyLimit

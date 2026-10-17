@@ -880,6 +880,8 @@ struct UsageEvent: Codable, Sendable {
     var costLimit: Double?
     var resetTime: String?
     var resetDate: String?
+    /// Full Claude window snapshot; missing windows explicitly retire prior values.
+    var claudeUsageSnapshot: Bool?
     var fiveHourPercent: Double?
     var fiveHourResetsAt: String?
     var sevenDayPercent: Double?

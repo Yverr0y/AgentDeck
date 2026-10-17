@@ -23,7 +23,7 @@ describe('Node runtime support contract', () => {
 
 describe('parseSetupArgs', () => {
   it('prints next steps by default instead of installing the daemon', () => {
-    expect(parseSetupArgs([])).toEqual({ enterprise: false, autoInstallDaemon: false });
+    expect(parseSetupArgs([])).toEqual({ enterprise: false, autoInstallDaemon: false, statusline: false });
   });
 
   it('--yes / -y finishes the install without a second command', () => {
@@ -38,6 +38,7 @@ describe('parseSetupArgs', () => {
     expect(parseSetupArgs(['--enterprise'])).toEqual({
       enterprise: true,
       autoInstallDaemon: true,
+      statusline: false,
     });
   });
 
@@ -45,6 +46,15 @@ describe('parseSetupArgs', () => {
     expect(parseSetupArgs(['--entrprise', '--yes'])).toEqual({
       enterprise: false,
       autoInstallDaemon: true,
+      statusline: false,
+    });
+  });
+
+  it('--statusline opts into the Claude status-line relay without implying --yes', () => {
+    expect(parseSetupArgs(['--statusline'])).toEqual({
+      enterprise: false,
+      autoInstallDaemon: false,
+      statusline: true,
     });
   });
 });

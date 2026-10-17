@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createServer, type Server } from 'http';
 import express from 'express';
+import { WebSocketServer } from 'ws';
 import type { ApiUsageData } from '../usage-api.js';
 
 // Mutable sibling list the mocked registry hands back, per test. fetchUsageRelayed
@@ -54,13 +55,15 @@ function sampleUsage(overrides: Partial<ApiUsageData> = {}): ApiUsageData {
     extraUsageUsedCredits: null,
     extraUsageUtilization: null,
     inferredBillingType: 'subscription',
+    scopedLimits: [],
     ...overrides,
   };
 }
 
 /** A sibling HTTP server whose GET /usage returns a caller-controlled payload. */
 async function startSibling(
-  respond: () => { usage: ApiUsageData | null; fetchedAt: number },
+  respond: () => { usage: ApiUsageData | null; fetchedAt?: unknown },
+  legacyWsUsage?: ApiUsageData,
 ): Promise<{ port: number; close: () => Promise<void> }> {
   const app = express();
   app.get('/usage', (_req, res) => {
@@ -68,12 +71,22 @@ async function startSibling(
     res.json({ status: 'ok', usage, fetchedAt });
   });
   const server: Server = createServer(app);
+  const wsServer = legacyWsUsage ? new WebSocketServer({ server }) : undefined;
+  wsServer?.on('connection', (socket) => {
+    socket.send(JSON.stringify({ type: 'usage_update', ...legacyWsUsage }));
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : 0;
   return {
     port,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: async () => {
+      if (wsServer) {
+        for (const client of wsServer.clients) client.terminate();
+        await new Promise<void>((resolve) => wsServer.close(() => resolve()));
+      }
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
   };
 }
 
@@ -142,7 +155,8 @@ describe('fetchUsageRelayed — direct-API fallback (regression: fa1d98c9)', () 
 
   it('sibling serves fresh usage → relay wins, direct API not called (429 prevention preserved)', async () => {
     const relayed = sampleUsage({ fiveHourPercent: 55 });
-    const sibling = await startSibling(() => ({ usage: relayed, fetchedAt: Date.now() }));
+    const fetchedAt = Date.now() - 45_000;
+    const sibling = await startSibling(() => ({ usage: relayed, fetchedAt }));
     registryState.siblings = [{ port: sibling.port, agentType: 'claude' }];
 
     fetchUsageFromApiMock.mockResolvedValue({ data: sampleUsage({ fiveHourPercent: 1 }), fresh: true });
@@ -151,6 +165,7 @@ describe('fetchUsageRelayed — direct-API fallback (regression: fa1d98c9)', () 
       const result = await fetchUsageRelayed(SELF_PORT);
       expect(result?.data.fiveHourPercent).toBe(55);
       expect(result?.fresh).toBe(true);
+      expect(result?.fetchedAt).toBe(fetchedAt);
       expect(fetchUsageFromApiMock).not.toHaveBeenCalled();
     } finally {
       await sibling.close();
@@ -168,6 +183,60 @@ describe('fetchUsageRelayed — direct-API fallback (regression: fa1d98c9)', () 
     try {
       const result = await fetchUsageRelayed(SELF_PORT);
       expect(result?.data).toBe(direct);
+      expect(fetchUsageFromApiMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await sibling.close();
+    }
+  });
+
+  it.each([undefined, null, 0, -1, '1800000000000', NaN])('rejects an untrustworthy HTTP timestamp (%s)', async (fetchedAt) => {
+    const sibling = await startSibling(() => ({ usage: sampleUsage({ fiveHourPercent: 99 }), fetchedAt }));
+    registryState.siblings = [{ port: sibling.port, agentType: 'claude' }];
+    const direct = { data: sampleUsage({ fiveHourPercent: 24 }), fresh: true, fetchedAt: Date.now() - 1000 };
+    fetchUsageFromApiMock.mockResolvedValue(direct);
+    try {
+      expect(await fetchUsageRelayed(SELF_PORT)).toEqual(direct);
+      expect(fetchUsageFromApiMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await sibling.close();
+    }
+  });
+
+  it('rejects a future HTTP timestamp', async () => {
+    const sibling = await startSibling(() => ({ usage: sampleUsage(), fetchedAt: Date.now() + 60_000 }));
+    registryState.siblings = [{ port: sibling.port, agentType: 'claude' }];
+    const direct = { data: sampleUsage({ fiveHourPercent: 24 }), fresh: true, fetchedAt: Date.now() - 1000 };
+    fetchUsageFromApiMock.mockResolvedValue(direct);
+    try {
+      expect(await fetchUsageRelayed(SELF_PORT)).toEqual(direct);
+    } finally {
+      await sibling.close();
+    }
+  });
+
+  it('revalidates an unstamped legacy WS payload through the direct API', async () => {
+    const sibling = await startSibling(() => ({ usage: null }), sampleUsage({ fiveHourPercent: 99 }));
+    registryState.siblings = [{ port: sibling.port, agentType: 'claude' }];
+    const direct = { data: sampleUsage({ fiveHourPercent: 24 }), fresh: true, fetchedAt: Date.now() - 1000 };
+    fetchUsageFromApiMock.mockResolvedValue(direct);
+    try {
+      expect(await fetchUsageRelayed(SELF_PORT)).toEqual(direct);
+      expect(fetchUsageFromApiMock).toHaveBeenCalledTimes(1);
+    } finally {
+      await sibling.close();
+    }
+  });
+
+  it.each(['unavailable', 'throws'])('keeps legacy WS usage stale when direct API %s', async (failure) => {
+    const sibling = await startSibling(() => ({ usage: null }), sampleUsage({ fiveHourPercent: 99 }));
+    registryState.siblings = [{ port: sibling.port, agentType: 'claude' }];
+    if (failure === 'throws') fetchUsageFromApiMock.mockRejectedValue(new Error('unavailable'));
+    else fetchUsageFromApiMock.mockResolvedValue(null);
+    try {
+      const result = await fetchUsageRelayed(SELF_PORT);
+      expect(result?.data.fiveHourPercent).toBe(99);
+      expect(result?.fresh).toBe(false);
+      expect(result?.fetchedAt).toBeUndefined();
       expect(fetchUsageFromApiMock).toHaveBeenCalledTimes(1);
     } finally {
       await sibling.close();

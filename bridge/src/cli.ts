@@ -108,10 +108,16 @@ function log(msg: string): void {
 /** `daemon install` is the canonical observation setup entry point. Keep
  * Claude alongside the Codex/OpenCode installers below so normal `claude`
  * sessions never depend on having launched `agentdeck claude` first. */
-async function refreshClaudeHooks(): Promise<void> {
+/** `--statusline` → install the relay even with no status line; `--no-statusline`
+ *  → remove it (restoring the user's own); neither → the env/auto default. */
+function statuslinePolicyFromFlag(flag: unknown): 'on' | 'off' | undefined {
+  return flag === true ? 'on' : flag === false ? 'off' : undefined;
+}
+
+async function refreshClaudeHooks(opts: { statusline?: 'auto' | 'on' | 'off' } = {}): Promise<void> {
   try {
     const { installHooks } = await import('@agentdeck/hooks');
-    installHooks();
+    installHooks(undefined, opts);
     log('Claude lifecycle hooks installed/refreshed in ~/.claude/settings.json');
   } catch (err) {
     log(`Claude hooks unavailable: ${String(err)}`);
@@ -2250,6 +2256,8 @@ daemon
   .option('--enterprise', 'Install with a loopback-only posture: bind 127.0.0.1, no mDNS, no UDP beacon, no LAN sweep, no BLE, no ADB')
   .option('--local', 'Install with all device modules disabled')
   .option('--loopback', 'Alias for --enterprise')
+  .option('--statusline', 'Also install the Claude status-line relay when no status line is configured (one you already have is wrapped by default; a configured status line hides Claude Code\'s footer hints)')
+  .option('--no-statusline', 'Remove the Claude status-line relay again, restoring your own status line')
   .action(async (opts) => {
     const postureArgs = daemonPostureArgs(opts);
     const {
@@ -2328,7 +2336,7 @@ daemon
         log('Task registered; immediate start failed — it will start on next logon.');
       }
       await convergeInstalledSupervision(detectSupervisor(), postureArgs);
-      await refreshClaudeHooks();
+      await refreshClaudeHooks({ statusline: statuslinePolicyFromFlag(opts.statusline) });
       await refreshKiroHooks();
       // Install Codex lifecycle hooks for parity with the macOS install path.
       try {
@@ -2380,7 +2388,7 @@ daemon
           process.exit(1);
         }
       }
-      await refreshClaudeHooks();
+      await refreshClaudeHooks({ statusline: statuslinePolicyFromFlag(opts.statusline) });
       await refreshKiroHooks();
       // Install Codex + OpenCode hooks for parity with the macOS/Windows paths.
       try {
@@ -2415,7 +2423,7 @@ daemon
     execSync(`launchctl load "${PLIST_PATH}"`);
     log('LaunchAgent loaded. Daemon will auto-start on login.');
     await convergeInstalledSupervision(detectSupervisor(), postureArgs);
-    await refreshClaudeHooks();
+    await refreshClaudeHooks({ statusline: statuslinePolicyFromFlag(opts.statusline) });
     await refreshKiroHooks();
     // Install Codex lifecycle hooks parallel to the LaunchAgent install
     // so the daemon hub gets codex_* events as soon as Codex CLI runs.

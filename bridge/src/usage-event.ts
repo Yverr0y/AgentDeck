@@ -3,6 +3,7 @@ import type { ApiUsageData } from './usage-api.js';
 import { getTokenStatus } from './usage-api.js';
 import type { OllamaStatus } from './ollama-probe.js';
 import {
+  RELAYED_SESSION_USAGE_FIELDS,
   adjustUsagePercent,
   codexSnapshotMatchesAccountPlan,
   formatChatGptPlanName,
@@ -195,11 +196,7 @@ function isClaudeSubscriptionModel(modelName?: string | null): boolean {
  * focused session bridge can know. `usage_update` is their sole carrier on the
  * wire (state_update has none of these fields).
  */
-export const RELAYED_SESSION_USAGE_FIELDS = [
-  'sessionDurationSec', 'inputTokens', 'outputTokens', 'toolCalls',
-  'estimatedCostUsd', 'sessionPercent', 'costSpent', 'costLimit',
-  'resetTime', 'resetDate',
-] as const;
+export { RELAYED_SESSION_USAGE_FIELDS } from '@agentdeck/shared';
 
 /**
  * Splice a relayed session's counters onto the daemon's own aggregate usage
@@ -273,6 +270,7 @@ export function buildUsageEvent(
 
   const event: UsageEvent = {
     type: 'usage_update',
+    claudeUsageSnapshot: true,
     sessionDurationSec: snapshot.sessionDurationSec,
     inputTokens: snapshot.inputTokens,
     outputTokens: snapshot.outputTokens,

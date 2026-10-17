@@ -2253,6 +2253,10 @@
         "antigravityStatus": {
           "$ref": "#/definitions/AntigravityStatusInfo"
         },
+        "claudeUsageSnapshot": {
+          "description": "True: replaces Claude windows, scoped caps and extra usage; omissions clear. Absent/false preserves legacy partial-frame semantics.",
+          "type": "boolean"
+        },
         "codexAccountId": {
           "type": "string"
         },

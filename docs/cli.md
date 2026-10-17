@@ -217,7 +217,7 @@ in [daemon.md § Daemon relay](daemon.md#daemon-relay-worker-daemon-to-hub).
 | `agentdeck daemon restart` | Restart daemon — reads posture from the port it is actually on, restarts on its preferred port |
 | `agentdeck daemon status` | Show daemon status (says so when it is serving a fallback port) |
 | `agentdeck daemon port [n]` | Show or persist the preferred daemon port (`--clear` to forget it) |
-| `agentdeck daemon install` | Register auto-start (macOS LaunchAgent / Windows Scheduled Task / systemd unit); `--enterprise` bakes the loopback posture into it |
+| `agentdeck daemon install` | Register auto-start (macOS LaunchAgent / Windows Scheduled Task / systemd unit); `--enterprise` bakes the loopback posture into it; `--statusline` also installs the Claude status-line relay when no status line is configured (a status line you already have is wrapped by default, and a configured status line hides Claude Code's footer hints); `--no-statusline` removes the relay again and restores your own status line |
 | `agentdeck daemon uninstall` | Remove auto-start (LaunchAgent / Scheduled Task) |
 
 **Network posture on a shared or corporate network.** `--local` turns every

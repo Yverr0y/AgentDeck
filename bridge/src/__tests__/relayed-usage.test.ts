@@ -47,16 +47,54 @@ function voided(): CodexRateLimits {
 }
 
 describe('resolveRelayedUsageEvent — branch selection', () => {
-  it('never builds the daemon aggregate when the relay carries Claude quota', () => {
+  it.each([undefined, false])('keeps the Claude-bearing relay when preferOwnClaudeUsage is %s', (preferOwnClaudeUsage) => {
     // buildUsage() arms the throttled `codex app-server` spawn and re-derives
     // the whole account half. The thunk is the guard; this is what it guards.
     const buildOwnUsage = vi.fn(() => ownUsage());
     resolveRelayedUsageEvent({
       relayed: { type: 'usage_update', fiveHourPercent: 63, inputTokens: 900 },
       ownCodexRateLimits: null,
+      preferOwnClaudeUsage,
       buildOwnUsage,
     });
     expect(buildOwnUsage).not.toHaveBeenCalled();
+  });
+
+  it.each([40, undefined])('preserves the preferred account snapshot (5h=%s) and relays session counters', (fiveHourPercent) => {
+    const live = ownUsage({
+      claudeUsageSnapshot: true, fiveHourPercent, sevenDayPercent: 0,
+      sevenDayResetsAt: '2099-01-08T00:00:00Z',
+      scopedLimits: [], extraUsageEnabled: false,
+      subscriptions: [{ name: 'Claude' }],
+      codexRateLimits: stamped('2099-01-01T00:00:00Z', 42),
+    });
+    const relayed = {
+      type: 'usage_update', fiveHourPercent: 20, sevenDayPercent: 55,
+      fiveHourResetsAt: '2099-01-01T00:00:00Z',
+      scopedLimits: [{ label: 'old cap', percent: 90 }],
+      extraUsageEnabled: true, usageStale: true, subscriptions: [],
+      codexRateLimits: stamped('2099-01-02T00:00:00Z', 99),
+      inputTokens: 1234, outputTokens: 56, toolCalls: 9,
+      sessionDurationSec: 120, estimatedCostUsd: 0.25,
+    };
+    const buildOwnUsage = vi.fn(() => live);
+    const out = resolveRelayedUsageEvent({
+      relayed, ownCodexRateLimits: null, preferOwnClaudeUsage: true, buildOwnUsage,
+    });
+    expect(buildOwnUsage).toHaveBeenCalledOnce();
+    expect(out.fiveHourPercent).toBe(fiveHourPercent);
+    expect(out.fiveHourResetsAt).toBeUndefined();
+    expect(out).toMatchObject({
+      claudeUsageSnapshot: true, sevenDayPercent: 0,
+      sevenDayResetsAt: '2099-01-08T00:00:00Z',
+      scopedLimits: [], extraUsageEnabled: false, usageStale: false,
+      subscriptions: [{ name: 'Claude' }],
+      inputTokens: 1234, outputTokens: 56, toolCalls: 9,
+      sessionDurationSec: 120, estimatedCostUsd: 0.25,
+    });
+    expect(out.codexRateLimits).toBe(live.codexRateLimits);
+    expect(live.inputTokens).toBe(0);
+    expect(relayed.fiveHourPercent).toBe(20);
   });
 
   it('counts a lone sevenDayPercent as Claude quota too', () => {

@@ -106,6 +106,9 @@ struct ADBridgeEvent: Codable, Equatable {
     var voiceAssistantText: String?
     /// Number of OpenClaw backend worker sessions (multi-agent)
     var workerSessionCount: Double?
+    /// True: replaces Claude windows, scoped caps and extra usage; omissions clear. Absent/false
+    /// preserves legacy partial-frame semantics.
+    var claudeUsageSnapshot: Bool?
     var codexAccountId: String?
     var codexAuthMode: String?
     var codexLastRefreshAt: String?
@@ -232,6 +235,7 @@ struct ADBridgeEvent: Codable, Equatable {
         case voiceAssistantState = "voiceAssistantState"
         case voiceAssistantText = "voiceAssistantText"
         case workerSessionCount = "workerSessionCount"
+        case claudeUsageSnapshot = "claudeUsageSnapshot"
         case codexAccountId = "codexAccountId"
         case codexAuthMode = "codexAuthMode"
         case codexLastRefreshAt = "codexLastRefreshAt"
@@ -365,6 +369,7 @@ extension ADBridgeEvent {
         voiceAssistantState: ADVoiceAssistantState?? = nil,
         voiceAssistantText: String?? = nil,
         workerSessionCount: Double?? = nil,
+        claudeUsageSnapshot: Bool?? = nil,
         codexAccountId: String?? = nil,
         codexAuthMode: String?? = nil,
         codexLastRefreshAt: String?? = nil,
@@ -478,6 +483,7 @@ extension ADBridgeEvent {
             voiceAssistantState: voiceAssistantState ?? self.voiceAssistantState,
             voiceAssistantText: voiceAssistantText ?? self.voiceAssistantText,
             workerSessionCount: workerSessionCount ?? self.workerSessionCount,
+            claudeUsageSnapshot: claudeUsageSnapshot ?? self.claudeUsageSnapshot,
             codexAccountId: codexAccountId ?? self.codexAccountId,
             codexAuthMode: codexAuthMode ?? self.codexAuthMode,
             codexLastRefreshAt: codexLastRefreshAt ?? self.codexLastRefreshAt,

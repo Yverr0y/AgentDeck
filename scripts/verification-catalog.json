@@ -493,6 +493,7 @@
       "command": "node bridge/dist/cli.js diag native --json && vitest run <the files below> && the daemon relay unit + two-daemon e2e",
       "files": [
         "hooks/src/__tests__/install.test.ts",
+        "hooks/src/__tests__/statusline-relay.test.ts",
         "hooks/src/__tests__/codex-install.test.ts",
         "hooks/src/__tests__/windows-codex-pid.test.ts",
         "bridge/src/__tests__/passive-observer.test.ts",
@@ -895,7 +896,7 @@
         "bridge/src/__tests__/codex-rate-limits*.test.ts",
         "bridge/src/__tests__/zai-usage.test.ts",
         "bridge/src/__tests__/hook-server-usage-relay.test.ts",
-        "shared/src/__tests__/usage-*.test.ts",
+        "shared/src/__tests__/usage-*.test.ts", "shared/src/__tests__/claude-statusline*.test.ts",
         "shared/src/__tests__/codex-freshness-rules.test.ts",
         "shared/src/__tests__/zai-quota.test.ts",
         "shared/src/__tests__/zai-pair-view.test.ts"

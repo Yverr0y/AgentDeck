@@ -1,7 +1,25 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildCredSources, resolveOAuthCredentials, parseScopedLimits, fileCacheExpired, type CredSources } from '../usage-api.js';
+
+// Fetch fixtures never read credentials or caches from the host.
+const fetchIo = vi.hoisted(() => ({ files: new Map<string, string>(), credentials: '' }));
+vi.mock('fs', async importOriginal => ({ ...await importOriginal<typeof import('fs')>(),
+  readFileSync: vi.fn((path: string) => {
+    if (String(path).endsWith('.credentials.json')) return fetchIo.credentials;
+    const value = fetchIo.files.get(String(path));
+    if (value === undefined) throw new Error('ENOENT');
+    return value;
+  }),
+  mkdirSync: vi.fn(),
+  writeFileSync: vi.fn((path: string, data: string) => fetchIo.files.set(String(path), data)),
+}));
+vi.mock('child_process', async importOriginal => ({ ...await importOriginal<typeof import('child_process')>(),
+  execSync: vi.fn(() => fetchIo.credentials),
+  execFile: vi.fn((_file, _args, _options, callback) => callback(null, fetchIo.credentials)),
+}));
+vi.mock('../claude-usage-recovery.js', () => ({ claudeUsageRecovery: { recover: vi.fn() } }));
 
 /** Build a CredSources with sane defaults; override per case. Spies let us assert which
  *  I/O path was taken (critically, that `runSecurityCli` never fires off-darwin). */
@@ -236,5 +254,62 @@ describe('fileCacheExpired — TTL slack', () => {
     // The effective TTL must remain above the 60s this started at, so the slack
     // can never be widened into "fetch on every tick".
     expect(fileCacheExpired(NOW - 100_000, NOW)).toBe(false);
+  });
+});
+
+describe('UsageFetchResult observation timestamps', () => {
+  const NOW = 1_800_000_000_000;
+  let api: typeof import('../usage-api.js');
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'fixture-token-not-real');
+    vi.stubEnv('AGENTDECK_CLAUDE_USAGE_RECOVERY', '0');
+    fetchIo.files.clear();
+    fetchIo.credentials = OAUTH_JSON('fixture-token-not-real', NOW + 3600_000);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      five_hour: { utilization: 12 }, seven_day: { utilization: 34 },
+    }))));
+    api = await import('../usage-api.js');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('stamps the successful network response once, then preserves it on file-cache hits', async () => {
+    vi.mocked(fetch).mockImplementationOnce(async () => {
+      vi.setSystemTime(NOW + 750);
+      return new Response(JSON.stringify({ five_hour: { utilization: 12 }, seven_day: { utilization: 34 } }));
+    });
+    const live = await api.fetchUsageFromApi();
+    expect(live).toMatchObject({ fresh: true, fetchedAt: NOW + 750 });
+    expect(JSON.parse(fetchIo.files.get(api.USAGE_CACHE_FILE)!)).toEqual({
+      data: live!.data, fetchedAt: NOW + 750,
+    });
+    vi.setSystemTime(NOW + 60_000);
+    expect(await api.fetchUsageFromApi()).toEqual(live);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the cache observation time across a module restart', async () => {
+    const live = await api.fetchUsageFromApi();
+    vi.resetModules();
+    api = await import('../usage-api.js');
+    vi.setSystemTime(NOW + 90_000);
+    expect(await api.fetchUsageFromApi()).toEqual(live);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('returns the original time with stale data when the next network request fails', async () => {
+    const live = await api.fetchUsageFromApi();
+    vi.setSystemTime(NOW + 180_000);
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('fixture network unavailable'));
+    expect(await api.fetchUsageFromApi()).toEqual({ data: live!.data, fresh: false, fetchedAt: NOW });
+    expect(JSON.parse(fetchIo.files.get(api.USAGE_CACHE_FILE)!).fetchedAt).toBe(NOW);
   });
 });

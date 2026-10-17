@@ -18,6 +18,8 @@ vi.mock('../log.js', () => ({
 }));
 
 import { BridgeClient } from '../bridge-client.js';
+import { SessionSlotManager, type DeckLayout } from '../session-slot-manager.js';
+import type { UsageEvent } from '@agentdeck/shared';
 
 interface TestServer {
   port: number;
@@ -57,6 +59,42 @@ describe('BridgeClient — port provider', () => {
 
   afterEach(() => {
     if (client) client.disconnect();
+  });
+
+  it('removes the 5h tile when a weekly-only usage snapshot arrives over WebSocket', async () => {
+    const server = await createTestServer();
+    const manager = new SessionSlotManager();
+    const layout: DeckLayout = { columns: 5, rows: 3, keyCount: 15, family: 'streamdeck' };
+    const quotaTiles = () => Array.from({ length: layout.keyCount }, (_, i) => manager.getSlotConfig(i, layout))
+      .filter(slot => slot.type === 'usage');
+    try {
+      client = new BridgeClient();
+      client.on('usage_update', (event: UsageEvent) => manager.updateUsage(event));
+      client.connect(server.port);
+      await vi.waitFor(() => expect(client.isConnected()).toBe(true));
+      const send = (payload: Record<string, unknown>) => {
+        for (const socket of server.wss.clients) socket.send(JSON.stringify(payload));
+      };
+      send({
+        type: 'usage_update', claudeUsageSnapshot: true, usageStale: false,
+        fiveHourPercent: 42, fiveHourResetsAt: '2099-01-01T00:00:00Z',
+        sevenDayPercent: 12, sevenDayResetsAt: '2099-01-08T00:00:00Z',
+      });
+      await vi.waitFor(() => expect(quotaTiles().map(tile => tile.usageWindow)).toEqual(['5h', '7d']));
+
+      send({
+        type: 'usage_update', claudeUsageSnapshot: true, usageStale: false,
+        sevenDayPercent: 0, sevenDayResetsAt: '2099-01-15T00:00:00Z',
+      });
+      await vi.waitFor(() => expect(quotaTiles()).toHaveLength(1));
+      expect(quotaTiles()[0]).toMatchObject({
+        usageAgent: 'claude', usageWindow: '7d', usagePercent: 0,
+        usageKnown: true, usageResetsAt: '2099-01-15T00:00:00Z',
+      });
+    } finally {
+      client.disconnect();
+      await server.close();
+    }
   });
 
   it('counts a real pong as activity and clears a stale connection', async () => {

@@ -341,6 +341,9 @@ export interface UsageEvent {
   resetTime?: string;
   resetDate?: string;
   // API-sourced global usage
+  /** True: replaces Claude windows, scoped caps and extra usage; omissions clear.
+   *  Absent/false preserves legacy partial-frame semantics. */
+  claudeUsageSnapshot?: boolean;
   fiveHourPercent?: number;
   fiveHourResetsAt?: string;
   sevenDayPercent?: number;

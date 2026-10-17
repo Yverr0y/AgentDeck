@@ -84,6 +84,7 @@ enum HookInstaller {
         let before = settingsJSON(settings)
 
         settings = applyHooks(settings)
+        settings = applyStatuslineRelay(settings, policy: AppPreferences.shared.statuslineRelayPolicy)
 
         let after = settingsJSON(settings)
         guard before != after else {
@@ -124,6 +125,7 @@ enum HookInstaller {
 
         var settings = loadSettings(at: url)
         settings = removeHooks(settings)
+        settings = removeStatuslineRelay(settings)
         _ = saveSettings(settings, to: url)
         AppPreferences.shared.hooksInstalled = false
         DaemonLogger.shared.info("Claude Code hooks removed")
@@ -347,6 +349,94 @@ enum HookInstaller {
                 "command": buildHookCommand(event),
             ] as [String: Any]] as [[String: Any]],
         ]
+    }
+
+    // MARK: - Claude status-line relay
+
+    /// Byte-identical with `@agentdeck/hooks` `buildStatuslineRelayCommand` and
+    /// `@agentdeck/setup`'s inlined copy — change all three together. Forwards
+    /// Claude Code's status document to the local daemon (`/claude/statusline`,
+    /// the documented carrier of the subscription windows) and then runs the
+    /// status line the user already had, unchanged. Never reads
+    /// `$AGENTDECK_PORT` and is fire-and-forget only; the canonical commentary
+    /// is in hooks/src/install.ts, the daemon-side rules in
+    /// `ClaudeStatuslineRules` (generated from shared/src/claude-statusline.ts).
+    static let statuslineRelayMarker = "/claude/statusline"
+    private static let statuslineRelayHeader = "# AgentDeck status-line relay v1 — forwards Claude Code rate_limits to the local daemon; the status line you had runs below, unchanged."
+    private static let statuslineWrapOpen = #"printf '%s' "$I" | {"#
+
+    static func buildStatuslineRelayCommand(original: String?) -> String {
+        var lines = [
+            statuslineRelayHeader,
+            #"I=$(cat)"#,
+            #"PORT="""#,
+            #"for F in "$HOME/.agentdeck/daemon.json" "$HOME/Library/Containers/bound.serendipity.agent.deck/Data/Library/Application Support/AgentDeck/daemon.json" "$HOME/Library/Group Containers/group.bound.serendipity.agent.deck/daemon.json"; do"#,
+            #"  [ -f "$F" ] || continue"#,
+            #"  P=$(python3 -c "import json,sys,signal;signal.signal(signal.SIGALRM,lambda *_:sys.exit(0));signal.setitimer(signal.ITIMER_REAL,0.2);d=json.load(open(sys.argv[1]));p=d.get('httpPort') or d.get('port');print(p if type(p) is int and 1 <= p <= 65535 else '')" "$F" 2>/dev/null)"#,
+            #"  [ -n "$P" ] && curl -sf --connect-timeout 0.2 --max-time 0.3 "http://127.0.0.1:$P/health" >/dev/null 2>&1 && { PORT="$P"; break; }"#,
+            #"done"#,
+            #"PORT="${PORT:-9120}""#,
+            #"printf '%s' "$I" | curl -sf --connect-timeout 0.2 --max-time 0.8 -X POST "http://127.0.0.1:$PORT/claude/statusline" -H 'Content-Type: application/json' -H "X-AgentDeck-Pid: $PPID" -d @- >/dev/null 2>&1 || true"#,
+        ]
+        let own = original?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !own.isEmpty { lines += [statuslineWrapOpen, own, "}"] }
+        return lines.joined(separator: "\n")
+    }
+
+    static func isAgentDeckStatuslineCommand(_ command: Any?) -> Bool {
+        guard let text = command as? String else { return false }
+        return text.contains(statuslineRelayMarker)
+    }
+
+    /// The user's own command inside an AgentDeck relay: verbatim, "" when the
+    /// relay ran alone, nil when the command is not ours.
+    static func unwrapStatuslineCommand(_ command: Any?) -> String? {
+        guard isAgentDeckStatuslineCommand(command), let text = command as? String else { return nil }
+        let open = "\n" + statuslineWrapOpen + "\n"
+        guard let range = text.range(of: open) else { return "" }
+        var body = String(text[range.upperBound...])
+        if body.hasSuffix("\n}") { body.removeLast(2) }
+        return body
+    }
+
+    /// Same policy as the CLI installers (`StatuslinePolicy`): `.auto` wraps a
+    /// status line the user already has (or refreshes ours) and never adds one;
+    /// `.on` installs the relay even with no status line — Claude Code then
+    /// hides its footer hints, so it is the user's explicit choice in Settings;
+    /// `.off` removes an installed relay, restoring the user's own command.
+    static func applyStatuslineRelay(
+        _ settings: [String: Any],
+        policy: AppPreferences.StatuslineRelayPolicy = .auto
+    ) -> [String: Any] {
+        if policy == .off { return removeStatuslineRelay(settings) }
+        var s = settings
+        if let current = s["statusLine"], !(current is NSNull), !(current is [String: Any]) { return s }
+        let dict = s["statusLine"] as? [String: Any] ?? [:]
+        let command = dict["command"]
+        let ours = isAgentDeckStatuslineCommand(command)
+        if !dict.isEmpty, !ours, !(command is String) { return s }
+        let original = ours ? (unwrapStatuslineCommand(command) ?? "") : (command as? String ?? "")
+        if original.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !ours, policy != .on { return s }
+        var next = dict
+        next["type"] = "command"
+        next["command"] = buildStatuslineRelayCommand(original: original)
+        s["statusLine"] = next
+        return s
+    }
+
+    /// Take the relay out again, restoring the user's own command verbatim.
+    static func removeStatuslineRelay(_ settings: [String: Any]) -> [String: Any] {
+        var s = settings
+        guard let dict = s["statusLine"] as? [String: Any],
+              let original = unwrapStatuslineCommand(dict["command"]) else { return s }
+        if original.isEmpty {
+            s.removeValue(forKey: "statusLine")
+        } else {
+            var next = dict
+            next["command"] = original
+            s["statusLine"] = next
+        }
+        return s
     }
 
     // MARK: - File I/O
