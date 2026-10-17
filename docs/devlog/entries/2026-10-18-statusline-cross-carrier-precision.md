@@ -21,8 +21,8 @@ feeds the gauge, OAuth included, and the two carriers do not share a
 precision. The status line stamps resets in whole epoch seconds. OAuth stamps
 them in microseconds, and its sub-second part sits on either side of that
 second (`usage-cache.json`):
-- For more than an hour it read `.323175` above it. Every status-line reset
-  parsed older and was refused. A refused document does not renew the
+- From 02:40 to 03:46 it sat above it (`.323175` when read). Every status-line
+  reset parsed older and was refused. A refused document does not renew the
   status-line clock, so the reading aged past five minutes, the 60 s poll
   resumed, and each OAuth read kept the comparison reading fresh. The lock
   lasts as long as OAuth's fraction stays above the second.
@@ -58,6 +58,21 @@ copied from the live cache on both sides of the second.
 - **Rounding every comparison to whole seconds and whole percent.** Concurrent
   status-line sessions share a precision, and between them a lower reading for
   the same window really is the older one.
+
+**Measured after.** This branch's build (`84e9b2e3f333`) served 9120 from 04:01
+to 04:15 KST, sampled once a minute:
+- `source` read `statusline` in all 15 samples, fed first by another
+  interactive session and then by this one.
+- OAuth made two network fetches: the startup baseline and one revalidation
+  at 04:12:16, eleven minutes later. Suppressed polls rose from 7 to 24.
+- The first status-line document after the revalidation was accepted 10 s
+  later.
+
+The revalidation read came back below the second (`20:49:59.779686`), as the
+03:46 read had, and master accepts in that direction too. The startup read was
+overwritten before it could be inspected. So the run shows the fix costs
+nothing live; the locking direction is reproduced only by the vectors and the
+core test.
 
 **Left open.** The ten-minute OAuth revalidation still replaces the live
 windows with OAuth's rounded numbers until the next status-line document puts
