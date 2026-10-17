@@ -119,15 +119,21 @@ describe('APME read-only history worker', () => {
   });
 
   it('coalesces identical reads, bounds queued requests and rejects the whole stalled generation before recovering', async () => {
-    const value = reader(fixture(), 250, 2);
+    const value = reader(fixture(), 5_000, 2);
     await value.read('tasks', 'ready');
-    const first = value.read('tasks', 'block');
-    expect(value.read('tasks', 'block')).toBe(first);
-    const queued = value.read('tasks', 'queued');
-    const rejected = Promise.allSettled([first, queued]);
-    await expect(value.read('tasks', 'overflow')).rejects.toThrow('busy');
-    expect((await rejected).map(x => x.status)).toEqual(['rejected', 'rejected']);
-    expect(value.diagnostics().pending).toBe(0);
+    // Exercise the deadline deterministically, without imposing a 250 ms OS
+    // worker-startup budget on a loaded development machine.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const first = value.read('tasks', 'block');
+      expect(value.read('tasks', 'block')).toBe(first);
+      const queued = value.read('tasks', 'queued');
+      const rejected = Promise.allSettled([first, queued]);
+      await expect(value.read('tasks', 'overflow')).rejects.toThrow('busy');
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect((await rejected).map(x => x.status)).toEqual(['rejected', 'rejected']);
+      expect(value.diagnostics().pending).toBe(0);
+    } finally { vi.useRealTimers(); }
     for (let i = 0; i < 20 && value.diagnostics().retiring; i++) await delay(20);
     expect(decode(await value.read('tasks', 'recovered'))).toEqual({ params: 'recovered' });
   });
