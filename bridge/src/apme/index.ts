@@ -16,6 +16,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { logError } from '../logger.js';
 import { ApmeStore } from './store.js';
+import { ApmeHistoryReader } from './history-reader.js';
 import { apmeDashboardHtml } from './dashboard-html.js';
 import { ApmeCollector } from './collector.js';
 import { ApmeRunner } from './runner.js';
@@ -37,6 +38,7 @@ function taskEndRowText(signalLabel: string, turns: number | undefined, duration
 
 export interface ApmeModule {
   store: ApmeStore;
+  historyReader?: ApmeHistoryReader;
   collector: ApmeCollector;
   runner: ApmeRunner;
   hwSampler: ApmeHwSampler;
@@ -94,7 +96,7 @@ export async function initApme(
   const collector = new ApmeCollector(store, hwSampler);
   const runner = new ApmeRunner(store);
   const recommender = new ApmeRecommender(store);
-  singleton = { store, collector, runner, hwSampler, recommender };
+  singleton = { store, historyReader: new ApmeHistoryReader(store.dbPath), collector, runner, hwSampler, recommender };
 
   const emitTimeline = opts.emitTimeline;
 

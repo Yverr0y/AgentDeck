@@ -19,6 +19,7 @@ import { createTempDataDir, type TempDataDir } from './helpers/temp-data-dir.js'
 import { State, PermissionMode, CLAUDE_CODE_CAPABILITIES } from '@agentdeck/shared';
 import type { StateUpdateEvent, UsageEvent, BridgeEvent } from '../types.js';
 import type { ApiUsageData } from '../usage-api.js';
+import * as antigravityLocal from '../antigravity-local.js';
 
 function sampleApiUsage(overrides: Partial<ApiUsageData> = {}): ApiUsageData {
   return {
@@ -68,6 +69,31 @@ describe('BridgeCore Orchestration', () => {
       setTimeout(resolve, 500);
     });
     tempDir.cleanup();
+  });
+
+  it('shares a pending local-status probe and rejects a superseded completion', async () => {
+    const releases: Array<(value: antigravityLocal.AntigravityStatusInfo) => void> = [];
+    const ticks: Array<() => void> = [];
+    const read = vi.spyOn(antigravityLocal, 'readAntigravityLocalStatus')
+      .mockImplementation(() => new Promise(resolve => { releases.push(resolve); }));
+    const interval = vi.spyOn(globalThis, 'setInterval').mockImplementation(callback => {
+      ticks.push(callback as () => void);
+      return {} as ReturnType<typeof setInterval>;
+    });
+    try {
+      core.startAntigravityProbe();
+      ticks[0](); ticks[0]();
+      expect(read).toHaveBeenCalledTimes(1);
+      core.startAntigravityProbe();
+      expect(read).toHaveBeenCalledTimes(2);
+      releases[1]({ planName: 'Current' });
+      await Promise.resolve();
+      releases[0]({ planName: 'Superseded' });
+      await Promise.resolve();
+      expect(core.cachedAntigravityStatus).toEqual({ planName: 'Current' });
+      ticks[0]();
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally { read.mockRestore(); interval.mockRestore(); }
   });
 
   it('retires old disk quota after a failed first poll and never restamps cache hits', () => {

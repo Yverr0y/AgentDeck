@@ -350,6 +350,38 @@
     {
       "body": "예시: “알려 주세요” 문구.",
       "expected": "unknown"
+    },
+    {
+      "body": "COMPOSER_FINAL_NOTIFICATION: FYI only, the final aquarium visual verification is running. This is a notification, no reply is requested. Please do not send a response.",
+      "expected": "notification"
+    },
+    {
+      "body": "No reply is requested.",
+      "expected": "notification"
+    },
+    {
+      "body": "No response expected.",
+      "expected": "notification"
+    },
+    {
+      "body": "A response is not required.",
+      "expected": "notification"
+    },
+    {
+      "body": "Please do not send a response.",
+      "expected": "notification"
+    },
+    {
+      "body": "Don't respond.",
+      "expected": "notification"
+    },
+    {
+      "body": "No deployment is requested. Please reply with your findings.",
+      "expected": "request"
+    },
+    {
+      "body": "The log says \"No reply is requested.\" Please reply with your findings.",
+      "expected": "request"
     }
   ]
 }

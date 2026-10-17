@@ -12,6 +12,31 @@
       "ambient": true
     },
     {
+      "name": "composer next-message suggestion (live 2026-10-17)",
+      "prompt": "This is an app-generated request for a suggested next user message. The user did not write this message.\n\nYour suggestion will appear in the user's empty message composer.",
+      "ambient": true
+    },
+    {
+      "name": "composer suggestion accepts leading whitespace and a line break between declarations",
+      "prompt": "\tthis is an app-generated request for a suggested next user message.\nTHE USER DID NOT WRITE THIS MESSAGE.",
+      "ambient": true
+    },
+    {
+      "name": "a user quoting the composer declaration is real work",
+      "prompt": "Explain why Codex sends this prompt: This is an app-generated request for a suggested next user message. The user did not write this message.",
+      "ambient": false
+    },
+    {
+      "name": "a blockquoted declaration is real user content",
+      "prompt": "> This is an app-generated request for a suggested next user message. The user did not write this message.",
+      "ambient": false
+    },
+    {
+      "name": "a partial composer declaration is not enough evidence",
+      "prompt": "This is an app-generated request for a suggested next user message. Please help implement that feature.",
+      "ambient": false
+    },
+    {
       "name": "a user prompt headed Overview is not ambient",
       "prompt": "# Overview\n\nRefactor the session list so rows sort by project",
       "ambient": false

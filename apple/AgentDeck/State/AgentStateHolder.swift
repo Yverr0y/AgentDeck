@@ -112,6 +112,7 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
 
     private var waterfallStage: WaterfallStage = .idle
     private var preferredLocalBridgeUrl: String?
+    private var preferredLocalRecovery: DispatchWorkItem?
 
     /// Hard ceiling on the user-visible foreground attempt, independent of which
     /// waterfall stage is in flight.
@@ -211,8 +212,7 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // iOS: react to mDNS bridge changes even after autoConnect timer expires.
-        // Without this, if daemon restarts after the 10s polling window, iOS never reconnects.
+        // React to the selected remote host returning after its retry budget expires.
         discovery.$bridges
             .receive(on: DispatchQueue.main)
             .sink { [weak self] bridges in
@@ -261,6 +261,8 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
         }
         connection.onAuthenticationRequired = { [weak self] in
             guard let self else { return }
+            self.preferredLocalRecovery?.cancel()
+            self.preferredLocalRecovery = nil
             self.autoConnectTimer?.invalidate()
             self.autoConnectTimer = nil
             self.endForegroundSearch()
@@ -276,6 +278,7 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
             // advertisement for this same endpoint may restore the connection.
             // The discovery selector still refuses every other host.
             self.discovery.startSearching()
+            self.schedulePreferredLocalRecovery()
         }
         // Socket retries retain the selected endpoint. Discovery is not evidence
         // that a different computer is a replacement for it.
@@ -419,6 +422,8 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
     func prepareForTermination() {
         guard !isTerminating else { return }
         isTerminating = true
+        preferredLocalRecovery?.cancel()
+        preferredLocalRecovery = nil
 
         backgroundEnteredAt = nil
         preferredLocalBridgeUrl = nil
@@ -591,12 +596,35 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
     /// and no way back. Every user-facing stop goes through here instead.
     func stopConnectionAttempts() {
         guard !isTerminating else { return }
+        preferredLocalRecovery?.cancel()
+        preferredLocalRecovery = nil
         autoConnectTimer?.invalidate()
         autoConnectTimer = nil
         endForegroundSearch()
         waterfallStage = .idle
         userStoppedConnecting = true
         connection.disconnect()
+    }
+
+    /// Bonjour advertises a LAN address, so it cannot revive a selected loopback
+    /// URL after exhaustion. Retry that same local endpoint after a quiet period;
+    /// explicit stop/auth refusal and a newer selection must still win.
+    func schedulePreferredLocalRecovery(after delay: TimeInterval = 30) {
+        preferredLocalRecovery?.cancel()
+        preferredLocalRecovery = nil
+        guard !isTerminating, !userStoppedConnecting,
+              let expected = selectedBridgeURL,
+              PairingCredential.sameEndpoint(preferredLocalBridgeUrl, expected) else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isTerminating, !self.userStoppedConnecting,
+                  !self.state.bridgeConnected, self.connection.status == .disconnected,
+                  PairingCredential.sameEndpoint(self.selectedBridgeURL, expected),
+                  PairingCredential.sameEndpoint(self.preferredLocalBridgeUrl, expected) else { return }
+            self.preferredLocalRecovery = nil
+            self.connectTo(url: expected)
+        }
+        preferredLocalRecovery = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     // MARK: - Foreground search indicator
@@ -1247,6 +1275,8 @@ final class AgentStateHolder: ObservableObject, @unchecked Sendable {
 
     func connectTo(url: String) {
         guard !isTerminating else { return }
+        preferredLocalRecovery?.cancel()
+        preferredLocalRecovery = nil
         userStoppedConnecting = false
         selectedBridgeURL = url
         autoConnectTimer?.invalidate()

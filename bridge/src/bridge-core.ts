@@ -232,7 +232,8 @@ export class BridgeCore {
   cachedOllamaStatus: OllamaStatus | null = null;
   cachedMlxModels: string[] | null = null;
   cachedMlxResidency = { known: false, models: [] as string[] };
-  cachedAntigravityStatus = readAntigravityLocalStatus() ?? null;
+  cachedAntigravityStatus: import('./antigravity-local.js').AntigravityStatusInfo | null = null;
+  private antigravityProbeGeneration = 0;
   cachedGatewayAvailable = false;
   cachedGatewayConnected = false;
   cachedGatewayAuthStatus: 'gateway_not_found' | 'gateway_reachable' | 'gateway_token_missing' | 'pairing_required' | 'approval_pending' | 'connected' | 'auth_failed' | 'token_mismatch' | 'device_auth_invalid' | 'unsupported_protocol' = 'gateway_not_found';
@@ -905,13 +906,23 @@ export class BridgeCore {
   }
 
   startAntigravityProbe(intervalMs = 15_000): void {
-    this.cachedAntigravityStatus = readAntigravityLocalStatus() ?? null;
-    this.addInterval(setInterval(() => {
-      const next = readAntigravityLocalStatus() ?? null;
-      const changed = JSON.stringify(this.cachedAntigravityStatus) !== JSON.stringify(next);
-      this.cachedAntigravityStatus = next;
-      if (changed) this.stateMachine.emit('state_changed', this.stateMachine.getSnapshot());
-    }, intervalMs));
+    const generation = ++this.antigravityProbeGeneration;
+    let pending = false;
+    const probe = async () => {
+      if (pending || generation !== this.antigravityProbeGeneration) return;
+      pending = true;
+      try {
+        const next = await readAntigravityLocalStatus() ?? null;
+        if (generation !== this.antigravityProbeGeneration) return;
+        const changed = JSON.stringify(this.cachedAntigravityStatus) !== JSON.stringify(next);
+        this.cachedAntigravityStatus = next;
+        if (changed) this.stateMachine.emit('state_changed', this.stateMachine.getSnapshot());
+      } catch {
+        debug('Antigravity', 'Local status read unavailable');
+      } finally { pending = false; }
+    };
+    void probe();
+    this.addInterval(setInterval(() => { void probe(); }, intervalMs));
   }
 
   /**
@@ -1392,6 +1403,8 @@ export class BridgeCore {
       exitProcessNow(0);
     }, 7000);
 
+    // Invalidate any pending local-status read before tearing down timers.
+    this.antigravityProbeGeneration += 1;
     // Clear all timers
     for (const iv of this.intervals) clearInterval(iv);
     for (const to of this.timeouts) clearTimeout(to);

@@ -862,13 +862,13 @@ describe('onTaskEvaluated', () => {
 // ─── buildJudgePrompt sanity ─────────────────────────────────────────────────
 
 describe('buildJudgePrompt', () => {
-  it('includes rubric prompt + task + context fields', () => {
+  it('includes rubric prompt + task + context fields', async () => {
     const run: ApmeRunRow = {
       id: 'r', sessionId: 's', agentType: 'openclaw',
       modelId: 'claude-sonnet-4-6', projectName: 'proj', projectPath: null,
       taskPrompt: 'Add dark mode toggle', startedAt: Date.now(), exitCode: 0,
     };
-    const out = buildJudgePrompt(run, 'You are a judge. Score 0-1.', true);
+    const out = await buildJudgePrompt(run, 'You are a judge. Score 0-1.', true);
     expect(out).toContain('You are a judge');
     expect(out).toContain('Add dark mode toggle');
     expect(out).toContain('agent_type: openclaw');
@@ -877,11 +877,10 @@ describe('buildJudgePrompt', () => {
     expect(out).toContain('Respond with strict JSON only.');
   });
 
-  it('collects the diff with user diff drivers disabled (--no-ext-diff)', () => {
+  it('collects the diff with user diff drivers disabled (--no-ext-diff)', async () => {
     // External diff drivers run once per matching file and can be arbitrarily
     // slow (real case: a Java xlsx comparator whose JVM startup alone exceeds
-    // collectDiff's 4s budget) — and collectDiff is a synchronous spawn on the
-    // daemon event loop. The judge diff must therefore never invoke them.
+    // collectDiff's 4s budget). The judge diff must therefore never invoke them.
     const dir = tmpProject({ 'a.txt': 'old line\n' });
     try {
       initGit(dir);
@@ -900,7 +899,7 @@ describe('buildJudgePrompt', () => {
         taskPrompt: 'edit a.txt', startedAt: Date.now(), exitCode: 0,
         taskCategory: 'coding',
       };
-      const out = buildJudgePrompt(run, 'You are a judge.', true);
+      const out = await buildJudgePrompt(run, 'You are a judge.', true);
       expect(out).not.toContain('EXTERNAL_DIFF_DRIVER_RAN');
       expect(out).toContain('+new line');
     } finally {

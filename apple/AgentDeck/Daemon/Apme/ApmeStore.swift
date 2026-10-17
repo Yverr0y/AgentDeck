@@ -1661,6 +1661,7 @@ final class ApmeStore: @unchecked Sendable {
             "CREATE INDEX IF NOT EXISTS idx_evals_task ON evals(task_id)",
             "CREATE INDEX IF NOT EXISTS idx_tasks_started ON tasks(started_at)",
         ] { exec(sql) }
+        for sql in ApmeReadIndexes.sql { exec(sql) }
         for view in ["v_sample_scorecard", "v_category_scorecard", "v_model_scorecard", "v_run_metrics"] {
             exec("DROP VIEW IF EXISTS \(view)")
         }

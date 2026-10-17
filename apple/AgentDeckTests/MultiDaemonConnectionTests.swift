@@ -2,11 +2,34 @@
 import XCTest
 import Network
 import CryptoKit
+import Combine
 @testable import AgentDeck
 
 /// Real loopback handshakes exercise URLSession's two refusal shapes, including
 /// the close code that disappeared when teardown ran before classification.
 final class MultiDaemonConnectionTests: XCTestCase {
+    func testFreshConnectDuringOldRetryRearmsAutomaticRetries() throws {
+        let ready = expectation(description: "busy listener ready")
+        let server = try RefusalServer(code: 503) { ready.fulfill() }
+        defer { server.stop() }
+        wait(for: [ready], timeout: 5)
+        let connection = BridgeConnection()
+        defer { connection.prepareForTermination() }
+        let retrying = expectation(description: "initial attempt entered retry")
+        let subscription = connection.$isReconnecting.first(where: { $0 }).sink { _ in retrying.fulfill() }
+        defer { subscription.cancel() }
+        let url = "ws://127.0.0.1:\(try XCTUnwrap(server.port))"
+        connection.connect(to: url)
+        wait(for: [retrying], timeout: 8)
+        let initialRequests = server.requests
+        connection.disconnect()
+        connection.connect(to: url)
+        let settled = expectation(description: "fresh attempt also retries its first failure")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { settled.fulfill() }
+        wait(for: [settled], timeout: 7)
+        XCTAssertGreaterThanOrEqual(server.requests, initialRequests + 2)
+    }
+
     func testHTTP401StopsAndExplicitRetryWorks() throws { try refusal(401) }
     func testWebSocket4001StopsAndExplicitRetryWorks() throws { try refusal(4001) }
 
@@ -88,6 +111,49 @@ final class MultiDaemonConnectionTests: XCTestCase {
         XCTAssertGreaterThan(server.requests, 0, "Retry exhaustion must not be treated as a user stop when the selected host returns")
     }
 
+    func testPreferredLocalHostRecoversAfterRetryExhaustion() throws {
+        let ready = expectation(description: "local listener ready")
+        let server = try RefusalServer(code: 401) { ready.fulfill() }
+        defer { server.stop() }
+        wait(for: [ready], timeout: 5)
+        server.approve()
+        let port = Int(try XCTUnwrap(server.port))
+        let old = UserDefaults.standard.string(forKey: "lastBridgeUrl")
+        defer { UserDefaults.standard.set(old, forKey: "lastBridgeUrl") }
+        let holder = AgentStateHolder()
+        holder.discovery.isBrowserEnabled = false
+        defer { holder.prepareForTermination() }
+        let initial = expectation(description: "preferred local endpoint connected")
+        let handle = holder.connection.onEvent
+        holder.connection.onEvent = { event in
+            handle?(event)
+            if case .connection(let state) = event, state.status == "connected" { initial.fulfill() }
+        }
+        let url = "ws://127.0.0.1:\(port)"
+        holder.setPreferredLocalBridge(url: url)
+        wait(for: [initial], timeout: 8)
+        holder.connection.onEvent = handle
+        let requests = server.requests
+        holder.connection.disconnect()
+        holder.handleEvent(.connection(ConnectionEvent(type: "connection", status: "disconnected")))
+        let disconnected = expectation(description: "socket teardown delivered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { disconnected.fulfill() }
+        wait(for: [disconnected], timeout: 3)
+        holder.connection.onReconnectExhausted?(url)
+        holder.schedulePreferredLocalRecovery(after: 0.01)
+        let settled = expectation(description: "local recovery retry delivered")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { settled.fulfill() }
+        wait(for: [settled], timeout: 4)
+        XCTAssertGreaterThan(server.requests, requests, "A preferred loopback endpoint must recover even without a matching Bonjour LAN address")
+        let recoveredRequests = server.requests
+        holder.stopConnectionAttempts()
+        holder.schedulePreferredLocalRecovery(after: 0.01)
+        let stopped = expectation(description: "explicit stop remains in force")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { stopped.fulfill() }
+        wait(for: [stopped], timeout: 3)
+        XCTAssertEqual(server.requests, recoveredRequests)
+    }
+
     func testDiscoveryDoesNotUndoExplicitStop() throws { try assertDiscoveryRemainsStopped(auth: false) }
     func testDiscoveryDoesNotRetryAnAuthenticationRefusal() throws { try assertDiscoveryRemainsStopped(auth: true) }
 
@@ -152,8 +218,8 @@ private final class RefusalServer: @unchecked Sendable {
             }
             self.lock.withLock { self.count += 1 }
             let approved = self.lock.withLock { self.approved }
-            if code == 401 && !approved {
-                peer.send(content: Data("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8), completion: .contentProcessed { _ in peer.cancel() })
+            if code < 4000 && !approved {
+                peer.send(content: Data("HTTP/1.1 \(code) \(code == 401 ? "Unauthorized" : "Service Unavailable")\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8), completion: .contentProcessed { _ in peer.cancel() })
                 return
             }
             let key = text.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("sec-websocket-key:") }?

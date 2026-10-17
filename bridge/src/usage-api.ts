@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { execFileProbe } from '@agentdeck/shared';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -161,6 +162,7 @@ function noteSuccess(): void {
   lastFetchFailed = false;
   consecutiveFailures = 0;
   lastTokenStatus = 'valid';
+  credentialAvailable = true;
   rejectedCredential = null;
 }
 
@@ -271,16 +273,25 @@ export function buildCredSources(): CredSources {
   };
 }
 
-function getOAuthCredentials(): OAuthCredentials | null {
-  return resolveOAuthCredentials(buildCredSources());
+let credentialAvailable = false;
+async function getOAuthCredentials(): Promise<OAuthCredentials | null> {
+  const sources = buildCredSources();
+  // The pure source resolver retains its synchronous compatibility seam;
+  // daemon reads use the bounded asynchronous Keychain path instead.
+  const credentials = sources.platform === 'darwin'
+    ? parseOauthPayload(await execFileProbe('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'],
+      { timeout: 5000 }).then(value => value.trim(), error => {
+        if (error?.code === 44) return null; // Keychain item was actually absent.
+        throw error; // A deadline/permission failure cannot prove absence.
+      }))
+    : resolveOAuthCredentials(sources);
+  credentialAvailable = credentials !== null;
+  return credentials;
 }
 
-function getOAuthToken(): string | null {
-  return getOAuthCredentials()?.accessToken ?? null;
-}
-
+/** Last credential lookup; rendering/backoff must never re-query Keychain. */
 export function hasOAuthToken(): boolean {
-  return getOAuthToken() !== null;
+  return credentialAvailable;
 }
 
 // ===== File cache =====
@@ -387,7 +398,11 @@ export function parseScopedLimits(limits: unknown): ScopedUsageLimit[] {
 
 export async function fetchUsageFromApi(): Promise<UsageFetchResult | null> {
   if (inFlight) return inFlight;
-  inFlight = fetchUsageOnce().finally(() => { inFlight = null; });
+  inFlight = fetchUsageOnce().catch(() => {
+    noteFailure('usage probe unavailable');
+    const cache = readFileCache();
+    return cache ? { data: cache.data, fresh: false } : null;
+  }).finally(() => { inFlight = null; });
   return inFlight;
 }
 
@@ -414,7 +429,7 @@ async function fetchUsageOnce(): Promise<UsageFetchResult | null> {
   }
 
   // 2. Read OAuth credentials
-  let creds = getOAuthCredentials();
+  let creds = await getOAuthCredentials();
   if (!creds) {
     if (lastTokenStatus !== 'missing') logTagged('usage', 'Claude usage authorization unavailable — waiting for credentials');
     lastTokenStatus = 'missing';
@@ -437,7 +452,7 @@ async function fetchUsageOnce(): Promise<UsageFetchResult | null> {
     lastFetchFailed = true;
     if (recoveryEnabled && process.env.AGENTDECK_CLAUDE_USAGE_RECOVERY !== '0') {
       await claudeUsageRecovery.recover(creds.accessToken);
-      creds = getOAuthCredentials();
+      creds = await getOAuthCredentials();
     }
     if (!creds) { lastTokenStatus = 'missing'; return stale(fileCache); }
     // Only a KNOWN-expiring credential holds the fetch back; "no expiry

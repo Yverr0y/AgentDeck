@@ -59,6 +59,31 @@ export interface ProcInfo {
   command: string;
 }
 
+interface ProcessContinuity {
+  processes: ProcInfo[];
+  exited: number;
+  unknownPids: number[];
+}
+
+/** A PID omitted by a readable process table has not necessarily exited. */
+export async function confirmMissingProcesses(
+  pids: number[],
+  isAlive: (pid: number) => boolean | undefined = processLiveness,
+  reread: (pids: number[]) => Promise<ProcInfo[]> = collectProcessesByPid,
+): Promise<ProcessContinuity> {
+  const suspect = pids.filter(pid => isAlive(pid) !== false);
+  const recovered = suspect.length > 0 ? await reread(suspect).catch(() => []) : [];
+  const processes = recovered.filter(row => suspect.includes(row.pid));
+  const unresolved = suspect.filter(pid => !processes.some(row => row.pid === pid));
+  const unknownPids = unresolved.filter(pid => isAlive(pid) !== false);
+  return { processes, exited: pids.length - processes.length - unknownPids.length, unknownPids };
+}
+
+function processLiveness(pid: number): boolean | undefined {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === 'ESRCH' ? false : undefined; }
+}
+
 export interface TranscriptSummary {
   modelName?: string;
   state: ObservedState;
@@ -291,6 +316,17 @@ export class PassiveSessionObserver {
    *  observer already pays for instead of running a second one per tick. */
   private lastProcesses: ProcInfo[] = [];
   private processSnapshotAt = 0;
+  private claudeIdentityReads = { candidates: 0, unreadable: 0, retained: 0 };
+  private codexRolloutReadFailures = 0;
+  private codexRolloutCapturedAt = 0;
+  private codexObserved: ObservedSession[] = [];
+  private processContinuity = { capturedAt: 0, scannedProcessCount: 0, missing: 0, recovered: 0, exited: 0, unknown: 0 };
+  private continuityTotals = { recoveredScans: 0, recoveredPids: 0, inconclusiveScans: 0 };
+  diagnostics() {
+    return { capturedAt: this.processSnapshotAt, processCount: this.lastProcesses.length,
+      rosterCount: this.cached.length, codexRolloutReadFailures: this.codexRolloutReadFailures, codexRolloutCapturedAt: this.codexRolloutCapturedAt, claudeIdentityReads: { ...this.claudeIdentityReads },
+      processContinuity: { ...this.processContinuity, ...this.continuityTotals } };
+  }
   processSnapshot(): { processes: ProcInfo[]; capturedAt: number } {
     return { processes: this.lastProcesses, capturedAt: this.processSnapshotAt };
   }
@@ -305,7 +341,11 @@ export class PassiveSessionObserver {
 
   /** `collectProcesses` is injectable so the scan-failure paths (a rejection,
    *  an empty table) can be exercised without a real process table. */
-  constructor(private readonly collectProcesses: () => Promise<ProcInfo[]> = collectProcessInfo) {}
+  constructor(
+    private readonly collectProcesses: () => Promise<ProcInfo[]> = collectProcessInfo,
+    private readonly confirmMissing: (pids: number[]) => Promise<ProcessContinuity> = confirmMissingProcesses,
+    private readonly readCodexRollouts: (pids: number[]) => Promise<Map<number, string[]>> = mapCodexPidsToRollouts,
+  ) {}
 
   /**
    * Returns the cached observed sessions immediately and, when the cache is
@@ -342,24 +382,66 @@ export class PassiveSessionObserver {
   }
 
   private async scan(managedSessions: EnrichedSession[]): Promise<void> {
-    const processes = await this.collectProcesses();
+    const processes = [...await this.collectProcesses()];
     // collectProcessInfo() reports a timeout, a spawn failure or unparseable
     // output as [] rather than throwing, so the .catch() above never sees it —
     // and no running machine truly has zero processes. Treat an empty table as
     // the third answer ("could not look") and retain the previous roster; the
     // alternative is concluding that every observed session ended at once.
     if (processes.length === 0) return;
-    this.lastProcesses = processes;
-    this.processSnapshotAt = Date.now();
+    const present = new Set(processes.map(row => row.pid));
+    const missing = [...new Set(this.cached.map(row => row.pid))]
+      .filter(pid => Number.isInteger(pid) && pid > 0 && !present.has(pid));
+    const continuity = await this.confirmMissing(missing);
+    const unknownPids = new Set(continuity.unknownPids);
+    this.processContinuity = { capturedAt: Date.now(), scannedProcessCount: processes.length,
+      missing: missing.length, recovered: continuity.processes.length,
+      exited: continuity.exited, unknown: unknownPids.size };
+    if (continuity.processes.length > 0) {
+      this.continuityTotals.recoveredScans += 1;
+      this.continuityTotals.recoveredPids += continuity.processes.length;
+    }
+    if (unknownPids.size > 0) this.continuityTotals.inconclusiveScans += 1;
+    // A nonempty but partial ps result dropped every terminal Claude at once
+    // on a live Mac. Re-read missing known PIDs before publishing a removal.
+    // Retain only inconclusive identities, without re-reading their metadata as
+    // if their owner had been observed. Confirmed changes still take effect.
+    processes.push(...continuity.processes);
+    const retained = this.cached.filter(row => unknownPids.has(row.pid));
+    this.lastProcesses = [...processes, ...this.lastProcesses.filter(row => unknownPids.has(row.pid))];
+    // Consumers use this stamp as proof the whole snapshot was observed.
+    if (unknownPids.size === 0) this.processSnapshotAt = Date.now();
+    const claude = collectClaudeSessions(processes, this.cached);
+    this.claudeIdentityReads = claude.identityReads;
+    let codex: ObservedSession[];
+    try {
+      codex = await collectCodexSessions(processes, this.codexRolloutCache, this.readCodexRollouts);
+      this.codexObserved = [...codex.map(row => ({ ...row })),
+        ...this.codexObserved.filter(row => unknownPids.has(row.pid))];
+      if (unknownPids.size === 0) this.codexRolloutCapturedAt = Date.now();
+    } catch {
+      this.codexRolloutReadFailures += 1;
+      // Preserve only established identities with a positively observed owner
+      // of the same harness. Other agents and confirmed exits still advance.
+      const byPid = new Map(processes.map(row => [row.pid, row]));
+      this.codexObserved = this.codexObserved.filter(row => {
+        if (unknownPids.has(row.pid)) return true;
+        const owner = byPid.get(row.pid);
+        return owner && isCodexSessionProcessCommand(owner.command)
+          && owner.command.includes('app-server') === (row.agentType === 'codex-app');
+      });
+      codex = this.codexObserved.filter(row => !unknownPids.has(row.pid)).map(row => ({ ...row }));
+    }
     const observed = [
-      ...collectClaudeSessions(processes),
-      ...(await collectCodexSessions(processes, this.codexRolloutCache)),
+      ...claude.sessions,
+      ...codex,
       ...(await collectOpenCodeSessions(processes)),
       ...(await collectAntigravitySessions(processes)),
       ...(await collectKiroSessions(processes, this.kiroSessionCache)),
+      ...retained,
     ];
-    const { roster, execChildren } = foldHeadlessCodexSessions(observed, processes);
-    const next = dedupeObservedSessions(roster, managedSessions, processes);
+    const { roster, execChildren } = foldHeadlessCodexSessions(observed, this.lastProcesses);
+    const next = dedupeObservedSessions(roster, managedSessions, this.lastProcesses);
     // Only notify on real change — an unconditional callback would emit a
     // sessions broadcast every SCAN_INTERVAL even when nothing moved. A
     // headless child appearing or leaving changes no roster row, so it is
@@ -730,6 +812,18 @@ export async function collectProcessInfo(): Promise<ProcInfo[]> {
   }
 }
 
+async function collectProcessesByPid(pids: number[]): Promise<ProcInfo[]> {
+  if (process.platform === 'win32') {
+    return (await collectProcessInfoWin32()).filter(row => pids.includes(row.pid));
+  }
+  try {
+    const { stdout } = await execFileAsync('ps', ['-ww', '-p', pids.join(','), '-o', 'pid=,ppid=,rss=,tty=,command='], {
+      encoding: 'utf8', timeout: 2_000, maxBuffer: 2 * 1024 * 1024,
+    });
+    return parseProcessTable(stdout);
+  } catch { return []; }
+}
+
 /**
  * Windows scan backend. `ps` there only exists under git-bash and reports MSYS
  * processes, not native Win32 command lines — so the previous "run ps anyway"
@@ -835,15 +929,29 @@ export function resolveHostApp(
   return undefined;
 }
 
-function collectClaudeSessions(processes: ProcInfo[]): ObservedSession[] {
+function collectClaudeSessions(processes: ProcInfo[], previous: ObservedSession[] = []): {
+  sessions: ObservedSession[]; identityReads: { candidates: number; unreadable: number; retained: number };
+} {
   const configDirs = claudeConfigDirs();
   const byPid = new Map(processes.map((p) => [p.pid, p]));
   const sessions: ObservedSession[] = [];
   const candidates: Array<{ proc: ProcInfo; file: ClaudeSessionFile }> = [];
+  const identityReads = { candidates: 0, unreadable: 0, retained: 0 };
   for (const proc of processes) {
     if (!isClaudeSessionProcessCommand(proc.command)) continue;
+    identityReads.candidates += 1;
     const file = findClaudeSessionFile(configDirs, proc.pid);
     if (file) candidates.push({ proc, file });
+    else {
+      identityReads.unreadable += 1;
+      // A session file can be absent or half-written during Claude's update.
+      // This scan still positively sees the same Claude process. Losing its
+      // metadata is not evidence the conversation ended; keep only a previously
+      // established identity. A missing PID, non-Claude argv, a valid replacement
+      // identity, spare or parked-job record still removes the old row.
+      const prior = previous.find(s => s.agentType === 'claude-code' && s.pid === proc.pid);
+      if (prior) { sessions.push({ ...prior }); identityReads.retained += 1; }
+    }
   }
   for (const { proc, file: sessionFile } of selectClaudeConversationFiles(candidates)) {
     const transcript = findClaudeTranscript(configDirs, sessionFile.cwd, sessionFile.sessionId);
@@ -875,15 +983,17 @@ function collectClaudeSessions(processes: ProcInfo[]): ObservedSession[] {
       lastActivityAt,
     });
   }
-  return sessions;
+  return { sessions, identityReads };
 }
 
 async function collectCodexSessions(
   processes: ProcInfo[],
   rolloutCache: CodexRolloutCache,
+  readRollouts: (pids: number[]) => Promise<Map<number, string[]>>,
 ): Promise<ObservedSession[]> {
   const codex = processes.filter((p) => isCodexSessionProcessCommand(p.command));
-  const rolloutsByPid = await mapCodexPidsToRollouts(codex.map((p) => p.pid));
+  if (codex.length === 0) return [];
+  const rolloutsByPid = await readRollouts(codex.map((p) => p.pid));
   return collectCodexSessionsFromRollouts(processes, rolloutsByPid, rolloutCache);
 }
 
@@ -1346,7 +1456,7 @@ function findClaudeSessionFile(configDirs: string[], pid: number): ClaudeSession
         cwd: string;
         startedAt: number;
       }>;
-      if (typeof parsed.pid !== 'number' || typeof parsed.sessionId !== 'string' ||
+      if (parsed.pid !== pid || typeof parsed.sessionId !== 'string' ||
           typeof parsed.cwd !== 'string' || typeof parsed.startedAt !== 'number') {
         continue;
       }
@@ -1409,12 +1519,18 @@ async function mapCodexPidsToRollouts(pids: number[]): Promise<Map<number, strin
       try {
         const paths = new Set<string>();
         for (const fd of await readdirAsync(`/proc/${pid}/fd`)) {
-          const path = await readlinkAsync(`/proc/${pid}/fd/${fd}`);
-          if (isCodexRolloutPath(path)) paths.add(path);
+          try {
+            const path = await readlinkAsync(`/proc/${pid}/fd/${fd}`);
+            if (isCodexRolloutPath(path)) paths.add(path);
+          } catch (error) {
+            // A descriptor closed after readdir is normal; unreadable process
+            // metadata is still unknown, not an empty identity set.
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
         }
         if (paths.size > 0) map.set(pid, [...paths]);
       } catch {
-        // /proc permission/race failures are normal.
+        throw new Error('Codex rollout observation unavailable');
       }
     }
     return map;
@@ -1427,10 +1543,18 @@ async function mapCodexPidsToRollouts(pids: number[]): Promise<Map<number, strin
       timeout: 2_000,
       maxBuffer: 2 * 1024 * 1024,
     });
-    return parseLsofRollouts(stdout);
+    return parseLsofRolloutProbe(stdout, pids);
   } catch {
-    return new Map();
+    // A timeout/partial lsof result cannot prove that Desktop conversations
+    // closed. Let the scan retain its established roster and freshness stamp.
+    throw new Error('Codex rollout observation unavailable');
   }
+}
+
+export function parseLsofRolloutProbe(output: string, expectedPids: number[]): Map<number, string[]> {
+  const present = new Set(output.split('\n').filter(line => /^p[0-9]+$/.test(line)).map(line => Number(line.slice(1))));
+  if (expectedPids.some(pid => !present.has(pid))) throw new Error('Incomplete Codex rollout observation');
+  return parseLsofRollouts(output);
 }
 
 export function parseLsofRollouts(output: string): Map<number, string[]> {

@@ -355,6 +355,7 @@ enum CodexAmbientHookRules {
         // heading marker is optional so a stripped copy still matches.
         "^\\s*(?:#+\\s*)?Overview\\s+Generate 0 to 3 hyperpersonalized suggestions\\b",
         "^\\s*You are an expert at upholding safety and compliance standards for Codex ambient suggestions\\b",
+        "^\\s*This is an app-generated request for a suggested next user message\\.\\s+The user did not write this message\\.(?:\\s|$)",
     ].map { try! NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
 
     /// Prompt text as Codex hooks carry it: `prompt`, some builds

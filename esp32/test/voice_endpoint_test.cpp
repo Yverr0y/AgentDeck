@@ -12,9 +12,9 @@ int main(){
     for(uint32_t t=0;t<800;t+=16)
         assert(e.update(t,7000,16,t<600)==E::Result::Continue);
     assert(!e.heard());
-    for(uint32_t t=800;t<6000;t+=16)
+    for(uint32_t t=800;t<3500;t+=16)
         assert(e.update(t,950,16)==E::Result::Continue);
-    assert(e.update(6000,950,16)==E::Result::NoSpeech);
+    assert(e.update(3500,950,16)==E::Result::NoSpeech);
     e.begin(0);
     // A short sound after the cue is insufficient evidence of a command.
     for(uint32_t t=500;t<612;t+=16)e.update(t,9000,16);

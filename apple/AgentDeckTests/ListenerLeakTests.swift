@@ -107,10 +107,9 @@ final class ListenerLeakTests: XCTestCase {
 
 /// The decision `connectToExternalDaemon` makes at each of its exits.
 ///
-/// This is a decision test, not a substitute for driving the sequence:
-/// `DaemonService.init()` calls `start()` and binds a port, so the service has
-/// no test seam and the interleaving above cannot be replayed here. Splitting
-/// that initializer is the recorded prerequisite (AGENTS.md).
+/// These decision tests cover ownership epochs. `ExternalAttachRetryTests`
+/// additionally drives the service with startup disabled and a suspended health
+/// probe to cover stop and newer connection intents during an active retry.
 final class ExternalTransitionStalenessTests: XCTestCase {
 
     func testATransitionIsStaleOnceANewerDaemonTookOwnership() {

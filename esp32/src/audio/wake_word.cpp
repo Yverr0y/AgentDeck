@@ -126,10 +126,11 @@ bool process(const int16_t* mono, size_t count) {
         uint8_t probability = interpreter->output(0)->data.uint8[0];
         lastScore = probability;
         ++warmup;
-        // Require sustained evidence and a warmed streaming context. Threshold
-        // is deliberately conservative until tested with this panel's audio.
+        // A single short resemblance to the keyword must not open a voice turn.
+        // Five consecutive 20 ms inferences require sustained evidence while
+        // leaving the score cutoff unchanged to preserve softer wake attempts.
         above = probability >= 128 && warmup > 50 ? uint8_t(above + 1) : 0;
-        if (above >= 3) { ++detected; hit = true; above = 0; break; }
+        if (above >= 5) { ++detected; hit = true; above = 0; break; }
     }
     return hit;
 }
