@@ -11,6 +11,7 @@ import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { createRequire } from 'module';
 import { debug } from '../logger.js';
+import { APME_HOT_READ_INDEXES } from './read-indexes.generated.js';
 
 // better-sqlite3 is an optional native dep. Resolving via createRequire from
 // this file's URL lets Node walk `bridge/node_modules/*` via the pnpm
@@ -893,6 +894,7 @@ export class ApmeStore {
       // index, including the empty-response exclusion for pending outcomes.
       'CREATE INDEX IF NOT EXISTS idx_runs_closed_queue ON runs(ended_at DESC, task_category, id, project_path) WHERE ended_at IS NOT NULL',
       "CREATE INDEX IF NOT EXISTS idx_turns_pending_outcome ON turns(started_at DESC, id, run_id) WHERE response IS NOT NULL AND response != '' AND outcome IS NULL",
+      ...APME_HOT_READ_INDEXES,
     ]) {
       try { this.db.exec(sql); } catch { /* ignore */ }
     }

@@ -13,7 +13,8 @@
  */
 
 import { randomUUID, createHash } from 'crypto';
-import { execSync } from 'child_process';
+import { execFileText } from './process.js';
+import { readGitHead } from './git-head.js';
 import { join } from 'path';
 import { mkdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
@@ -1984,25 +1985,24 @@ export class ApmeCollector {
       debug('APME', `classify failed: ${String(err)}`);
     });
     // Save git diff as artifact (best-effort, capped at 1MB).
-    this.saveDiffArtifact(runId, projectPath);
+    void this.saveDiffArtifact(runId, projectPath);
     return runId;
   }
 
   /** Save the git diff produced by this run as an artifact file. */
-  private saveDiffArtifact(runId: string, projectPath?: string): void {
+  private async saveDiffArtifact(runId: string, projectPath?: string): Promise<void> {
     if (!projectPath) return;
     try {
       const run = this.store.getRun(runId);
       if (!run) return;
       // --no-ext-diff / --no-textconv: same rule as runner.ts collectDiff —
       // user diff drivers (e.g. a Java xlsx comparator with multi-second JVM
-      // startup) must never run inside this synchronous daemon-side spawn.
+      // startup) must not consume the bounded artifact lookup deadline.
       const args = run.gitBefore && run.gitAfter && run.gitBefore !== run.gitAfter
-        ? `diff --no-ext-diff --no-textconv ${run.gitBefore}..${run.gitAfter}`
-        : 'diff --no-ext-diff --no-textconv HEAD';
-      const diff = execSync(`git ${args}`, {
-        cwd: projectPath, encoding: 'utf-8', timeout: 5000,
-        maxBuffer: 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+        ? ['diff', '--no-ext-diff', '--no-textconv', `${run.gitBefore}..${run.gitAfter}`]
+        : ['diff', '--no-ext-diff', '--no-textconv', 'HEAD'];
+      const diff = await execFileText('git', args, {
+        cwd: projectPath, timeout: 5000, maxBuffer: 1024 * 1024,
       });
       if (!diff || diff.length < 10) return;
       const hash = createHash('sha256').update(diff).digest('hex').slice(0, 16);
@@ -2105,16 +2105,6 @@ function clampPayload(v: unknown): unknown {
   }
 }
 
-function readGitHead(cwd?: string): string | null {
-  if (!cwd) return null;
-  try {
-    return execSync('git rev-parse HEAD', {
-      cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, windowsHide: true,
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
 
 function getArtifactDir(runId: string): string {
   const dataDir = process.env.AGENTDECK_DATA_DIR || join(homedir(), '.agentdeck');

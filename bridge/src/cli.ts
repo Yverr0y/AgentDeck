@@ -4413,7 +4413,7 @@ apme
     let outcomeData = run.outcome ? { outcome: run.outcome, confidence: run.outcomeConfidence ?? '—' } : null;
     if (!outcomeData && run.endedAt) {
       // Compute now if not yet evaluated
-      const result = evaluateOutcome(apme.store, run.id);
+      const result = await evaluateOutcome(apme.store, run.id);
       if (result) {
         outcomeData = { outcome: result.outcome.outcome, confidence: result.outcome.confidence };
         run = apme.store.getRun(run.id) ?? run; // refresh

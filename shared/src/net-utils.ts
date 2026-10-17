@@ -1,69 +1,51 @@
 import { networkInterfaces } from 'os';
-import { execFileSync } from 'node:child_process';
+import { execFileProbe } from './exec-file-probe.js';
 
-/**
- * IPv4 of the *default-route* interface — the one the OS actually uses to reach
- * the LAN/internet. On a dual-homed host (e.g. en0 + en1 on the same subnet),
- * the raw interface scan below can return an arbitrary secondary address that a
- * remote device can't reliably reach; the default route is the stable, correct
- * one to advertise (pairing URL / mDNS / TRMNL BYOS URL). Returns null when the
- * platform's routing tool is unavailable (→ caller falls back to the heuristic).
- */
+// Route tools may take their full deadline under load. Keep synchronous callers
+// on the last usable reading (or interface heuristic), with one bounded refresh.
 let routeCache: { ip: string | null; at: number } | null = null;
+let routeRefreshInFlight = false;
 function defaultRouteIp(): string | null {
   const now = Date.now();
-  // Short cache: cheap enough to re-probe often (keeps mDNS IP-change detection
-  // responsive) without spawning `route` on every connect.
-  if (routeCache && now - routeCache.at < 3000) return routeCache.ip;
-  let iface: string | null = null;
-  let directIp: string | null = null;
-  try {
-    if (process.platform === 'darwin') {
-      const out = execFileSync('route', ['-n', 'get', 'default'], { timeout: 1000, encoding: 'utf8', windowsHide: true });
-      iface = out.match(/interface:\s*(\S+)/)?.[1] ?? null;
-    } else if (process.platform === 'linux') {
-      const out = execFileSync('ip', ['route', 'get', '1.1.1.1'], { timeout: 1000, encoding: 'utf8', windowsHide: true });
-      iface = out.match(/\bdev\s+(\S+)/)?.[1] ?? null;
-    } else if (process.platform === 'win32') {
-      // Windows interface names are friendly strings ("Wi-Fi", "vEthernet (...)"),
-      // so the name-pattern heuristic below can't tell a host-only Hyper-V/WSL
-      // virtual switch (172.x, no gateway) from the real LAN adapter — and on a
-      // Hyper-V host the real LAN IP itself lives on a "vEthernet (External Switch)".
-      // `route print -4 0.0.0.0` resolves this by emitting the *source interface IP*
-      // of each default route directly in the Interface column; pick the lowest
-      // metric so VPN/host-only adapters lose to the physical route.
-      const out = execFileSync('route', ['print', '-4', '0.0.0.0'], { timeout: 1000, encoding: 'utf8', windowsHide: true });
-      let bestMetric = Infinity;
-      for (const line of out.split('\n')) {
-        // Network  Netmask  Gateway  Interface  Metric
-        const m = line.trim().match(/^0\.0\.0\.0\s+0\.0\.0\.0\s+\S+\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)/);
-        if (!m) continue;
-        const candidate = m[1];
-        const metric = parseInt(m[2], 10);
-        if (candidate === '0.0.0.0' || candidate.startsWith('169.254.')) continue;
-        if (metric < bestMetric) {
-          bestMetric = metric;
-          directIp = candidate;
+  const usable = (ip: string | null) => ip && Object.values(networkInterfaces()).some(entries =>
+    entries?.some(net => net.family === 'IPv4' && !net.internal && net.address === ip)) ? ip : null;
+  if (routeCache && now - routeCache.at < 3000) return usable(routeCache.ip);
+  if (!routeRefreshInFlight) {
+    const platform = process.platform;
+    const command = platform === 'linux' ? 'ip' : 'route';
+    const args = platform === 'darwin' ? ['-n', 'get', 'default']
+      : platform === 'linux' ? ['route', 'get', '1.1.1.1']
+      : platform === 'win32' ? ['print', '-4', '0.0.0.0'] : null;
+    if (!args) { routeCache = { ip: null, at: now }; return null; }
+    routeRefreshInFlight = true;
+    const complete = (error: unknown, out = '') => {
+      let ip = usable(routeCache?.ip ?? null);
+      if (!error) {
+        const iface = platform === 'darwin' ? out.match(/interface:\s*(\S+)/)?.[1]
+          : platform === 'linux' ? out.match(/\bdev\s+(\S+)/)?.[1] : undefined;
+        ip = null;
+        if (platform === 'win32') {
+          let bestMetric = Infinity;
+          for (const line of out.split('\n')) {
+            const match = line.trim().match(/^0\.0\.0\.0\s+0\.0\.0\.0\s+\S+\s+(\d+\.\d+\.\d+\.\d+)\s+(\d+)/);
+            if (!match || match[1] === '0.0.0.0' || match[1].startsWith('169.254.')) continue;
+            const metric = Number(match[2]);
+            if (metric < bestMetric) { bestMetric = metric; ip = match[1]; }
+          }
+        } else if (iface) {
+          ip = networkInterfaces()[iface]?.find(net => net.family === 'IPv4' && !net.internal && !net.address.startsWith('169.254.'))?.address ?? null;
         }
       }
-    }
-  } catch {
-    /* route tool missing / non-POSIX → null, fall back to the heuristic */
+      routeCache = { ip, at: Date.now() };
+      routeRefreshInFlight = false;
+    };
+    void execFileProbe(command, args, { timeout: 1000 })
+      .then(out => complete(null, out), error => complete(error));
   }
-  let ip: string | null = directIp;
-  if (!ip && iface) {
-    for (const net of networkInterfaces()[iface] ?? []) {
-      if (net.family === 'IPv4' && !net.internal && !net.address.startsWith('169.254.')) {
-        ip = net.address;
-        break;
-      }
-    }
-  }
-  routeCache = { ip, at: now };
-  return ip;
+  return usable(routeCache?.ip ?? null);
 }
 
-/** Return the default-route IPv4 (preferred), else the first non-internal IPv4
+/** Return the last usable default-route IPv4 (refreshed asynchronously), else the first non-internal IPv4
  * LAN address, or '127.0.0.1' as fallback. */
 export function getLanIp(): string {
   const primary = defaultRouteIp();

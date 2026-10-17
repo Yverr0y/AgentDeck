@@ -81,6 +81,7 @@ AGENTS.md § Key Conventions ("Cross-platform rules are SSOT-first"); this is th
 
 | Canonical source | Generator | Gate / note |
 |---|---|---|
+| `shared/apme-read-indexes.json` (APME metadata read plans) | `pnpm generate-apme-read-indexes` → Node and Swift index migrations | `apme-work-board-plan.test.ts` checks generated drift and real query plans; `apme-background-plan.test.ts` and `ApmeHotReadPlanTests` pin queue and native SQLite plans. |
 | `shared/src/connection-status.ts` (native recovery labels) | `node scripts/generate-connection-labels.mjs` → existing Swift/Kotlin lexicons | `connection-status.test.ts` checks generated label drift; native connection tests cover selection, approval and recovery. |
 | `shared/src/dot-appearance.ts` + `shared/src/dot-pixels.ts` | `pnpm generate-dot-contract` → portable Swift/Kotlin models, report-only habitat presence allow-list, firmware budgets/default glyph, native pixel overlay | Avatar conversion/budget/clearing tests, native quadrant-orientation and remote snapshot tests, generated-byte drift and matrix parity. |
 | `shared/src/dot-deck.ts` | Both deck plugins consume one reservation/status SVG implementation; native D200H preview reservation mirror | Deck layout tests and preview SYNC-HASH drift gate; native Dot tests. |

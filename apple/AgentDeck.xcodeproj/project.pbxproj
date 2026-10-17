@@ -382,6 +382,7 @@
 		7EE9C9A65223FD18211B0C48 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 731118DC3B388D7BE3F1CDB7 /* DesignTokens.swift */; };
 		7F2EF2FA2C61302C14EC7D77 /* TopologyRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8FF164B1E859BEE08BBF646 /* TopologyRail.swift */; };
 		7F401B71F68C95DEBD74DAFE /* TUITerrariumRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D80206C489734918E56FB0B /* TUITerrariumRenderer.swift */; };
+		7F65A19D102AACA5641BDF3B /* ApmeHotReadPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */; };
 		7F7AC94714D1AA6767605207 /* OpenCodeObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21073CA63BB9403D46212547 /* OpenCodeObserverTests.swift */; };
 		7F8830A8D7992D6BE9175043 /* HermesMermaidSprite.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14AF460DF0B759372BA1F6C6 /* HermesMermaidSprite.generated.swift */; };
 		7FBCD51766F94FE9BD969378 /* SetupNeededCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC179B8F91EF42F5EBDE911 /* SetupNeededCard.swift */; };
@@ -486,6 +487,7 @@
 		A2D382D31BFCC8EAEE6F19F4 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86E42A4F5681EFB215B43645 /* AppPreferences.swift */; };
 		A2D6228ECEFFE762B28EF6C9 /* CollaborationProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09E1BD51B5102E89060963B /* CollaborationProjectionTests.swift */; };
 		A320BAAC52861E8F41588F75 /* ApmeOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51DB3C4DCB23D09CFA856786 /* ApmeOutcome.swift */; };
+		A3DBC8520FF03E2696C3875E /* ApmeReadIndexes.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */; };
 		A45715C40465E13F9F57B786 /* OpenClawPluginApprovalRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD9BAEA1AA19038A243F2806 /* OpenClawPluginApprovalRulesTests.swift */; };
 		A4B08716944AD6C71A09D7FE /* HermesObserverGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 117F3C33248F92F5E98E4ECB /* HermesObserverGateTests.swift */; };
 		A50EA56C00F6A51F498DD20E /* MonitorScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B4E454713DFE2DECC4D154 /* MonitorScreen.swift */; };
@@ -703,6 +705,7 @@
 		E739E51365F230ED44B8C80B /* DotHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50AD86E0F9030974265A7C9 /* DotHost.swift */; };
 		E74A174A31340C8798090408 /* AppMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 006CBD6A3ADAE5DCD1EBBDB3 /* AppMetadata.swift */; };
 		E8484D2A78F8F3C35EAD8204 /* KiroCreature.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF126528728AEF6E07C3C7ED /* KiroCreature.swift */; };
+		E849E1B5B40445D90BE3F55C /* ApmeHotReadPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */; };
 		E89EEE8867D7AFF8C70C8BBD /* LocalPortProbeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82B7842EE85B6D8BD64D95EF /* LocalPortProbeTests.swift */; };
 		E940E2714946D07856C8FB37 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5200B4548DFE9F98AEE8D504 /* ContentView.swift */; };
 		E98F3FC6D7134E8E65163D93 /* OnboardingSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302810B07A9DC093700A7C31 /* OnboardingSheet.swift */; };
@@ -717,6 +720,7 @@
 		ED941D3D0148227D99EDDB0A /* PixooSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47FFD673C1AD8EAF690B9E82 /* PixooSheet.swift */; };
 		EDB44E89F700BC28A7AB9A83 /* CodexConfigInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A70C6FAC4BDE4DAAFA08E74 /* CodexConfigInstaller.swift */; };
 		EE0D4A43834C984929AEFB6C /* DotSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED10CEC4D0AD8F6A3502E027 /* DotSettingsView.swift */; };
+		EE83F0F9F55D68644A722D50 /* ApmeReadIndexes.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */; };
 		EE91D7CCEFEA94B80A2A4FCD /* SetupNeededCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC179B8F91EF42F5EBDE911 /* SetupNeededCard.swift */; };
 		F04C9951C6E7B99B371B7A9D /* TaskGradeabilityRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A5E894C58B03EE5C8EF791 /* TaskGradeabilityRules.generated.swift */; };
 		F0C03AF0FCFD56AC72DE9FD3 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 908DB05568DE4E828CD7FCE6 /* Logger.swift */; };
@@ -839,6 +843,7 @@
 		21FC16ECE363684E997BE01E /* DaemonPosture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonPosture.swift; sourceTree = "<group>"; };
 		228A0A4D8F537A1C69CF4DE2 /* CommunicationGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunicationGraphView.swift; sourceTree = "<group>"; };
 		234CFF4B2832E6B1CA98AF10 /* GatewayParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayParityTests.swift; sourceTree = "<group>"; };
+		25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeReadIndexes.generated.swift; sourceTree = "<group>"; };
 		2695212E35C7579728C6F1ED /* CoordinationTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinationTracker.swift; sourceTree = "<group>"; };
 		26A4C8A53C312709350735F5 /* ApmeJudgeOpenAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeJudgeOpenAI.swift; sourceTree = "<group>"; };
 		279EAD7034309F8B8641DF78 /* SpokenDigestParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpokenDigestParityTests.swift; sourceTree = "<group>"; };
@@ -1009,6 +1014,7 @@
 		908DB05568DE4E828CD7FCE6 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		911116AFCDB54393457A6EB6 /* OpenClawSessionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSessionSettings.swift; sourceTree = "<group>"; };
 		918C108FEF53B66BF6D944B7 /* DevicePairingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePairingWindow.swift; sourceTree = "<group>"; };
+		92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeHotReadPlanTests.swift; sourceTree = "<group>"; };
 		92F84E0AB4261F8308A45186 /* AgentStateHolder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStateHolder.swift; sourceTree = "<group>"; };
 		94B060A15BF6B6EFD1848C81 /* ApmeClassifierBackendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeClassifierBackendTests.swift; sourceTree = "<group>"; };
 		952A48256A53B55E304F7D67 /* MdnsIdentity.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MdnsIdentity.generated.swift; sourceTree = "<group>"; };
@@ -1242,6 +1248,7 @@
 				0F083DDE39507B6693AED227 /* ApmeCategoryE2ETests.swift */,
 				94B060A15BF6B6EFD1848C81 /* ApmeClassifierBackendTests.swift */,
 				43F7DA99E490C72ED75FF711 /* ApmeExternalCloseSelectionTests.swift */,
+				92906E64B9FD81B41771E134 /* ApmeHotReadPlanTests.swift */,
 				F6D5D47532E0BFEC96101B27 /* ApmeJudgeCrossDaemonTests.swift */,
 				337A9CAC731DB3377BFF5626 /* ApmeObservedHookNormalizationTests.swift */,
 				2DB04CEEDD6C769AD9056561 /* ApmeParseJudgeTests.swift */,
@@ -1562,6 +1569,7 @@
 				26A4C8A53C312709350735F5 /* ApmeJudgeOpenAI.swift */,
 				51DB3C4DCB23D09CFA856786 /* ApmeOutcome.swift */,
 				86C2853DD31CC81F421A2A1F /* ApmePricing.swift */,
+				25F9FDF17CAE4968078B9841 /* ApmeReadIndexes.generated.swift */,
 				C0A8B27A341D1DAE1FCF1D01 /* ApmeRecommender.swift */,
 				53D4EF93231AAC8CD23FB819 /* ApmeRunner.swift */,
 				758AAD78310D811B993ADA21 /* ApmeScorers.swift */,
@@ -2084,6 +2092,7 @@
 				BDEDD6038EA83D66CC78F12C /* ApmeCategoryE2ETests.swift in Sources */,
 				11267120A1E59EB9DA314A75 /* ApmeClassifierBackendTests.swift in Sources */,
 				279790437C6EA1A11A0E8632 /* ApmeExternalCloseSelectionTests.swift in Sources */,
+				E849E1B5B40445D90BE3F55C /* ApmeHotReadPlanTests.swift in Sources */,
 				CE468A14B7D6D67F6649274C /* ApmeJudgeCrossDaemonTests.swift in Sources */,
 				D6CF0FA956C55413CA4A9E51 /* ApmeObservedHookNormalizationTests.swift in Sources */,
 				3AB4FFE7850E2A1AB615E162 /* ApmeParseJudgeTests.swift in Sources */,
@@ -2184,6 +2193,7 @@
 				38B8B9D479D582EE034C05DB /* ApmeCategoryE2ETests.swift in Sources */,
 				E2A2D16B6B22232302404F71 /* ApmeClassifierBackendTests.swift in Sources */,
 				DADAD3815A22603118F3EFBA /* ApmeExternalCloseSelectionTests.swift in Sources */,
+				7F65A19D102AACA5641BDF3B /* ApmeHotReadPlanTests.swift in Sources */,
 				50AA2C8BADDFB583CEF8355D /* ApmeJudgeCrossDaemonTests.swift in Sources */,
 				71E85F5B6C7CF77AE7A3162C /* ApmeObservedHookNormalizationTests.swift in Sources */,
 				8DE4D71A8BA18D7373FA3147 /* ApmeParseJudgeTests.swift in Sources */,
@@ -2305,6 +2315,7 @@
 				47D7A8AAFBDADBA4FC75EB34 /* ApmeJudgeOpenAI.swift in Sources */,
 				06C6D342554422542396AC74 /* ApmeOutcome.swift in Sources */,
 				270A86EE461D911332A98A39 /* ApmePricing.swift in Sources */,
+				A3DBC8520FF03E2696C3875E /* ApmeReadIndexes.generated.swift in Sources */,
 				67BC9141429FBD039D306858 /* ApmeRecommender.swift in Sources */,
 				E510E70B26F457C5035A70BF /* ApmeRunner.swift in Sources */,
 				89B569F2096B99D8C6ED3044 /* ApmeScorers.swift in Sources */,
@@ -2581,6 +2592,7 @@
 				B88EAABE4E7D9CEB126CE830 /* ApmeJudgeOpenAI.swift in Sources */,
 				A320BAAC52861E8F41588F75 /* ApmeOutcome.swift in Sources */,
 				584C4C85DE3E5789C8B8DBF9 /* ApmePricing.swift in Sources */,
+				EE83F0F9F55D68644A722D50 /* ApmeReadIndexes.generated.swift in Sources */,
 				4A0D8F7C56E1BEB0167E62CB /* ApmeRecommender.swift in Sources */,
 				BBEB24AC6D843E71B5C8D517 /* ApmeRunner.swift in Sources */,
 				5DCD91335EFB1B6500CA830E /* ApmeScorers.swift in Sources */,
