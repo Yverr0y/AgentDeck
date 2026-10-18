@@ -490,6 +490,16 @@ actor ESP32Serial {
         publishStatusShadow()
     }
 
+    /// One event to the board on `port`, shaped like a broadcast frame: the
+    /// reply to a request that board made over its own line.
+    @discardableResult
+    func sendEvent(_ event: [String: Any], toPort port: String) -> Bool {
+        guard let i = connections.firstIndex(where: { $0.port == port && $0.connected }) else { return false }
+        let sent = sendEvent(event, to: &connections[i])
+        publishStatusShadow()
+        return sent
+    }
+
     func sendWifiProvisionToAll(_ msg: [String: Any]) -> Int {
         guard let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return 0 }
