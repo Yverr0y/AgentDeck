@@ -183,5 +183,33 @@
     ],
     "expected": null,
     "note": "case folding is ASCII-only: the Kelvin sign U+212A is not a k"
+  },
+  {
+    "turns": [
+      { "prompt": "﻿<task-notification>\n<task-id>bg6</task-id>\n<status>completed</status>\n</task-notification>", "response": "Picked up the result.", "toolCalls": 1, "endSource": "stop" }
+    ],
+    "expected": "notification_only",
+    "note": "a leading BOM U+FEFF is JavaScript whitespace and is skipped"
+  },
+  {
+    "turns": [
+      { "prompt": "\u0085<task-notification>\n<task-id>bg7</task-id>\n<status>completed</status>\n</task-notification>", "response": "Picked up the result.", "toolCalls": 1, "endSource": "stop" }
+    ],
+    "expected": null,
+    "note": "a leading NEL U+0085 is not JavaScript whitespace, so the prompt does not open with the envelope"
+  },
+  {
+    "turns": [
+      { "prompt": "<task-notification﻿id=\"bg8\">done</task-notification>", "response": "Picked up the result.", "toolCalls": 1, "endSource": "stop" }
+    ],
+    "expected": "notification_only",
+    "note": "a BOM U+FEFF after the tag name opens the envelope"
+  },
+  {
+    "turns": [
+      { "prompt": "<task-notification\u0085id=\"bg9\">done</task-notification>", "response": "Picked up the result.", "toolCalls": 1, "endSource": "stop" }
+    ],
+    "expected": null,
+    "note": "a NEL U+0085 after the tag name does not open the envelope"
   }
 ]

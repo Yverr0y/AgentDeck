@@ -41,7 +41,7 @@ Neither alternative, nor this rule, returns the work done after a notice to the
 task that started the job. That work is now in no task's score, which is better
 than scoring it against an invented request.
 
-Two parity pitfalls in the Swift mirror, both pinned by new vectors in
+Three parity pitfalls in the Swift mirror, each pinned by vectors in
 `shared/task-gradeability-vectors.json`:
 
 - **Leading whitespace only.** The TS predicate is
@@ -51,5 +51,11 @@ Two parity pitfalls in the Swift mirror, both pinned by new vectors in
 - **ASCII case folding only.** A JavaScript `i` regex without the `u` flag
   matches only ASCII case variants, while Swift's `lowercased()` maps the Kelvin
   sign `K` (U+212A) to `k`. The Swift check compares unicode scalars with an
-  ASCII-only lowercase. No real prompt contains a Kelvin sign; this keeps the
-  two predicates the same function.
+  ASCII-only lowercase. No real prompt contains a Kelvin sign.
+- **JavaScript's whitespace, not Unicode's.** `trimStart()` and `\s` include
+  the BOM U+FEFF and leave out NEL U+0085; Swift's `properties.isWhitespace`
+  (Unicode White_Space) is the reverse on both. The first Swift mirror used it,
+  so either character before the tag or right after it decided the notice the
+  other way, and all 26 vectors passed. The generator now emits JavaScript's
+  set as read from its own engine; a sweep of every Unicode scalar in both
+  positions then decided identically in Node and Swift.

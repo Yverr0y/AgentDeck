@@ -51,18 +51,33 @@ enum TaskGradeabilityRules {
 
     /// shared/src/harness-queued-message.ts: after leading whitespace the
     /// prompt opens with the tag, ASCII letters in either case, followed by
-    /// `>` or whitespace. Only leading whitespace is skipped, because a
-    /// trimmed tail could remove the character that decides the match. A
-    /// prompt that only quotes the tag further in is the user's own text.
+    /// `>` or whitespace (JavaScript's, see isJSWhitespace). Only leading
+    /// whitespace is skipped, because a trimmed tail could remove the
+    /// character that decides the match. A prompt that only quotes the tag
+    /// further in is the user's own text.
     private static func isNotificationEnvelope(_ value: Any?) -> Bool {
         guard let prompt = value as? String else { return false }
-        var rest = prompt.unicodeScalars.drop(while: { $0.properties.isWhitespace })
+        var rest = prompt.unicodeScalars.drop(while: isJSWhitespace)
         for expected in ("<" + notificationEnvelopeTag).unicodeScalars {
             guard let scalar = rest.first, asciiLowercased(scalar) == expected else { return false }
             rest = rest.dropFirst()
         }
         guard let next = rest.first else { return false }
-        return next == ">" || next.properties.isWhitespace
+        return next == ">" || isJSWhitespace(next)
+    }
+
+    /// JavaScript's `\s`, the set `trimStart()` strips, as the generator's
+    /// engine reports it. Unicode's White_Space (`properties.isWhitespace`)
+    /// adds NEL U+0085 and leaves out BOM U+FEFF, so using it would decide a
+    /// prompt opening with either the other way.
+    private static func isJSWhitespace(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x0009...0x000D, 0x0020, 0x00A0, 0x1680, 0x2000...0x200A,
+             0x2028...0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func asciiLowercased(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
