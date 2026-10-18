@@ -19,6 +19,9 @@ actor WebSocketServer {
     static let ioQueue = DispatchQueue(label: "dev.agentdeck.ws.io", qos: .userInitiated)
 
     private var listener: NWListener?
+    /// The port `listener` was started on: a page this daemon serves carries it
+    /// in its `Origin`, which is how its upgrade is told from another page's.
+    private var listeningPort: UInt16 = 0
     private var connections = Set<WebSocketConnection>()
     private var broadcastHooks: [@Sendable (Data) -> Void] = []
 
@@ -137,6 +140,7 @@ actor WebSocketServer {
         // range 9121-9139). `stop()` only ever cancels the CURRENT one.
         self.listener?.cancel()
         self.listener = listener
+        self.listeningPort = port
 
         // Attach Bonjour service for mDNS discovery
         if let service = bonjourService {
@@ -280,6 +284,13 @@ actor WebSocketServer {
         return text.range(of: "upgrade: websocket", options: .caseInsensitive) != nil
     }
 
+    /// Answer an upgrade that did not authenticate with a 401 and close.
+    private static func refuseUpgrade(_ nwConn: NWConnection) {
+        let body = Data("{\"error\":\"Unauthorized — pairing token required\"}".utf8)
+        let response = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
+        nwConn.send(content: Data(response.utf8) + body, completion: .contentProcessed({ _ in nwConn.cancel() }))
+    }
+
     /// Bare remote address (no port, no IPv6 scope) for auth decisions —
     /// the form `AuthManager.isLocalConnection` compares against.
     static func remoteIPString(_ endpoint: NWEndpoint) -> String {
@@ -328,8 +339,23 @@ actor WebSocketServer {
         // Rejecting at the handshake (401) rather than post-upgrade keeps the
         // unauthenticated surface at zero frames.
         let remoteIP = Self.remoteIPString(nwConn.endpoint)
-        if !AuthManager.shared.isLocalConnection(remoteIP) {
-            let parsed = HTTPServer.parseHTTPRequest(requestData, remoteIP: remoteIP)
+        let sameMachine = AuthManager.shared.isLocalConnection(remoteIP)
+        let parsed = HTTPServer.parseHTTPRequest(requestData, remoteIP: remoteIP)
+        // A web page in a browser here connects from this machine too, and a
+        // WebSocket has no CORS to keep it from reading what the daemon sends.
+        // Its Host and Origin tell it from a local program (LocalTrust).
+        let localTrust = sameMachine
+            ? LocalTrust.verdict(for: parsed, upgrade: true, port: Int(listeningPort)) : nil
+        if let localTrust, localTrust != .trusted {
+            // It needs the token. It is never a pairing knock: approving a
+            // same-machine address would hand local trust to every page.
+            guard AuthManager.shared.validateToken(parsed.queryParams["token"] ?? "") else {
+                LocalTrust.logRefusal(surface: "WebSocket", verdict: localTrust, headers: parsed.headers)
+                Self.refuseUpgrade(nwConn)
+                return
+            }
+            DaemonLogger.shared.debug("WS", "Same-machine web page authenticated with the pairing token")
+        } else if !sameMachine {
             let token = parsed.queryParams["token"] ?? ""
             // A peer the operator approved in the app authenticates by address.
             // That is the same grant a pairing code would have minted, made
@@ -356,9 +382,7 @@ actor WebSocketServer {
                 DaemonLogger.shared.info(token.isEmpty
                     ? "WS: rejected \(remoteIP) — no pairing token"
                     : "WS: rejected \(remoteIP) — pairing token not accepted; a looping device needs re-arming over USB serial")
-                let body = Data("{\"error\":\"Unauthorized — pairing token required\"}".utf8)
-                let response = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
-                nwConn.send(content: Data(response.utf8) + body, completion: .contentProcessed({ _ in nwConn.cancel() }))
+                Self.refuseUpgrade(nwConn)
                 return
             }
         }

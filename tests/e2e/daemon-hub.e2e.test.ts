@@ -30,6 +30,7 @@
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -241,6 +242,48 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     expect((await fetch(url, { method: 'DELETE', headers })).status).toBe(200);
     expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8'))).toEqual({ unrelated: 'preserved' });
     expect(daemon.log()).not.toContain(fakeKey);
+  });
+
+  it('answers a web page on this machine as a LAN peer, and a local program as before', async () => {
+    // DNS rebinding: a page whose own host name now resolves to 127.0.0.1
+    // reads the daemon same-origin, and its Host header names the page. fetch
+    // will not send a chosen Host, so this one goes through node:http.
+    const rebound = await new Promise<{ status: number; body: string }>((ok, fail) => {
+      const req = request({ host: '127.0.0.1', port: daemon.port, path: '/health',
+        headers: { Host: `rebind.example:${daemon.port}` } }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => ok({ status: res.statusCode ?? 0, body }));
+      });
+      req.on('error', fail);
+      req.end();
+    });
+    expect(rebound.status).toBe(200);
+    expect(JSON.parse(rebound.body)).toMatchObject({ authRequired: true });
+    expect(rebound.body).not.toContain('pairingToken');
+
+    // A cross-origin text/plain POST needs no CORS preflight.
+    const posted = await fetch(`http://127.0.0.1:${daemon.port}/hooks/SessionStart`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain', Origin: 'https://evil.example' },
+      body: JSON.stringify({ ...SESSION, session_id: 'e2e-web-page-0001' }),
+      signal: AbortSignal.timeout(2_000),
+    });
+    expect(posted.status).toBe(401);
+
+    // A WebSocket has no CORS at all; it gets the close code a LAN peer gets.
+    // Node's WebSocket (undici) takes `headers`; the DOM typings do not.
+    const PageWebSocket = WebSocket as unknown as new (url: string, init: { headers: Record<string, string> }) => WebSocket;
+    const code = await new Promise<number>((ok) => {
+      const ws = new PageWebSocket(`ws://127.0.0.1:${daemon.port}`, { headers: { Origin: 'https://evil.example' } });
+      ws.addEventListener('close', (ev) => ok(ev.code), { once: true });
+    });
+    expect(code).toBe(4001);
+    expect(daemon.log()).toMatch(/is a web page, not a local program/);
+
+    // A local program sends no Origin and names 127.0.0.1, so nothing changes.
+    expect(typeof (await health(daemon.port))?.pairingToken).toBe('string');
+    (await connect(daemon.port)).close();
   });
 
   it.runIf(LAN_ADDRESS)('binds loopback only: the same port is closed on a LAN address', async () => {

@@ -79,7 +79,22 @@ actor HTTPServer {
         }
 
         static let notFound = HTTPResponse(status: 404, headers: [:], body: Data("Not Found".utf8))
+
+        /// This response readable by a page on any origin. Only for a route
+        /// that carries no secret: a GET from this machine keeps local trust
+        /// whatever page sent it (LocalTrust), so this header hands the answer
+        /// to every web page the user visits. `/health` carries the pairing
+        /// token and must never have it.
+        func allowingAnyOrigin() -> HTTPResponse {
+            var headers = self.headers
+            headers[HTTPServer.allowAnyOriginHeader] = "*"
+            return HTTPResponse(status: status, headers: headers, body: body)
+        }
     }
+
+    /// The CORS header `allowingAnyOrigin` sets; stream routes that write their
+    /// own head add it the same way.
+    static let allowAnyOriginHeader = "Access-Control-Allow-Origin"
 
     final class StreamConnection: @unchecked Sendable {
         fileprivate let raw: NWConnection
@@ -425,8 +440,10 @@ actor HTTPServer {
         default: statusText = "Unknown"
         }
 
+        // No blanket `Access-Control-Allow-Origin`: it made every answer,
+        // `/health` and its pairing token included, readable by any web page on
+        // this machine. A route opts in with `allowingAnyOrigin()`.
         var header = "HTTP/1.1 \(status) \(statusText)\r\n"
-        header += "Access-Control-Allow-Origin: *\r\n"
         for (key, value) in headers {
             header += "\(key): \(value)\r\n"
         }

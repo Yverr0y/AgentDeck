@@ -1050,7 +1050,7 @@ effort 기본값은 `high` — 사용자 Codex 기본값이 `ultra` 여도 따�
 
 라우트 표는 `bridge/src/apme/http.ts` 의 실제 분기와 1:1이다. 예전에 실려 있던 `POST /apme/tune` 은 구현된 적이 없어 삭제했다(위 auto-tuning 절 참고).
 
-모든 응답은 JSON + `Access-Control-Allow-Origin: *`. APME 미초기화 시 503.
+모든 응답은 JSON 이고 `Access-Control-Allow-Origin` 은 없다. 같은 머신에서 온 GET 은 어떤 페이지가 보냈든 로컬 신뢰를 유지하므로, 그 헤더가 있으면 사용자가 연 아무 웹 페이지나 프롬프트·task 제목·판정을 읽는다([docs/daemon.md § LAN security model](daemon.md#lan-security-model-issue-145)). 대시보드는 같은 출처의 `/apme` 에서 서빙되므로 CORS 가 필요 없다. APME 미초기화 시 503.
 
 ### Unified activity projection
 

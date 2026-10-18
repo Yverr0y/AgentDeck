@@ -33,6 +33,7 @@
     "generate-observed-agent-rules": "node scripts/generate-observed-agent-rules.mjs",
     "generate-claude-permission-rules": "node scripts/generate-claude-permission-rules.mjs",
     "generate-openclaw-session-key-rules": "node scripts/generate-openclaw-session-key-rules.mjs",
+    "generate-local-trust-rules": "node scripts/generate-local-trust-rules.mjs",
     "generate-claude-background-jobs": "node scripts/generate-claude-background-jobs.mjs",
     "generate-claude-statusline-rules": "node scripts/generate-claude-statusline-rules.mjs",
     "generate-background-presentation": "node scripts/generate-background-presentation.mjs",
