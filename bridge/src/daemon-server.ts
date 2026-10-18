@@ -7748,13 +7748,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   core.startOllamaProbe();
   core.startMlxProbe();
   core.startAntigravityProbe();
-  // Level-triggered: `onAvailable` runs on every tick the port is open, and
-  // connectGatewayAdapter's own guards make it a no-op while an adapter lives.
-  core.startGatewayProbe(5000,
-    () => connectGatewayAdapter(),
-    () => { if (gatewayAdapter && !gatewayAdapter.isAlive()) disconnectGatewayAdapter(); },
-  );
-  core.startGatewayHealthCheck();
+  // AGENTDECK_DAEMON_NO_GATEWAY=1 keeps the daemon off any OpenClaw Gateway on
+  // this machine: no port probe, no adapter, no `openclaw doctor`. The E2E
+  // suites set it. Their daemon runs with a temp HOME, so a doctor run started
+  // there bootstraps a fresh OpenClaw state dir (npm and bun installs) that
+  // outlives the daemon and races the suite's cleanup, and the adapter would
+  // feed the developer's live Gateway sessions into the daemon under test.
+  // Isolation gate only; normal daemons keep the Gateway on.
+  if (process.env.AGENTDECK_DAEMON_NO_GATEWAY !== '1') {
+    // Level-triggered: `onAvailable` runs on every tick the port is open, and
+    // connectGatewayAdapter's own guards make it a no-op while an adapter lives.
+    core.startGatewayProbe(5000,
+      () => connectGatewayAdapter(),
+      () => { if (gatewayAdapter && !gatewayAdapter.isAlive()) disconnectGatewayAdapter(); },
+    );
+    core.startGatewayHealthCheck();
+  }
   core.startUsageTick();
   core.startApiUsagePolling(60_000, () => fetchUsageRelayed(port));
   // z.ai GLM Coding Plan — an independent provider-account poll; no-ops as a

@@ -16,6 +16,11 @@
  *   device module and every LAN emission (mDNS, UDP beacon, sweep, BLE, ADB,
  *   serial) and bind 127.0.0.1 only — no firewall, Local Network or Bluetooth
  *   prompt can fire, and nothing reaches real hardware.
+ * - `AGENTDECK_DAEMON_NO_GATEWAY=1` and `AGENTDECK_CODEX_LIVE_USAGE=0` keep it
+ *   off the developer's own agent tools: no OpenClaw Gateway probe or
+ *   `openclaw doctor`, and no `codex app-server` spawn. Both CLIs would run
+ *   with `HOME` pointing here, and OpenClaw's installs kept writing into it
+ *   after the daemon was gone, failing the cleanup with ENOTEMPTY.
  * - `--port-window` puts it outside 9120-9139, so the singleton guard never
  *   asks a live daemon on this machine to stand down.
  *
@@ -25,12 +30,13 @@
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildHookCommand } from '../../hooks/src/install.js';
 import { buildCodexApprovalHoldCommand } from '../../hooks/src/codex-install.js';
+import { OPENCLAW_GATEWAY_PORT } from '../../shared/src/adapter.js';
 
 const ROOT = resolve(__dirname, '../..');
 const CLI = join(ROOT, 'bridge/dist/cli.js');
@@ -61,6 +67,34 @@ async function freePort(): Promise<number> {
       srv.close(() => ok(port));
     });
   });
+}
+
+/**
+ * Something has to answer on the OpenClaw Gateway port, or the test that says
+ * the daemon never reached for it proves nothing. On a developer's Mac the
+ * real Gateway usually answers; elsewhere (CI) this stand-in holds the port
+ * for the suite and counts who connects. It listens only after a connect was
+ * refused, so it never sits in front of a live Gateway.
+ */
+async function standInGateway(): Promise<{ connections: () => number; close: () => Promise<void> } | null> {
+  const refused = await new Promise<boolean>((ok) => {
+    const probe = createConnection({ port: OPENCLAW_GATEWAY_PORT, host: '127.0.0.1' });
+    probe.setTimeout(1_000, () => { probe.destroy(); ok(false); });
+    probe.once('connect', () => { probe.destroy(); ok(false); });
+    probe.once('error', (err: NodeJS.ErrnoException) => ok(err.code === 'ECONNREFUSED'));
+  });
+  if (!refused) return null;
+  let connections = 0;
+  const server = createServer((socket) => { connections += 1; socket.destroy(); });
+  const listening = await new Promise<boolean>((ok) => {
+    server.once('error', () => ok(false));
+    server.listen(OPENCLAW_GATEWAY_PORT, '127.0.0.1', () => ok(true));
+  });
+  if (!listening) return null;
+  return {
+    connections: () => connections,
+    close: () => new Promise<void>((ok) => server.close(() => ok())),
+  };
 }
 
 async function waitFor<T>(what: string, probe: () => Promise<T | undefined> | T | undefined, timeoutMs = 15_000): Promise<T> {
@@ -96,6 +130,8 @@ async function startDaemon(port: number): Promise<Daemon> {
       AGENTDECK_DATA_DIR: dataDir,
       AGENTDECK_DAEMON_NO_SERIAL: '1',
       AGENTDECK_LOOPBACK_ONLY: '1',
+      AGENTDECK_DAEMON_NO_GATEWAY: '1',
+      AGENTDECK_CODEX_LIVE_USAGE: '0',
       // Never inherit a real credential or port from the developer's shell.
       CLAUDE_CODE_OAUTH_TOKEN: '',
       AGENTDECK_PORT: '',
@@ -183,6 +219,7 @@ const SESSION = {
 
 describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
   let daemon: Daemon;
+  let gatewayStandIn: Awaited<ReturnType<typeof standInGateway>> = null;
 
   beforeAll(async () => {
     if (!existsSync(CLI)) throw new Error(`${CLI} is missing — run \`pnpm build\` before \`pnpm test:e2e\``);
@@ -191,11 +228,13 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     // discovers the daemon through `$HOME/.agentdeck/daemon.json`, and that
     // discovery is part of what this suite proves.
     dataDir = join(home, '.agentdeck');
+    gatewayStandIn = await standInGateway();
     daemon = await startDaemon(await freePort());
   }, 30_000);
 
   afterAll(async () => {
     if (daemon) await stopDaemon(daemon);
+    await gatewayStandIn?.close();
     if (home) rmSync(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }, 20_000);
 
@@ -857,6 +896,13 @@ exec "$AGENTDECK_TEST_CURL" "$@"
     } finally {
       client.close();
     }
+  });
+
+  it('never reaches for an OpenClaw Gateway on this machine', () => {
+    // Every test above ran against this daemon, long after its first probe tick.
+    expect(daemon.log()).not.toMatch(/OpenClaw Gateway detected/);
+    expect(gatewayStandIn?.connections() ?? 0).toBe(0);
+    expect(existsSync(join(home, '.openclaw'))).toBe(false);
   });
 
   it('shuts down cleanly and replays the persisted timeline after a restart', async () => {
