@@ -840,8 +840,9 @@ export interface DeviceInfoMessage {
   /**
    * The {@link WifiProvisionMessage.credId} stored with this board's WiFi
    * credentials, or `""` when none is stored. Firmware that knows the field
-   * always sends it, so absence means older firmware and the daemon falls back
-   * to `wifiConfigured`. It answers what `wifiConfigured` cannot: a parked
+   * always sends it, so absence means older firmware, and each daemon falls
+   * back to its earlier rule (docs/esp32.md, "Which boards get a WiFi
+   * provision"). It answers what `wifiConfigured` cannot: a parked
    * board reports `wifiConfigured: false` (its WiFi driver is off) while
    * holding these credentials, and a board that persists a provision reports
    * `true` while holding outdated ones. AgentDeck firmware sends it on the

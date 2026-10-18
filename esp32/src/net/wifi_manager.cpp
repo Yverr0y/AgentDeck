@@ -353,13 +353,15 @@ bool wifiRadioParked() {
     return radioParked;
 }
 
-bool wifiConnectWith(const char* ssid, const char* password, const char* credId) {
+bool wifiConnectWith(const char* ssid, const char* password, const char* credId, bool* refused) {
+    if (refused) *refused = false;
 #if !defined(AGENTDECK_PERSISTED_WIFI)
     // The driver's own NVS config is what this board rejoins, so it is what
     // the credential id describes (net/wifi_cred_id_store.h has the order).
     // Refused before the radio is touched: a parked radio stays parked.
     if (!CredIdStore().beforeWrite(credId)) {
         Serial.println("[WiFi] Credential id not cleared — credentials not written");
+        if (refused) *refused = true;
         return false;
     }
 #endif

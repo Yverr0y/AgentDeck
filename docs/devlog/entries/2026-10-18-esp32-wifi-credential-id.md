@@ -95,7 +95,19 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
 - **The full-provision fallback for an unacknowledged token re-arm goes only to firmware that
   reports no credential id.** Both daemons resend a `wifi_provision` when `auth_provision` is not
   acknowledged, for firmware too old to know that message. Firmware that reports `wifiCredId`
-  knows it, so its silence is a lost frame, and a full provision would wake a parked radio.
+  knows it, so its silence is a lost frame, and a full provision would wake a parked radio. For
+  firmware that knows neither, the fallback can still be a second provision on one connection,
+  after the one its `device_info` triggered. Skipping it when a provision was already sent was
+  rejected: that provision may carry the token from before a rotation, and the fallback exists
+  to deliver the new one.
+- **A firmware downgrade can still leave a stale id; it is documented, not fixed.** Firmware that
+  predates the id changes credentials without touching `adwifi`/`cred_id`, so a board taken
+  down to such a build, given other credentials there and flashed back reports an id for
+  credentials it no longer holds, and a daemon whose credentials and token still produce that
+  id skips it. Recovery is any change of the daemon's credentials or token, the portal, or a
+  WiFi reset. The fix, a fingerprint of the stored credentials kept beside the id and compared
+  at boot, needs another NVS key and a boot-time read of the driver config on every board, for
+  a path that takes a downgrade, a credential change and an upgrade back.
 - **A Swift-provisioned TC001 loses a provision it used to get by accident.** The Swift daemon
   provisioned every port, identified or not, and TC001's CH340 TX is broken in hardware, so its
   `device_info` never arrives. It now stays unprovisioned by the Swift daemon, the same as under

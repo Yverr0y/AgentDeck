@@ -23,6 +23,9 @@
 //  - anything that is not a valid id is recorded as none;
 //  - a re-join of credentials already stored (credId == nullptr) leaves it alone;
 //  - storage is written only when the record changes.
+// Firmware that predates the id does not keep this rule, so a downgrade that
+// changes the credentials and an upgrade back can leave a stale id (the
+// 2026-10-18 credential-id devlog says why that is left open).
 //
 // Backend, held by value (a handle, not the storage itself):
 // bool load(char* out, size_t outLen) — false when nothing is stored or it

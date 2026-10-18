@@ -1048,7 +1048,9 @@ static void handleWifiProvision(JsonObject& obj) {
     } else
 #endif
     {
-        ok = Net::wifiConnectWith(ssid, password, credId);
+        bool refused = false;
+        ok = Net::wifiConnectWith(ssid, password, credId, &refused);
+        if (refused) failure = "credentials not saved";
     }
     if (ok) {
         // A voice-capable IPS10 is deliberately dual-home: its 115200-baud

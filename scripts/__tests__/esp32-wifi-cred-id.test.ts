@@ -13,6 +13,10 @@ const serialClient = join(firmware, 'net/serial_client.cpp');
 // keyed by that token, so the two together are an offline test for password
 // guesses (esp32/src/net/protocol.cpp, sendDeviceInfo).
 const FRAME_CALL = /sendDeviceInfoFrame\(\s*resp\s*,[^;]*?,\s*(true|false)\s*,\s*(true|false)\s*\)/g;
+// Every call, whatever its transport arguments. A computed one (master's
+// `true, Net::wsConnected()`) is one frame for both transports, and FRAME_CALL
+// alone would skip it.
+const ANY_FRAME_CALL = /sendDeviceInfoFrame\(\s*resp\s*,/g;
 
 function code(file: string): string {
   return readFileSync(file, 'utf-8')
@@ -33,6 +37,8 @@ describe('ESP32 firmware credential id', () => {
     const text = code(protocol);
     const calls = [...text.matchAll(FRAME_CALL)];
     expect(calls.length).toBeGreaterThan(0);
+    // Each transport is chosen by a literal, so the check below sees them all.
+    expect(calls.length).toBe([...text.matchAll(ANY_FRAME_CALL)].length);
     let since = text.indexOf('resp["wifiCredId"]');
     expect(since).toBeGreaterThan(0);
     for (const call of calls) {

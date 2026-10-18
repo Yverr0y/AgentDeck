@@ -142,6 +142,20 @@ final class ESP32WifiProvisionRulesTests: XCTestCase {
             board: "86box", wifiConfigured: false, wifiConnected: false, wifiRadioParked: true, wifiCredId: "")
         XCTAssertFalse(ESP32Serial.shouldSendLegacyRearm(acked: false, deviceInfo: knowsId))
         XCTAssertFalse(ESP32Serial.shouldSendLegacyRearm(acked: false, deviceInfo: nil))
+        let unnamed = ESP32Serial.DeviceInfo(board: "", wifiConfigured: true, wifiConnected: false)
+        XCTAssertFalse(ESP32Serial.shouldSendLegacyRearm(acked: false, deviceInfo: unnamed))
+    }
+
+    func testAnEmptyBoardNameIsNotAnIdentification() {
+        // The token and the legacy re-arm go only to a board that named itself,
+        // as in the Node daemon and the generated provisioning decision.
+        XCTAssertFalse(ESP32Serial.hasIdentified(nil))
+        XCTAssertFalse(ESP32Serial.hasIdentified(
+            ESP32Serial.DeviceInfo(board: "", wifiConfigured: false, wifiConnected: false)))
+        XCTAssertFalse(ESP32Serial.hasIdentified(
+            ESP32Serial.DeviceInfo(board: nil, wifiConfigured: false, wifiConnected: false)))
+        XCTAssertTrue(ESP32Serial.hasIdentified(
+            ESP32Serial.DeviceInfo(board: "86box", wifiConfigured: false, wifiConnected: false)))
     }
 }
 #endif

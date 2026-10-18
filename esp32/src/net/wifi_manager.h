@@ -46,9 +46,11 @@ bool wifiConfigured();
  * with the credentials it came with (see wifiLoadCredId). nullptr — a re-join of
  * credentials already stored — leaves the record alone. When the old id cannot
  * be cleared the credentials are not written: false, and on boards that rejoin
- * the driver's config, the radio is not touched.
+ * the driver's config, the radio is not touched. `refused`, when given, says
+ * which false that was, so the provision ack can say so.
  */
-bool wifiConnectWith(const char* ssid, const char* password, const char* credId = nullptr);
+bool wifiConnectWith(const char* ssid, const char* password, const char* credId = nullptr,
+                     bool* refused = nullptr);
 
 #if defined(BOARD_T_DISPLAY_PRO)
 /**

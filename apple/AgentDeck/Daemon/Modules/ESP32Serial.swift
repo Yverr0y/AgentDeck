@@ -643,7 +643,7 @@ actor ESP32Serial {
             guard connections[i].connected else { continue }
             // No device_info yet means we have not confirmed an AgentDeck board
             // on this tty; a credential is not something to write speculatively.
-            guard connections[i].deviceInfo?.board != nil else { continue }
+            guard Self.hasIdentified(connections[i].deviceInfo) else { continue }
             if connections[i].authTokenSent == token { continue }
             sendToConnection(&connections[i], json: json)
             guard connections[i].connected else { continue }
@@ -679,8 +679,16 @@ actor ESP32Serial {
     /// full provision would wake a parked radio for credentials it already
     /// holds (Node parity: `shouldSendLegacyRearm`).
     static func shouldSendLegacyRearm(acked: Bool, deviceInfo: DeviceInfo?) -> Bool {
-        guard !acked, deviceInfo?.board != nil else { return false }
+        guard !acked, hasIdentified(deviceInfo) else { return false }
         return deviceInfo?.wifiCredId == nil
+    }
+
+    /// A board has identified when its `device_info` named one; an empty name
+    /// does not count (Node parity: `!conn.deviceInfo?.board`, and the
+    /// generated provisioning rules).
+    static func hasIdentified(_ deviceInfo: DeviceInfo?) -> Bool {
+        guard let board = deviceInfo?.board else { return false }
+        return !board.isEmpty
     }
 
     /// Send display state (on/off) to all connected ESP32 devices.
