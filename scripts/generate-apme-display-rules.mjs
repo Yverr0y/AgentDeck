@@ -246,9 +246,11 @@ enum TaskGradeabilityRules {
     static let workEvidenceMinToolCalls = ${rules.workEvidenceMinToolCalls}
     static let trivialPromptMaxChars = ${rules.trivialPromptMaxChars}
     static let trivialReplyMaxChars = ${rules.trivialReplyMaxChars}
+    static let notificationEnvelopeTag = "${rules.notificationEnvelopeTag}"
 
     static func notGradeableReason(_ turns: [[String: Any]]) -> String? {
         if turns.isEmpty { return "no_reply" }
+        if turns.allSatisfy({ isNotificationEnvelope($0["prompt"]) }) { return "notification_only" }
         let worked = turns.filter { text($0["end_source"]) != "aborted" }
         if worked.isEmpty { return "aborted_only" }
 
@@ -275,6 +277,27 @@ enum TaskGradeabilityRules {
 
     private static func text(_ value: Any?) -> String {
         (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// shared/src/harness-queued-message.ts: after leading whitespace the
+    /// prompt opens with the tag, ASCII letters in either case, followed by
+    /// \`>\` or whitespace. Only leading whitespace is skipped, because a
+    /// trimmed tail could remove the character that decides the match. A
+    /// prompt that only quotes the tag further in is the user's own text.
+    private static func isNotificationEnvelope(_ value: Any?) -> Bool {
+        guard let prompt = value as? String else { return false }
+        var rest = prompt.unicodeScalars.drop(while: { $0.properties.isWhitespace })
+        for expected in ("<" + notificationEnvelopeTag).unicodeScalars {
+            guard let scalar = rest.first, asciiLowercased(scalar) == expected else { return false }
+            rest = rest.dropFirst()
+        }
+        guard let next = rest.first else { return false }
+        return next == ">" || next.properties.isWhitespace
+    }
+
+    private static func asciiLowercased(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        guard (0x41...0x5A).contains(scalar.value) else { return scalar }
+        return Unicode.Scalar(UInt8(scalar.value + 0x20))
     }
 
     private static func int(_ value: Any?) -> Int {
@@ -317,6 +340,7 @@ export function rulesFrom(taskTitleMod, actionFoldMod, taskGradeabilityMod) {
     workEvidenceMinToolCalls: taskGradeabilityMod.WORK_EVIDENCE_MIN_TOOL_CALLS,
     trivialPromptMaxChars: taskGradeabilityMod.TRIVIAL_PROMPT_MAX_CHARS,
     trivialReplyMaxChars: taskGradeabilityMod.TRIVIAL_REPLY_MAX_CHARS,
+    notificationEnvelopeTag: taskGradeabilityMod.NOTIFICATION_ENVELOPE_TAG,
   };
 }
 

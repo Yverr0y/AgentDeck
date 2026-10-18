@@ -23,10 +23,20 @@ export const HARNESS_QUEUED_MESSAGE_TAGS = [
   'cross-session-message',
 ] as const;
 
-const QUEUED_MESSAGE_RE = new RegExp(`^<(?:${HARNESS_QUEUED_MESSAGE_TAGS.join('|')})[\\s>]`, 'i');
+export type HarnessQueuedMessageTag = typeof HARNESS_QUEUED_MESSAGE_TAGS[number];
+
+const QUEUED_MESSAGE_RE = new RegExp(`^<(${HARNESS_QUEUED_MESSAGE_TAGS.join('|')})[\\s>]`, 'i');
+
+/** Which queued envelope opens `prompt`, or null when a person typed it.
+ *  Absent or non-string input is not one. */
+export function harnessQueuedMessageTag(prompt: unknown): HarnessQueuedMessageTag | null {
+  if (typeof prompt !== 'string') return null;
+  const match = QUEUED_MESSAGE_RE.exec(prompt.trimStart());
+  return match ? match[1]!.toLowerCase() as HarnessQueuedMessageTag : null;
+}
 
 /** True when `prompt` is a message Claude Code queued rather than one a
  *  person typed. Absent or non-string input is not one. */
 export function isHarnessQueuedMessage(prompt: unknown): boolean {
-  return typeof prompt === 'string' && QUEUED_MESSAGE_RE.test(prompt.trimStart());
+  return harnessQueuedMessageTag(prompt) !== null;
 }

@@ -317,14 +317,15 @@ describe('ApmeStore.agentCoverage', () => {
     task('k-judged', 'c1', NOW - HOUR, { compositeScore: 0.9 });
     task('k-noreply', 'c1', NOW - HOUR, { notesJson: JSON.stringify({ notGradeable: 'no_reply' }) });
     task('k-trivial', 'o1', NOW - HOUR, { notesJson: JSON.stringify({ notGradeable: 'trivial' }) });
+    task('k-notice', 'c1', NOW - HOUR, { notesJson: JSON.stringify({ notGradeable: 'notification_only' }) });
     task('k-waiting', 'o1', NOW - HOUR);
 
     const rows = store.agentCoverage({ sinceMs: NOW - 86_400_000, agedCutoffMs: NOW - TASK_JUDGE_DRAIN_WINDOW_MS });
     expect(rows.map((r) => r.agentType)).toEqual(['claude-code', 'opencode']);
     expect(rows[0]).toMatchObject({
       runs: 1, turns: 5, finishedTurns: 3, repliedTurns: 2, modelTurns: 2,
-      closedTasks: 2, judged: 1, declined: 1, waiting: 0, agedOut: 0,
-      declinedNoReply: 1, declinedAbortedOnly: 0, declinedTrivial: 0,
+      closedTasks: 3, judged: 1, declined: 2, waiting: 0, agedOut: 0,
+      declinedNoReply: 1, declinedAbortedOnly: 0, declinedTrivial: 0, declinedNotificationOnly: 1,
     });
     expect(rows[1]).toMatchObject({
       runs: 1, turns: 1, finishedTurns: 1, repliedTurns: 1, modelTurns: 0,

@@ -1288,7 +1288,8 @@ export class ApmeStore {
                   AND t.ended_at < ?) AS agedOut,
               ${declinedFor('no_reply')} AS declinedNoReply,
               ${declinedFor('aborted_only')} AS declinedAbortedOnly,
-              ${declinedFor('trivial')} AS declinedTrivial
+              ${declinedFor('trivial')} AS declinedTrivial,
+              ${declinedFor('notification_only')} AS declinedNotificationOnly
          FROM tasks t JOIN runs r ON r.id = t.run_id
         WHERE t.ended_at IS NOT NULL AND t.ended_at >= ?
         GROUP BY r.agent_type`,
@@ -1301,7 +1302,7 @@ export class ApmeStore {
         r = {
           agentType: key, runs: 0, turns: 0, finishedTurns: 0, repliedTurns: 0, modelTurns: 0,
           closedTasks: 0, judged: 0, declined: 0, waiting: 0, agedOut: 0,
-          declinedNoReply: 0, declinedAbortedOnly: 0, declinedTrivial: 0,
+          declinedNoReply: 0, declinedAbortedOnly: 0, declinedTrivial: 0, declinedNotificationOnly: 0,
         };
         byAgent.set(key, r);
       }
@@ -1325,6 +1326,7 @@ export class ApmeStore {
       out.declinedNoReply = Number(r.declinedNoReply ?? 0);
       out.declinedAbortedOnly = Number(r.declinedAbortedOnly ?? 0);
       out.declinedTrivial = Number(r.declinedTrivial ?? 0);
+      out.declinedNotificationOnly = Number(r.declinedNotificationOnly ?? 0);
     }
     return [...byAgent.values()].sort((a, b) => a.agentType.localeCompare(b.agentType));
   }
