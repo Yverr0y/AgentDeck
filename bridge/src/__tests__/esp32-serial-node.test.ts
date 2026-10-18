@@ -41,6 +41,8 @@ import {
   isForeignPortDenylisted,
   __resetForeignPortState,
   sendEventToBoard,
+  setSerialCommandSink,
+  setSerialTimelineQueryHandler,
   type SerialConnection,
 } from '../esp32-serial.js';
 import { boardTimelineSeed } from '../board-timeline-entry.js';
@@ -762,6 +764,56 @@ describe('Claude tool rows on the serial path', () => {
   it('seeds a connecting board with the newest rows it may show', () => {
     const history = [chat(1), chat(2), tool(3), chat(4), tool(5), tool(6), tool(7), tool(8), tool(9), tool(10)];
     expect(boardTimelineSeed(history, 3).map((entry) => entry.raw)).toEqual(['row 1', 'row 2', 'row 4']);
+  });
+});
+
+describe('query_session_timeline over serial', () => {
+  // A pending flush timer keeps sendToConnection from scheduling a real write,
+  // so the queue is what the board would be sent.
+  const queueConn = () => ({
+    port: '/dev/cu.usbmodem-knob', connected: true, deviceInfo: { board: 't_embed' }, deviceInfoFresh: true,
+    lastReadAt: 0, writeQueue: [] as string[], writeTimer: {} as ReturnType<typeof setTimeout>,
+  }) as unknown as SerialConnection;
+
+  it('answers the board on its own line instead of forwarding the query as a command', () => {
+    const queries: unknown[] = [];
+    const commands: unknown[] = [];
+    setSerialCommandSink((cmd) => commands.push(cmd));
+    setSerialTimelineQueryHandler((query) => {
+      queries.push(query);
+      return {
+        type: 'timeline_history', sessionId: 's1',
+        entries: [{ ts: 1752700000000, type: 'chat_response', raw: 'x'.repeat(300) }],
+      } as unknown as BridgeEvent;
+    });
+    try {
+      const conn = queueConn();
+      handleSerialLine(conn, '{"type":"query_session_timeline","sessionId":"s1"}');
+      expect(queries).toEqual([{ type: 'query_session_timeline', sessionId: 's1' }]);
+      expect(commands).toEqual([]);
+      expect(conn.writeQueue).toHaveLength(1);
+      const reply = JSON.parse(conn.writeQueue[0]);
+      // Still scoped to the session the knob asked about, and shaped like any
+      // other serial frame on its way out.
+      expect(reply.type).toBe('timeline_history');
+      expect(reply.sessionId).toBe('s1');
+      expect(reply.entries[0].raw).toHaveLength(119);
+      expect(reply.entries[0].localHm).toMatch(/^\d\d:\d\d$/);
+
+      // The commands that share the old forward list still reach the sink.
+      handleSerialLine(conn, '{"type":"focus_session","sessionId":"s1"}');
+      expect(commands).toEqual([{ type: 'focus_session', sessionId: 's1' }]);
+    } finally {
+      setSerialCommandSink(() => {});
+      setSerialTimelineQueryHandler(() => null);
+    }
+  });
+
+  it('sends nothing when there is no timeline to answer with', () => {
+    setSerialTimelineQueryHandler(() => null);
+    const conn = queueConn();
+    handleSerialLine(conn, '{"type":"query_session_timeline","sessionId":"gone"}');
+    expect(conn.writeQueue).toEqual([]);
   });
 });
 

@@ -924,6 +924,7 @@ export function isVoiceDiagnosticLine(line: string): boolean {
 let serialCommandSink: ((cmd: Record<string, unknown>) => void) | null = null;
 let serialVoiceSink: ((port: string, msg: Record<string, unknown>) => void) | null = null;
 let serialQuiesceCheck: ((port: string) => boolean) | null = null;
+let serialTimelineQueryHandler: ((query: { sessionId?: unknown; since?: unknown }) => BridgeEvent | null) | null = null;
 
 /** While true for a port, the daemon holds its outbound serial writes —
  *  used to keep the line half-duplex during a board→daemon photo upload. */
@@ -932,6 +933,17 @@ export function setSerialQuiesceCheck(check: (port: string) => boolean): void {
 }
 export function setSerialCommandSink(sink: (cmd: Record<string, unknown>) => void): void {
   serialCommandSink = sink;
+}
+
+/**
+ * Answers a board's `query_session_timeline` over its own serial line. It is a
+ * request with a reply, which the command sink cannot carry: that sink has no
+ * port to answer on, and nothing behind it handles the query at all.
+ */
+export function setSerialTimelineQueryHandler(
+  handler: (query: { sessionId?: unknown; since?: unknown }) => BridgeEvent | null,
+): void {
+  serialTimelineQueryHandler = handler;
 }
 
 /**
@@ -1086,8 +1098,14 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
         // irrelevant on native-USB CDC, where the 115200 in the port settings
         // is nominal.
         serialVoiceSink?.(conn.port, msg as unknown as Record<string, unknown>);
+      } else if ((msg.type as string) === 'query_session_timeline') {
+        // A board that falls back to serial when its WiFi is down (the knob's
+        // History view) asks here; the reply goes back down this same line,
+        // through the shaping every other serial frame gets.
+        const reply = serialTimelineQueryHandler?.(msg as { sessionId?: unknown; since?: unknown });
+        if (reply) sendEventToBoard(conn, reply);
       } else if (['select_option', 'session_command', 'permission_decision',
-                  'peripheral_event', 'query_session_timeline', 'focus_session',
+                  'peripheral_event', 'focus_session',
                   'review_run'].includes(msg.type as string)) {
         // Device→daemon command channel over serial (the gap that dropped a
         // serial-attached board's steering taps). Forward into the same
