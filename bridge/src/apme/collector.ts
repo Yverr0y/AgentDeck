@@ -1523,11 +1523,19 @@ export class ApmeCollector {
     } catch { /* ignore */ }
     const ctx = this.sampleCtxForTurn(sessionId, turnId);
     if (ctx) {
-      this.appendSampleEvent(ctx, {
-        kind: 'assistant_message',
-        dedupCore: hashCore(response.slice(0, 400)),
-        payloadObj: { text: response.slice(0, 10_000), responseKind: kind },
-      });
+      const payloadObj = { text: response.slice(0, 10_000), responseKind: kind };
+      // A Stop whose transcript read came back empty already wrote this turn's
+      // slot with '' — fill it, or the turn carries two assistant messages.
+      const existingEvent = this.store.findAssistantMessageEvent(ctx.taskId, turnId);
+      if (existingEvent?.id != null) {
+        this.store.updateSampleEvent(existingEvent.id, { payload: safeStringify(payloadObj), ts: Date.now() });
+      } else {
+        this.appendSampleEvent(ctx, {
+          kind: 'assistant_message',
+          dedupCore: hashCore(response.slice(0, 400)),
+          payloadObj,
+        });
+      }
     }
   }
 
@@ -1893,8 +1901,12 @@ export class ApmeCollector {
     return nextRunId;
   }
 
-  /** Update model id when the bridge resolves which model is in use. */
-  updateModel(sessionId: string, modelId: string | undefined | null): void {
+  /** Update model id when the bridge resolves which model is in use.
+   *  `providerName` is the endpoint the producer names beside the model
+   *  (OpenCode's `providerID`); without it the provider is read off the
+   *  model id, which names the weights' maker rather than whose endpoint
+   *  served them — `mlx-community/Qwen…` reads as Qwen, not local. */
+  updateModel(sessionId: string, modelId: string | undefined | null, providerName?: string | null): void {
     if (!this.store.enabled || !modelId) return;
     if (!this.sessionToRun.has(sessionId)) return;
     // The TURN is the scorecard's identity source (`turns.model_id`), and
@@ -1902,7 +1914,7 @@ export class ApmeCollector {
     // Codex turn carried NULL there (465 + 183 in one week, 2026-09-03) and
     // the per-model scorecard ranked nothing. The run keeps its
     // latest-observed value for legacy readers.
-    this.updateTurnIdentity(sessionId, modelId);
+    this.updateTurnIdentity(sessionId, modelId, providerName ?? undefined);
   }
 
   /** Persist the model/provider on the assistant message's own turn.

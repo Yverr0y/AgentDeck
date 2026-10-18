@@ -373,6 +373,13 @@ interface WifiEsp32Device {
   uptimeSec?: number;
   resetReason?: string;
   resetReasonCode?: number;
+  /** Internal-heap level and failed allocations (protocol.ts DeviceInfoMessage). */
+  freeHeapKb?: number;
+  minFreeHeapKb?: number;
+  largestFreeBlockKb?: number;
+  allocFailures?: number;
+  allocFailLastBytes?: number;
+  allocFailLastCaps?: number;
   otaSupported?: boolean;
   otaSlotCount?: number;
   otaSlotSize?: number;
@@ -804,6 +811,14 @@ function registerWifiEsp32(d: Record<string, unknown>, ws: WebSocket): void {
     uptimeSec,
     resetReason,
     resetReasonCode,
+    // The serial registry always carried these; a WiFi-only board's never
+    // reached /devices.
+    freeHeapKb: typeof d.freeHeapKb === 'number' ? d.freeHeapKb : undefined,
+    minFreeHeapKb: typeof d.minFreeHeapKb === 'number' ? d.minFreeHeapKb : undefined,
+    largestFreeBlockKb: typeof d.largestFreeBlockKb === 'number' ? d.largestFreeBlockKb : undefined,
+    allocFailures: typeof d.allocFailures === 'number' ? d.allocFailures : undefined,
+    allocFailLastBytes: typeof d.allocFailLastBytes === 'number' ? d.allocFailLastBytes : undefined,
+    allocFailLastCaps: typeof d.allocFailLastCaps === 'number' ? d.allocFailLastCaps : undefined,
     otaSupported: typeof d.otaSupported === 'boolean' ? d.otaSupported : undefined,
     otaSlotCount: typeof d.otaSlotCount === 'number' ? d.otaSlotCount : undefined,
     otaSlotSize: typeof d.otaSlotSize === 'number' ? d.otaSlotSize : undefined,
@@ -993,6 +1008,7 @@ export function __resetWifiEsp32OtaState(): void {
 export const __wifiOtaTestApi = {
   registerWifiEsp32,
   unregisterWifiEsp32Socket,
+  listWifiEsp32Devices,
   handleEsp32OtaReply,
   performWifiEsp32Ota,
   resolveStagedFwBoard,
@@ -3843,7 +3859,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // must not pin "+N" on a row that no longer exists.
           subagentTimeline?.forget(hookSid);
           coordination.forget(hookSid);
-          const rows = core.bridgeTimeline.getHistoryForSession(hookSid, undefined, 24);
+          const rows = core.bridgeTimeline.getChatRowsForSession(hookSid);
           let lastStart: TimelineEntry | undefined;
           let lastCompletionTs = 0;
           for (const row of rows) {
@@ -3938,10 +3954,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             // transcript holds it. `transcript_path` on a Codex hook is its
             // ROLLOUT, which the Claude reader cannot parse — so every Codex
             // run persisted model_id=NULL while the payload said `gpt-5.6`.
+            // The OpenCode observer (v5) sends `model` plus the endpoint it
+            // came from as `model_provider`.
             const inlineModel = typeof json.model === 'string' ? json.model.trim() : '';
+            const inlineProvider = typeof json.model_provider === 'string' ? json.model_provider.trim() : '';
             const tp = json.transcript_path;
             if (inlineModel) {
-              apme.collector.updateModel(hookSid, inlineModel);
+              apme.collector.updateModel(hookSid, inlineModel, inlineProvider || undefined);
             } else if (hookAgentType === 'claude-code' && typeof tp === 'string' && tp) {
               const model = readModelFromTranscript(tp);
               if (model) apme.collector.updateModel(hookSid, model);
@@ -3996,9 +4015,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // `result`, the Swift daemon's field chain). Only emit while a turn is
         // actually open (a chat_start newer than the session's last
         // completion) so a duplicate/late Stop or an interrupted turn doesn't
-        // re-emit the previous response.
+        // re-emit the previous response. The session's chat rows are read
+        // whole: a window over all its rows let a long turn's own tool rows
+        // push its chat_start out of view.
         if (boundary === 'stop') {
-          const rows = core.bridgeTimeline.getHistoryForSession(hookSid, undefined, 24);
+          const rows = core.bridgeTimeline.getChatRowsForSession(hookSid);
           let lastStart: TimelineEntry | undefined;
           let lastResponse: TimelineEntry | undefined;
           let lastCompletionTs = 0;
@@ -6241,7 +6262,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       const since = (msg as { since?: unknown }).since;
       if (typeof sessionId === 'string' && sessionId) {
         const sinceMs = typeof since === 'number' ? since : undefined;
-        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs);
+        const toolEvents = surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY);
+        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs, undefined, { toolEvents });
         // Passively-observed sessions never push timeline rows (the relay only
         // covers managed + hook sessions), so the store comes back empty for
         // them. Reconstruct a recent-activity timeline from their transcript so
@@ -6261,7 +6283,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             entries = kiroTimelineForSession(sessionId, { since: sinceMs });
           } catch { /* read-only best effort */ }
         }
-        if (!surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY)) {
+        if (!toolEvents) {
           entries = entries.filter((entry) => entry.toolEvent !== true);
         }
         // Boards keep their ≤4096 B frame rule here too; dashboards get the
@@ -6533,8 +6555,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         })() : undefined);
       // Recent request↔response lines so the judge evaluates the diff
       // against what the user actually asked (not just code in isolation).
-      const recentActivity = core.bridgeTimeline.getHistoryForSession(sessionId, undefined, 16)
+      const recentActivity = core.bridgeTimeline.getChatRowsForSession(sessionId)
         .filter((e) => e.type === 'chat_start' || e.type === 'chat_response')
+        .slice(-16)
         .map((e) => `${e.type === 'chat_start' ? 'USER' : 'AGENT'}: ${e.raw}`)
         .join('\n');
       void runSessionReview({

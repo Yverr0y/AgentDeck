@@ -209,4 +209,21 @@ describe('Stop reply attribution (recordStopReply)', () => {
 
     expect(store.listTurns(collector.getRunId(SID)!)[0].response).toBe('recovered late');
   });
+
+  it('fills the empty slot an early Stop wrote when the deferred re-read finds the reply', () => {
+    // The Stop's transcript read came back empty (Claude had not written the
+    // record yet), so the open turn got '' and closed; the daemon's deferred
+    // re-read then applies the reply to the last closed turn.
+    driveTurn(collector, 'run the full suite');
+    stop('');
+    collector.setLastClosedTurnResponse(SID, 'all 412 tests passed');
+
+    const turn = store.listTurns(collector.getRunId(SID)!)[0];
+    expect(turn.response).toBe('all 412 tests passed');
+    const assistants = store.listSampleEventRows(String(turn.task_id))
+      .filter((e) => e.kind === 'assistant_message' && e.turnId === turn.id);
+    expect(assistants).toHaveLength(1);
+    expect(JSON.parse(String(assistants[0].payload)))
+      .toMatchObject({ text: 'all 412 tests passed', responseKind: 'text' });
+  });
 });
