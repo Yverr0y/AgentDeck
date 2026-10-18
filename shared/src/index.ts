@@ -33,6 +33,7 @@ export * from './claude-background-jobs.js';
 export * from './claude-statusline.js';
 export * from './background-work.js';
 export * from './hook-harness.js';
+export * from './codex-approval-hold.js';
 export * from './creature-layout.js';
 export * from './brand-features.js';
 export * from './terrarium-rules.js';

@@ -30,6 +30,7 @@ import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildHookCommand } from '../../hooks/src/install.js';
+import { buildCodexApprovalHoldCommand } from '../../hooks/src/codex-install.js';
 
 const ROOT = resolve(__dirname, '../..');
 const CLI = join(ROOT, 'bridge/dist/cli.js');
@@ -137,7 +138,7 @@ async function stopDaemon(daemon: Daemon): Promise<{ selfExited: boolean }> {
 }
 
 /** A dashboard client: collects every frame the hub pushes. */
-async function connect(port: number): Promise<{ frames: Frame[]; close: () => void }> {
+async function connect(port: number): Promise<{ frames: Frame[]; send: (msg: Record<string, unknown>) => void; close: () => void }> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   const frames: Frame[] = [];
   ws.addEventListener('message', (ev) => {
@@ -147,7 +148,7 @@ async function connect(port: number): Promise<{ frames: Frame[]; close: () => vo
     ws.addEventListener('open', () => ok(), { once: true });
     ws.addEventListener('error', () => fail(new Error('WS connect failed')), { once: true });
   });
-  return { frames, close: () => ws.close() };
+  return { frames, send: (msg) => ws.send(JSON.stringify(msg)), close: () => ws.close() };
 }
 
 function postHook(port: number, event: string, body: Record<string, unknown>): Promise<Response> {
@@ -491,6 +492,86 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('');
       expect(Date.now() - started).toBeLessThan(5_000);
+    }
+  });
+
+  it.runIf(POSIX)('holds a Codex approval for a device decision and releases it when the turn ends', async () => {
+    const vectors = JSON.parse(readFileSync(join(ROOT, 'shared/codex-approval-hold-vectors.json'), 'utf8')) as {
+      capturedPermissionRequest: Record<string, unknown>;
+      capturedQuestion: string;
+      decisions: Array<{ decision: string; body: unknown }>;
+    };
+    const permission = vectors.capturedPermissionRequest;
+    const thread = String(permission.session_id);
+    const rowId = `observed:codex:${thread}`;
+    const base = {
+      session_id: thread, transcript_path: permission.transcript_path, cwd: permission.cwd,
+      model: permission.model, permission_mode: permission.permission_mode,
+    };
+    const body = (decision: string) => vectors.decisions.find((d) => d.decision === decision)?.body;
+    // The installed hold command, run the way Codex runs it: `sh -c`, the
+    // payload on stdin, and only the daemon's decision on stdout.
+    const runHold = (turnId: string) => new Promise<{ code: number | null; stdout: string }>((ok, fail) => {
+      const child = spawn('sh', ['-c', buildCodexApprovalHoldCommand(process.platform)], {
+        env: { ...process.env, HOME: home, AGENTDECK_PORT: String(daemon.port) },
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      let stdout = '';
+      child.stdout?.on('data', (c: Buffer) => { stdout += c.toString(); });
+      child.once('error', fail);
+      child.once('exit', (code) => ok({ code, stdout }));
+      child.stdin?.end(JSON.stringify({ ...permission, turn_id: turnId }));
+    });
+    const row = (frames: Frame[]) => {
+      const list = frames.filter((f) => f.type === 'sessions_list').at(-1);
+      return (list?.sessions as Array<Record<string, unknown>> | undefined)?.find((r) => r.id === rowId);
+    };
+    const turns = ['01a14c63-9500-7e71-b111-00000000e201', '01a14c63-9500-7e71-b111-00000000e202', '01a14c63-9500-7e71-b111-00000000e203'];
+    // No device connected: the hold must not stall the terminal at all, and
+    // the prompt still reaches the row as display-only (no button).
+    await postHook(daemon.port, 'codex_session_start', { ...base, hook_event_name: 'SessionStart', source: 'startup' });
+    await postHook(daemon.port, 'codex_user_prompt_submit', { ...base, turn_id: turns[0], hook_event_name: 'UserPromptSubmit', prompt: 'approval unattended' });
+    const started = Date.now();
+    expect(await runHold(turns[0])).toEqual({ code: 0, stdout: '' });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    const client = await connect(daemon.port);
+    try {
+      const unattended = await waitFor('display-only prompt', () => {
+        const r = row(client.frames);
+        return r?.state === 'awaiting_permission' ? r : undefined;
+      });
+      expect(unattended.requestId).toBeUndefined();
+      for (const [index, decision] of (['allow', 'deny'] as const).entries()) {
+        await postHook(daemon.port, 'codex_user_prompt_submit', { ...base, turn_id: turns[index], hook_event_name: 'UserPromptSubmit', prompt: `approval ${decision}` });
+        const answered = runHold(turns[index]);
+        const held = await waitFor(`held approval (${decision})`, () => {
+          const r = row(client.frames);
+          return typeof r?.requestId === 'string' ? r : undefined;
+        });
+        expect(held).toMatchObject({ state: 'awaiting_permission', question: vectors.capturedQuestion, agentType: 'codex-cli' });
+        client.send({ type: 'permission_decision', requestId: held.requestId, decision });
+        const out = await answered;
+        expect(out.code).toBe(0);
+        expect(JSON.parse(out.stdout)).toEqual(body(decision));
+        await waitFor(`prompt cleared after ${decision}`, () => {
+          const r = row(client.frames);
+          return r && !r.requestId && r.state !== 'awaiting_permission' ? true : undefined;
+        });
+      }
+      // Ctrl+C under a hold ends the turn it waited in: released with nothing
+      // printed, and the prompt goes with the turn instead of lingering.
+      await postHook(daemon.port, 'codex_user_prompt_submit', { ...base, turn_id: turns[2], hook_event_name: 'UserPromptSubmit', prompt: 'approval interrupted' });
+      const interrupted = runHold(turns[2]);
+      await waitFor('held approval (interrupt)', () => (typeof row(client.frames)?.requestId === 'string' ? true : undefined));
+      await postHook(daemon.port, 'codex_interrupt', { ...base, turn_id: turns[2], hook_event_name: 'Interrupt' });
+      const out = await interrupted;
+      expect(out).toEqual({ code: 0, stdout: '' });
+      await waitFor('prompt cleared after the interrupt', () => {
+        const r = row(client.frames);
+        return r && !r.requestId && r.state !== 'awaiting_permission' ? true : undefined;
+      });
+    } finally {
+      client.close();
     }
   });
 

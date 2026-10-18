@@ -72,8 +72,12 @@ import {
 import { askEchoMatches, askGateDecision, askPressVerdict } from './ask-gate.js';
 import {
   registerPending, resolvePending, resolvePendingWithReason,
-  sweepStalePending, drainAllPending, isPendingRequest,
+  sweepStalePending, drainAllPending, isPendingRequest, passPending,
 } from './permission-resolver.js';
+import {
+  CODEX_APPROVAL_HOLD_HEADER, codexApprovalDecisionBody, codexApprovalHoldMs, codexHoldDecision, codexHoldReleasedBy,
+} from '@agentdeck/shared';
+import { CodexApprovalHolds } from './codex-approval-hold.js';
 import {
   shouldHoldPreToolUse, beginAskGate, gateReleased, buildGateQuestion, buildAskAnswerReason,
   consumeStop, requestStop, clearStop, STOP_DENY_REASON,
@@ -232,7 +236,7 @@ import { CodexOtelTracker, CODEX_OTEL_TRACES_PATH, spanNameSummary } from './cod
 import { CodexHookReplayGuard } from './codex-hook-replay.js';
 import { HookCodexSessions, buildCodexPermissionQuestion } from './hook-codex-sessions.js';
 import { HubStateDriverTracker, resolveHubFrameIdentity, shapeHubFrame } from './hub-state-identity.js';
-import { CodexAmbientSessions } from './codex-ambient-hooks.js';
+import { CodexAmbientSessions, isCodexBackgroundCwd } from './codex-ambient-hooks.js';
 import { HermesSessions } from './hermes-sessions.js';
 import { ObservedTurnWatchdogs } from './observed-turn-watchdogs.js';
 import {
@@ -1814,6 +1818,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // Codex Desktop ambient-suggestions threads — see codex-ambient-hooks.ts.
   const codexAmbientSessions = new CodexAmbientSessions();
   const codexHookReplay = new CodexHookReplayGuard();
+  // Open Codex device-approval holds — shared/src/codex-approval-hold.ts.
+  const codexApprovalHolds = new CodexApprovalHolds();
   const hookOpenCodeSessions = new HookOpenCodeSessions();
   // Declared before the HTTP server: the PreToolUse route reads it to decide
   // whether this daemon can type into a session's terminal, and hooks start
@@ -3453,6 +3459,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         if (Number.isInteger(headerPid) && headerPid > 1 && json.agentdeck_pid == null) {
           json.agentdeck_pid = headerPid;
         }
+        // Codex device approval (opt-in): the hold handler's twin of the
+        // notification, answered by the hold alone. The notification handler
+        // owns ingestion; this payload carries no tool_use_id the replay guard
+        // could pair, so ingesting it would record every approval twice.
+        const holdHeader = req.headers[CODEX_APPROVAL_HOLD_HEADER];
+        if (eventName === 'codex_permission_request' && holdHeader !== undefined) {
+          holdCodexApproval(json, Array.isArray(holdHeader) ? holdHeader[0] : holdHeader, res);
+          return;
+        }
         // Harness identity comes from the payload, not the endpoint (#490): a
         // Codex payload under an unprefixed name (`/hooks/Stop`) is the
         // `codex_*` event it is, and one Codex event instance delivered by two
@@ -3625,7 +3640,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // an approval runs the tool (tool_start/tool_end), a denial or
           // Ctrl+C ends the turn (stop/interrupt), a new prompt supersedes it.
           const codexSid = typeof json.session_id === 'string' ? json.session_id : '';
-          if (codexSid) {
+          const heldRequestId = codexSid ? codexApprovalHolds.requestIdFor(codexSid) : undefined;
+          if (codexSid && heldRequestId) {
+            // A held device approval owns the prompt until it is released: a
+            // parallel call's notification or tool hooks must not swap the
+            // question under its button. Only the end of the turn it waits
+            // in releases it early (the hook is likely gone with the turn).
+            if (codexHoldReleasedBy(eventName)) {
+              codexApprovalHolds.end(codexSid);
+              passPending(heldRequestId);
+            }
+          } else if (codexSid) {
             if (eventName === 'codex_permission_request') {
               // `sticky`: the transcript-recency drop is a Claude ESC heuristic;
               // a Codex rollout may be appended while the approval waits, and
@@ -5466,6 +5491,69 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       peers.push({ sessionId: rawSessionId(s.id), pid: s.pid, agentType: s.agentType, projectName: s.projectName });
     }
     return peers;
+  }
+  /** Whether any row shows this Codex session — observer, OTel or hook. */
+  function codexSessionShown(sid: string): boolean {
+    if (hookCodexSessions.snapshot().some((s) => s.sessionId === sid)) return true;
+    return codexOtel.applyTo(passiveSessionObserver.collect([])).some((s) =>
+      (s.agentType === 'codex-cli' || s.agentType === 'codex-app') && rawSessionId(s.id) === sid);
+  }
+  /** Answer a Codex hold request (shared/src/codex-approval-hold.ts): hold it for a
+   *  device's Allow/Deny, or answer at once with nothing so Codex draws its own
+   *  prompt. A held request shows the prompt with its button; a released one
+   *  leaves the prompt as display-only, since Codex is drawing it now. */
+  function holdCodexApproval(json: Record<string, unknown>, header: string, res: import('http').ServerResponse): void {
+    const sid = typeof json.session_id === 'string' ? json.session_id : '';
+    const question = buildCodexPermissionQuestion(json);
+    const holdMs = codexApprovalHoldMs(header, OBSERVED_APPROVAL_HOLD_MS);
+    const background = sid !== '' && (codexAmbientSessions.isAmbient(sid) || isCodexBackgroundCwd(json.cwd));
+    const execChild = sid !== '' && codexExecChildren.knows(sid);
+    const verdict = holdMs === null
+      ? { hold: false, reason: 'no-budget' }
+      : codexHoldDecision({
+        enabled: OBSERVED_APPROVAL_ENABLED,
+        clientCount: core.wsServer.getClientCount(),
+        sessionId: sid,
+        background,
+        execChild,
+        visible: sid !== '' && codexSessionShown(sid),
+        alreadyHeld: sid !== '' && codexApprovalHolds.requestIdFor(sid) !== undefined,
+      });
+    if (!verdict.hold || holdMs === null) {
+      debug('daemon', `Codex approval not held: ${verdict.reason} (${sid.slice(0, 8) || 'no session'})`);
+      // The display-only prompt still belongs on the row when Codex ran only
+      // this handler (the notification one untrusted or removed).
+      if (sid && !background && !execChild && !codexApprovalHolds.requestIdFor(sid) && !getAwaitingOverlay(sid)) {
+        setAwaitingOverlay(sid, question, undefined, { sticky: true });
+        core.broadcastSessionsList().catch(() => {});
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('');
+      return;
+    }
+    const requestId = codexApprovalHolds.begin(sid);
+    debug('daemon', `Codex approval held: req=${requestId} sid=${sid.slice(0, 8)} for ${holdMs} ms`);
+    setAwaitingOverlay(sid, question, requestId, { sticky: true });
+    core.broadcastSessionsList().catch(() => {});
+    registerPending(requestId, res, {
+      sessionId: sid,
+      tool: typeof json.tool_name === 'string' ? json.tool_name : undefined,
+      timeoutMs: holdMs,
+      buildBody: codexApprovalDecisionBody,
+      onResolved: (decision) => {
+        const outcome = codexApprovalHolds.finish(sid, requestId, decision);
+        const current = getAwaitingOverlay(sid);
+        if (current?.requestId === requestId) {
+          if (outcome === 'pass') setAwaitingOverlay(sid, current.question, undefined, { sticky: true });
+          else clearAwaitingOverlay(sid);
+        }
+        core.broadcastSessionsList().catch(() => {});
+      },
+    });
+    // Codex killed the hook (Ctrl+C, quit): nothing will read an answer now.
+    res.on('close', () => {
+      if (isPendingRequest(requestId)) passPending(requestId);
+    });
   }
   /** Undo everything a Codex thread's hooks created before it was classified
    *  as not-a-session (ambient suggestion thread, headless child). */
