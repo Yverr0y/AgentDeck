@@ -83,8 +83,8 @@ the measurement build:
   and has 35–41 KB left once its UI is up, before WiFi carries anything.
   t_embed goes from 188 KB to 44 KB. These builds keep the WiFi driver's
   internal-only buffers in internal RAM and reserve none of it
-  (`CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0`). lwIP allocates with plain
-  `malloc` (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` is off), which takes
+  (`CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0`). lwIP allocates its buffers with
+  plain `malloc` (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` is off), which takes
   internal RAM first for 4 KB or less and then spills to PSRAM. (This entry
   first said every WiFi and lwIP buffer stays in internal RAM; lwIP's do not.)
 

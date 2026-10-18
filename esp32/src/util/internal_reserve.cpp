@@ -69,8 +69,9 @@ void begin() {
         // Owned by the new heap below for the life of the device; never freed.
         uint8_t* block = static_cast<uint8_t*>(heap_caps_malloc(next, CARVE_CAPS));
         if (!block) break;
-        // Lowest priority only: an internal or DMA request reaches this region
-        // after every regular internal heap has refused it.
+        // Lowest priority only: a request reaches this region once internal
+        // DRAM has refused it (and, as an added region, before RTC fast RAM;
+        // internal_reserve.h says which requests that is).
         const uint32_t caps[SOC_MEMORY_TYPE_NO_PRIOS] = {0, 0, POOL_CAPS};
         if (heap_caps_add_region_with_caps(caps, reinterpret_cast<intptr_t>(block),
                                            reinterpret_cast<intptr_t>(block) + next) != ESP_OK) {

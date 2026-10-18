@@ -99,9 +99,10 @@ fixed to a stack local.)
   registers it as a heap without `MALLOC_CAP_DEFAULT`, at the lowest priority.
   Plain `malloc` never reaches it, so small mallocs spill to PSRAM instead of
   starving the WiFi driver; an explicit internal or DMA request (the WiFi
-  driver's internal buffers, task stacks, your own `MALLOC_CAP_INTERNAL`
-  buffers; not lwIP, which uses plain `malloc` in these builds) falls back on
-  it once the regular internal heap refuses. So a large internal buffer
+  driver's internal buffers, task stacks and other FreeRTOS objects, your own
+  `MALLOC_CAP_INTERNAL` buffers; not lwIP's buffers, which use plain `malloc`
+  in these builds) falls back on it once internal DRAM refuses, and one that
+  does not ask for DMA tries it before RTC fast RAM. So a large internal buffer
   allocated at init has that much less to draw on, and the pool is no place
   for a buffer that could live in PSRAM. Read internal heap figures through
   `InternalReserve::heapFreeBytes` / `heapMinFreeBytes` /

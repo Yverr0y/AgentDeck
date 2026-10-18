@@ -10,10 +10,14 @@ these S3 boards `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` is 4096, so an ordinary
 mallocs all succeed, and they can still use up the internal RAM that the
 allocations which must be internal cannot do without: the WiFi driver's
 internal buffers, task stacks, mbedTLS (`CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC`)
-and DMA buffers. lwIP is not one of them in these builds:
-`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` is off, so the shipped S3 `lwipopts.h`
-maps `mem_clib_malloc` to plain `malloc` (lines 1711-1713), and its small
-allocations spill to PSRAM like any other.
+and DMA buffers. lwIP's buffers and control blocks are not among them in these
+builds: `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` is off, so the shipped S3
+`lwipopts.h` maps `mem_clib_malloc` to plain `malloc` (lines 1711-1713), its
+`MEMP_MEM_MALLOC` routes the control-block pools through it, and those small
+allocations spill to PSRAM like any other. Its mailboxes, semaphores and
+mutexes are FreeRTOS objects (`components/lwip/port/freertos/sys_arch.c`), and
+FreeRTOS allocates with `INTERNAL | 8BIT` (`heap_idf.c`), so those are
+internal-only.
 
 **What the pool is.** [esp32/src/util/internal_reserve.cpp](esp32/src/util/internal_reserve.cpp)
 takes `INTERNAL_RESERVE_BYTES` (16 KB) out of internal RAM at the top of
@@ -30,9 +34,13 @@ has capabilities only at priority 2, and none of them is `MALLOC_CAP_DEFAULT`:
   when both refuse.
 - An added heap goes to the head of the heap list, so at priority 2 the pool
   comes before RTC RAM and PSRAM. A request naming only `8BIT` or `32BIT`
-  can therefore land in it, the same as with ESP-IDF's own reserve. Task
-  stacks (`INTERNAL | 8BIT`) and DMA buffers are explicit internal requests
-  and reach it like the WiFi driver's.
+  can therefore land in it, the same as with ESP-IDF's own reserve. So does
+  an internal request without DMA, such as a task stack or another FreeRTOS
+  object (`INTERNAL | 8BIT`) or an mbedTLS buffer: it reaches the pool after
+  internal DRAM and before the 8 KB of RTC fast RAM, which also answers only
+  at priority 2. RTC RAM cannot serve DMA, so for a DMA request, the WiFi
+  driver's included, the pool is the last heap tried. RTC RAM may be gone by
+  then anyway, since `malloc`'s internal-first attempt can use it too.
 
 `MALLOC_CAP_PID2` rides along as a marker. ESP-IDF does not use PIDs, so it
 changes nothing about which requests the pool serves, and it lets
@@ -132,8 +140,8 @@ change, whose heap figures still counted the pool:
   minima, which need not have been reached at the same instant. The regular
   heaps' minima summed to at most 771 B (`minFreeHeapKb` under 15 KB, less the
   pool's 14,588 B), so at some point in bring-up the regular internal heap was
-  all but empty, and requests reached the pool, which they do only after every
-  regular internal heap has refused them.
+  all but empty, and requests reached the pool, which they do only once
+  internal DRAM has refused them.
 - From then until the reboot, the whole OTA included, every 30-second
   `device_info` read 21 KB of internal RAM free, 5–6 KB of it outside the
   pool, and neither low-water mark moved. At the end:
@@ -173,3 +181,14 @@ figures.
 - 16 KB is a starting size. The one measured run drew 1.4 KB of it, during
   WiFi bring-up rather than the OTA. Size it from more drawdowns before tuning
   it either way.
+- Library code still counts the pool. arduinoWebSockets 2.7.3 packs a frame
+  under 1,400 B into one `malloc`'d buffer only when `GET_FREE_HEAP > 6000`
+  (`WebSockets.cpp:243`), and it defines `GET_FREE_HEAP` as
+  `ESP.getFreeHeap()`, an `INTERNAL` query, without an `#ifndef`, so a build
+  flag cannot redirect it. On t_embed the pool's 16 KB keeps that check true
+  when the regular internal heap is low, where before the library would have
+  sent header and payload as two writes. The buffer is at most 1.4 KB, so it
+  goes to PSRAM when internal RAM cannot take it; it is freed after the send;
+  and a failed `malloc` falls back to the two writes. The cost is a transient
+  small allocation, not a failure. WiFiManager shows `ESP.getFreeHeap()` on
+  its info page only. Changing either means patching the library.

@@ -869,7 +869,7 @@ export interface DeviceInfoMessage {
    * Usable size, in KB, of the internal-RAM pool that malloc() cannot take
    * (firmware util/internal_reserve.h): the WiFi driver's internal buffers,
    * task stacks, DMA buffers and other allocations that must be internal fall
-   * back on it once the regular internal heap refuses them. Sent only by
+   * back on it once internal DRAM refuses them. Sent only by
    * firmware that asks for a pool (T-Embed so far); absent means none was
    * asked for. 0 means one was asked for and none could be carved (no PSRAM
    * found at boot).
