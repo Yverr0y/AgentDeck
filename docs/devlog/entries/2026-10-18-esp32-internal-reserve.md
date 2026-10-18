@@ -100,6 +100,8 @@ led8x32, nm_epd_420, lilygo_epd47, t_embed, t_display_pro, esp32_c6_147,
 trmnl_75 and ips10. TTGO failed to link, but master failed the same way without
 this branch: #565 and #566 together left it 8 bytes over static DRAM
 ([2026-10-19 entry](docs/devlog/entries/2026-10-19-esp32-ttgo-dram-combined-merge.md)).
+With that fix (#579) merged, TTGO links on this branch with 1,016 B of static
+DRAM left, the same as master: the gated pool adds none there.
 IPS10 links at 98.0% of its 6 MB app partition (6,167,166 B). The reserve
 module adds 198 B of code there, so the margin was already nearly gone before
 this branch. The next IPS10 feature will run into it.
