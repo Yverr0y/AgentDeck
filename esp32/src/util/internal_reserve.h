@@ -7,10 +7,14 @@
 // On the PSRAM boards a malloc of 4 KB or less tries internal RAM first
 // (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096) and only then PSRAM, so ordinary
 // heap churn can drain internal RAM to nothing while every one of those
-// mallocs still succeeds. The WiFi driver and lwIP can only use internal RAM,
-// and they are the ones that then fail: during a WiFi OTA on t_embed one WiFi
-// driver allocation (914 B, caps 0x80c) failed with 1,528 B of internal RAM
-// left (devlog 2026-10-18-esp32-alloc-failure-telemetry).
+// mallocs still succeeds. The allocations that can only be internal are the
+// ones that then fail: during a WiFi OTA on t_embed one WiFi driver allocation
+// (914 B, caps 0x80c) failed with 1,528 B of internal RAM left (devlog
+// 2026-10-18-esp32-alloc-failure-telemetry). Those are the pool's clients: the
+// WiFi driver's internal buffers, task stacks, DMA buffers and other explicit
+// MALLOC_CAP_INTERNAL requests. lwIP is not one of them in these builds: it
+// allocates with plain malloc (CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP is off),
+// which spills to PSRAM like any other small malloc.
 //
 // ESP-IDF's own reserve, CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL, is 0 in the
 // prebuilt Arduino libraries, and the region its 5.5 implementation registers
@@ -18,30 +22,39 @@
 // This pool carries no DEFAULT bit and answers only at the lowest matching
 // priority, so it is the last place an internal or DMA request looks and a
 // place malloc() never looks. (A request naming only 8BIT or 32BIT can reach
-// it too, as it can reach ESP-IDF's reserve; malloc() is the traffic that
-// matters, and it cannot.) Without PSRAM it would only take RAM away from
-// malloc, so begin() does nothing there.
+// it too, as it can reach ESP-IDF's reserve; malloc() cannot.) It is built
+// only for the boards config.h names (AGENTDECK_INTERNAL_RESERVE); everywhere
+// else these functions report no pool and the plain heap figures.
 namespace InternalReserve {
 
 // Carves INTERNAL_RESERVE_BYTES (config.h) out of internal RAM. Call once, at
 // the top of setup(), while internal RAM is still one large free block.
 void begin();
 
-// Usable bytes in the pool right after begin(); 0 when nothing was reserved.
+// What this firmware asked for: 0 on a board that asks for no pool.
+uint32_t requestedBytes();
+// Usable bytes in the pool right after begin(); 0 when nothing was carved
+// (no pool asked for, or no PSRAM found at boot).
 uint32_t capacityBytes();
 uint32_t freeBytes();
-// The pool's true low-water mark since begin(). Known only when begin()
-// could restart ESP-IDF's minimum tracking; otherwise there is no answer,
-// and minFreeBytes() returns 0, which must not be read as "drained".
-bool minFreeKnown();
+// The pool's low-water mark since begin().
 uint32_t minFreeBytes();
+
+// The internal heap with the pool left out: the figures the board reported
+// before the pool existed (device_info's freeHeapKb, minFreeHeapKb and
+// largestFreeBlockKb, the [HeapFail] line, logHeap). The pool carries
+// INTERNAL and DMA, so a plain heap_caps query for either counts it, and its
+// untouched 16 KB would read as headroom the regular heap does not have.
+uint32_t heapFreeBytes(uint32_t caps);
+uint32_t heapMinFreeBytes(uint32_t caps);
+uint32_t heapLargestFreeBlock(uint32_t caps);
 
 // Numeric "[Reserve] at=…" lines, the format the daemon logs under
 // esp32-heap. logBoot() exists because begin() runs before Serial is up;
-// logBeforeRestart() because a restart takes the low-water mark and the
-// failure count with it, and the moment before an OTA reboot is when the
-// WiFi driver has leaned on the pool hardest.
+// logState() is for the moments the pool matters: just before an OTA reboot
+// takes the low-water mark and the failure count with it, and right after an
+// allocation failed.
 void logBoot();
-void logBeforeRestart(const char* at);
+void logState(const char* at);
 
 }  // namespace InternalReserve

@@ -834,15 +834,16 @@ export interface DeviceInfoMessage {
    * ESP-Hosted WiFi glue asserts and reboots the board when an internal-heap
    * allocation fails (`pkt_rxbuff` / `copy_buff`) — the low-watermark trend
    * across successive device_info frames is what distinguishes a slow leak
-   * from a burst. Absent on firmware that predates the field.
+   * from a burst. Absent on firmware that predates the field. The internal
+   * reserve (internalReserveKb) is not counted in this or the next two.
    */
   freeHeapKb?: number;
   /**
    * Lowest internal-heap level since boot, in KB
    * (heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)); since setup() on
-   * a board with an internal reserve (internalReserveKb). A 0 here does not
-   * mean an allocation failed: on PSRAM boards a malloc that misses internal
-   * RAM is retried in PSRAM. allocFailures answers that.
+   * a board that carved an internal reserve (internalReserveKb > 0). A 0 here
+   * does not mean an allocation failed: on PSRAM boards a malloc that misses
+   * internal RAM is retried in PSRAM. allocFailures answers that.
    */
   minFreeHeapKb?: number;
   /**
@@ -866,19 +867,20 @@ export interface DeviceInfoMessage {
   allocFailLastCaps?: number;
   /**
    * Usable size, in KB, of the internal-RAM pool that malloc() cannot take
-   * (firmware util/internal_reserve.h): the WiFi driver, lwIP, task stacks
-   * and DMA buffers fall back on it once the regular internal heap refuses
-   * them. 0 means this firmware reserved none (no PSRAM, or IPS10); absent
-   * means firmware without the pool. freeHeapKb, minFreeHeapKb and
-   * largestFreeBlockKb all count the pool, and on a board that reserved one
-   * minFreeHeapKb is the minimum since setup() rather than since boot.
+   * (firmware util/internal_reserve.h): the WiFi driver's internal buffers,
+   * task stacks, DMA buffers and other allocations that must be internal fall
+   * back on it once the regular internal heap refuses them. Sent only by
+   * firmware that asks for a pool (T-Embed so far); absent means none was
+   * asked for. 0 means one was asked for and none could be carved (no PSRAM
+   * found at boot).
    */
   internalReserveKb?: number;
+  /** What is free in the pool now, in KB. Present when internalReserveKb > 0. */
+  internalReserveFreeKb?: number;
   /**
    * The pool's low-water mark since setup(), in KB, tracked by ESP-IDF on
    * every allocation. Below internalReserveKb means something had to fall
-   * back on it. Present when internalReserveKb > 0 and the board could track
-   * it; absent means unknown, never empty.
+   * back on it. Present when internalReserveKb > 0.
    */
   internalReserveMinKb?: number;
   /** Board-held Codex window percentages; -1 means no window is displayed. */

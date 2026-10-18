@@ -14,15 +14,15 @@ import { handleSerialLine, type SerialConnection } from '../esp32-serial.js';
 const HEAP_FIELDS = [
   'freeHeapKb', 'minFreeHeapKb', 'largestFreeBlockKb',
   'allocFailures', 'allocFailLastBytes', 'allocFailLastCaps',
-  'internalReserveKb', 'internalReserveMinKb',
+  'internalReserveKb', 'internalReserveFreeKb', 'internalReserveMinKb',
 ] as const;
 
 const report = {
-  type: 'device_info', board: 'ips_35', version: '1.9.2', ip: '192.168.68.70',
+  type: 'device_info', board: 't_embed', version: '1.9.2', ip: '192.168.68.70',
   wifiConfigured: true, wifiConnected: true,
-  freeHeapKb: 63, minFreeHeapKb: 0, largestFreeBlockKb: 21,
+  freeHeapKb: 41, minFreeHeapKb: 0, largestFreeBlockKb: 21,
   allocFailures: 2, allocFailLastBytes: 1664, allocFailLastCaps: 2052,
-  internalReserveKb: 15, internalReserveMinKb: 9,
+  internalReserveKb: 15, internalReserveFreeKb: 12, internalReserveMinKb: 9,
 };
 
 function serialConn(): SerialConnection {
@@ -68,8 +68,8 @@ describe('ESP32 heap fields reach both device registries', () => {
     expect(viaSerial(old).allocFailures).toBeUndefined();
   });
 
-  it('keeps an explicit zero reserve, which says this board reserved none', () => {
-    const none = { ...report, internalReserveKb: 0, internalReserveMinKb: undefined };
+  it('keeps an explicit zero reserve, which says the board asked for one and carved none', () => {
+    const none = { ...report, internalReserveKb: 0, internalReserveFreeKb: undefined, internalReserveMinKb: undefined };
     expect(viaWifi(none).internalReserveKb).toBe(0);
     expect(viaSerial(none).internalReserveKb).toBe(0);
     __resetWifiEsp32OtaState();

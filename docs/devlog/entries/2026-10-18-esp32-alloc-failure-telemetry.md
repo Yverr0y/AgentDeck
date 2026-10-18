@@ -81,9 +81,12 @@ the measurement build:
   but three things differ from the runs above and none of them was measured.
 - **Where the internal RAM goes.** ips_35 boots with 238 KB of internal heap
   and has 35–41 KB left once its UI is up, before WiFi carries anything.
-  t_embed goes from 188 KB to 44 KB. These builds also keep every WiFi and lwIP
-  buffer in internal RAM (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` is off) and
-  reserve none of it (`CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0`).
+  t_embed goes from 188 KB to 44 KB. These builds keep the WiFi driver's
+  internal-only buffers in internal RAM and reserve none of it
+  (`CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0`). lwIP allocates with plain
+  `malloc` (`CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` is off), which takes
+  internal RAM first for 4 KB or less and then spills to PSRAM. (This entry
+  first said every WiFi and lwIP buffer stays in internal RAM; lwIP's do not.)
 
 For anyone repeating this: opening these native-USB ports from pyserial resets
 the board (`USB_UART_CHIP_RESET`), and the daemon's open does not. The first

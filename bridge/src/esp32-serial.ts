@@ -174,8 +174,9 @@ export interface SerialConnection {
     allocFailures?: number;
     allocFailLastBytes?: number;
     allocFailLastCaps?: number;
-    /** The internal pool malloc() cannot take, and its low-water mark (protocol.ts DeviceInfoMessage). */
+    /** The internal pool malloc() cannot take: size, free now, low-water mark (protocol.ts DeviceInfoMessage). */
     internalReserveKb?: number;
+    internalReserveFreeKb?: number;
     internalReserveMinKb?: number;
     otaSupported?: boolean;
     otaSlotCount?: number;
@@ -1058,6 +1059,7 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
           allocFailLastBytes: msg.allocFailLastBytes,
           allocFailLastCaps: msg.allocFailLastCaps,
           internalReserveKb: msg.internalReserveKb,
+          internalReserveFreeKb: msg.internalReserveFreeKb,
           internalReserveMinKb: msg.internalReserveMinKb,
           otaSupported: msg.otaSupported,
           otaSlotCount: msg.otaSlotCount,

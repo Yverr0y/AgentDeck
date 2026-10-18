@@ -165,14 +165,18 @@ constexpr uint32_t STACK_UI            = 16384;
 
 // ===== Internal RAM reserve (util/internal_reserve.h) =====
 // Internal RAM kept out of malloc()'s reach for the allocations that can only
-// be internal: the WiFi driver, lwIP, task stacks, DMA buffers. PSRAM boards
-// only; IPS10 is left out until its hosted-WiFi path is measured with it.
-// 16 KB covers the WiFi driver's working set under an OTA stream (the 2026-10-18
-// t_embed failure was a 914-byte request) while leaving the busiest board
-// (ips_35, ~40 KB internal free once its UI is up) room for small mallocs.
-#if defined(BOARD_IPS10)
-constexpr uint32_t INTERNAL_RESERVE_BYTES = 0;
-#else
+// be internal: the WiFi driver's internal buffers, task stacks, DMA buffers and
+// other explicit MALLOC_CAP_INTERNAL requests (not lwIP, which uses plain
+// malloc in these builds). Built only for a board it was measured on. t_embed
+// is the one: a WiFi OTA there failed a 914-byte WiFi driver request
+// (2026-10-18), its parked internal low-water mark was 19-22 KB, and a run
+// with the pool failed nothing. Not yet elsewhere: box_86 parks at 13 KB, so
+// this pool would leave malloc no internal RAM at all there; ips_35, amoled
+// and the e-ink panels have not been measured with it; IPS10's WiFi runs on a
+// hosted coprocessor. Measure a board's parked low-water mark and an OTA with
+// the pool before adding it here.
+#if defined(BOARD_T_EMBED)
+#define AGENTDECK_INTERNAL_RESERVE 1
 constexpr uint32_t INTERNAL_RESERVE_BYTES = 16 * 1024;
 #endif
 
