@@ -3938,10 +3938,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             // transcript holds it. `transcript_path` on a Codex hook is its
             // ROLLOUT, which the Claude reader cannot parse — so every Codex
             // run persisted model_id=NULL while the payload said `gpt-5.6`.
+            // The OpenCode observer (v5) sends `model` plus the endpoint it
+            // came from as `model_provider`.
             const inlineModel = typeof json.model === 'string' ? json.model.trim() : '';
+            const inlineProvider = typeof json.model_provider === 'string' ? json.model_provider.trim() : '';
             const tp = json.transcript_path;
             if (inlineModel) {
-              apme.collector.updateModel(hookSid, inlineModel);
+              apme.collector.updateModel(hookSid, inlineModel, inlineProvider || undefined);
             } else if (hookAgentType === 'claude-code' && typeof tp === 'string' && tp) {
               const model = readModelFromTranscript(tp);
               if (model) apme.collector.updateModel(hookSid, model);

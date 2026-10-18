@@ -417,6 +417,34 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     }
   });
 
+  it('stamps an observed OpenCode turn with the model and endpoint its stop names', async () => {
+    // The OpenCode observer (v5) payload: `model` / `model_provider` are the
+    // assistant message's modelID / providerID. `local`, not the `alibaba`
+    // the model id alone reads as, proves the provider crossed the wire.
+    const sid = 'ses_e2e_opencode_model';
+    const base = { session_id: sid, cwd: '/tmp/agentdeck-e2e-opencode' };
+    const hooks: Array<[string, Record<string, unknown>]> = [
+      ['opencode_session_start', base],
+      ['opencode_user_prompt_submit', { ...base, prompt: 'Name the capital of France.' }],
+      ['opencode_stop', { ...base, last_assistant_message: 'Paris.',
+        model: 'mlx-community/Qwen3.6-35B-A3B-4bit', model_provider: 'mlx' }],
+    ];
+    for (const [event, body] of hooks) expect((await postHook(daemon.port, event, body)).status).toBe(200);
+    const turns = await waitFor('OpenCode turn identity', async () => {
+      const page = await (await fetch(`http://127.0.0.1:${daemon.port}/apme/tasks?session=${encodeURIComponent(sid)}`,
+        { signal: AbortSignal.timeout(2000) })).json() as { tasks?: Array<{ id: string }> };
+      const id = page.tasks?.[0]?.id;
+      if (!id) return undefined;
+      const detail = await (await fetch(`http://127.0.0.1:${daemon.port}/apme/tasks/${id}`,
+        { signal: AbortSignal.timeout(2000) })).json() as { turns: Array<Record<string, unknown>> };
+      return detail.turns[0]?.model_id ? detail.turns : undefined;
+    });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({
+      end_source: 'stop', response: 'Paris.', model_id: 'mlx-community/Qwen3.6-35B-A3B-4bit', provider: 'local',
+    });
+  });
+
   it('ingests a Codex turn delivered to both its codex_* hooks and the generic hooks once, as Codex (#490)', async () => {
     // Verbatim codex-cli 0.160.1 payloads (paths scrubbed). Codex runs every
     // hook command configured for an event, so a Claude-shaped AgentDeck

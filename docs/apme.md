@@ -196,6 +196,21 @@ Codex 는 훅의 `model`, Claude 는 transcript(단 `<synthetic>` — 클라이�
 codex 턴 732건은 rollout 전체 스캔으로 응답을 1회 복원했다(`efficiency_json.
 response_source=rollout_backfill_2026-09-03`).
 
+**OpenCode 는 observer plugin v5 부터 Stop 에 모델을 싣는다.** 그 전 플러그인의
+`opencode_stop` 에는 모델이 없어서 30일간 끝난 관측 OpenCode 턴 39개의 model_id 가 전부
+NULL 이었다(`agentdeck apme coverage`, 2026-10-18). OpenCode 는 assistant `message.updated`
+마다 `modelID`/`providerID` 를 싣는다 — 자체 이벤트 로그에서 10,474건 전부, 완료 전
+첫 갱신 포함(1.18.35). 플러그인은 턴의 마지막 assistant 메시지 값을 세션별로 들고 있다가
+Stop 에 `model`/`model_provider` 로 보내고 턴과 함께 버린다(child 세션 값은 부모 턴에
+섞지 않는다). `providerID` 는 endpoint 이므로 모델 id 보다 우선한다:
+`mlx-community/Qwen…` 은 모델 id 만으로는 `alibaba` 지만 MLX 가 서빙했으니 `local` 이다.
+허용 목록 밖의 이름(`zai-coding-plan`, OpenCode Zen 의 `opencode`)은 모델 id 로 내려가고,
+둘 다 모르면 `unknown` 그대로다. Swift 데몬은 훅 Stop 의 `model` 을 아예 턴에 찍지 않았다
+— run 을 열 때 `model_name` 만 읽으니 Codex 턴도 모델이 없었다 — 그래서
+`DaemonServer.stampApmeStopIdentity` 가 Node 의 Stop 경로와 같은 일을 한다. 기존
+플러그인 파일은 `agentdeck daemon install`(또는 setup, `agentdeck opencode`)이 다시 쓸 때
+v5 가 된다.
+
 **Stop 시 빈 transcript 읽기는 답이 아니다.** Claude Code 는 마지막 assistant 레코드를 쓰는
 도중에 Stop 훅을 돌린다 — 실측: Stop 21:20:22Z, 1,638자 응답 레코드 21:20:22.395Z. 한 주
 Claude stop 턴 344건 중 113건이 그렇게 응답 없이 보관됐다. `deferred-reply-read.ts` 가
