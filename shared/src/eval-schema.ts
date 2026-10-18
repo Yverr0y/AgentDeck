@@ -432,6 +432,7 @@ export interface ApmeAgentCoverageRow {
   declinedNoReply: number;
   declinedAbortedOnly: number;
   declinedTrivial: number;
+  declinedNotificationOnly: number;
 }
 
 /** The Stop-delivery rate a row actually supports.

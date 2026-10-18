@@ -4700,7 +4700,7 @@ apme
     // them for having no agent reply. Computing that here would mean loading
     // every turn of every aged-out task.
     const logLegend = () => {
-      log('  Declined = the judge correctly refused: no reply, aborted-only, or trivial. Not a miss.');
+      log('  Declined = the judge correctly refused: no reply, aborted-only, trivial, or only background-task notices. Not a miss.');
       log('  Waiting  = unjudged but still inside the drain\'s lookback — the judge may yet reach it.');
       log(`  AgedOut  = unjudged and older than the drain's ${TASK_JUDGE_DRAIN_WINDOW_MS / 86_400_000}-day lookback. Nothing will judge these.`);
       log('  Coverage = judged / (judged + waiting + aged out). Declined rows are not in the denominator.');
@@ -5075,6 +5075,7 @@ apme
           r.declinedNoReply > 0 ? `no reply ${r.declinedNoReply}` : '',
           r.declinedAbortedOnly > 0 ? `aborted ${r.declinedAbortedOnly}` : '',
           r.declinedTrivial > 0 ? `trivial ${r.declinedTrivial}` : '',
+          r.declinedNotificationOnly > 0 ? `notice-only ${r.declinedNotificationOnly}` : '',
         ].filter(Boolean);
         return parts.length > 0 ? `${r.agentType} (${parts.join(', ')})` : '';
       })
@@ -5083,7 +5084,7 @@ apme
     if (reasons.length > 0) log(`  Declined by reason: ${reasons.join('; ')}`);
     log('  Reply    = finished turns (a Stop, or one recovered from the agent\'s own record) that kept the agent\'s reply');
     log('  Model    = finished turns that know which model served them — the scorecard ranks by the turn\'s model');
-    log('  Declined = the judge correctly refused: no reply, aborted-only, or trivial. Not a miss.');
+    log('  Declined = the judge correctly refused: no reply, aborted-only, trivial, or only background-task notices. Not a miss.');
     log('  Coverage = judged / (judged + waiting + aged out), as in judge-health. Declined rows are not in the denominator.');
     log('  An agent absent from the table recorded nothing in the window; docs/apme.md lists the agents with no APME producer.');
     log('');

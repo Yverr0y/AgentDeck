@@ -5243,8 +5243,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // (permanent). Narrowing the readmission window would trade that for
       // never readmitting a class of task at all, which is the worse loss.
       const r = retractUngradeableVerdicts(apme.store, Date.now() - TASK_JUDGE_DRAIN_WINDOW_MS);
-      const n = r.no_reply + r.aborted_only + r.trivial;
-      if (n > 0) log(`[agentdeck] APME withdrew ${n} verdict(s) reached without the agent's work — no reply ${r.no_reply}, client-ended ${r.aborted_only}, trivial ${r.trivial}`);
+      const n = r.no_reply + r.aborted_only + r.trivial + r.notification_only;
+      if (n > 0) log(`[agentdeck] APME withdrew ${n} verdict(s) reached without the agent's work — no reply ${r.no_reply}, client-ended ${r.aborted_only}, trivial ${r.trivial}, notice-only ${r.notification_only}`);
       if (r.readmitted > 0) log(`[agentdeck] APME re-admitted ${r.readmitted} declined task(s) to the judge backlog — their tool trajectory is the agent's work`);
     } catch (err) {
       log(`[agentdeck] APME verdict retraction failed: ${String(err)}`);
