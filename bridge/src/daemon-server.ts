@@ -4065,13 +4065,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // turns against silence. Empty text is still worth recording — it
           // tags `response_kind` tool_only/empty so the runner skips judging.
           if (apme) {
-            if (turnOpen) apme.collector.setTurnResponse(hookSid, responseText);
-            else if (responseText.length > 0) {
-              // No open turn: a missed prompt hook or a late/duplicate stop.
-              // The last-closed fallback refuses to overwrite an existing
-              // response, so a duplicate stop is a no-op instead of a clobber.
-              apme.collector.setLastClosedTurnResponse(hookSid, responseText);
-            }
+            // Which turn the reply belongs to is the COLLECTOR's question, not
+            // `turnOpen`'s: the timeline drops `<task-notification>` prompts and
+            // a long turn's prompt scrolls out of the 24 rows read above, so it
+            // reads either turn as closed (see `recordStopReply`).
+            apme.collector.recordStopReply(hookSid, responseText);
             // Close the APME turn on the Stop that ended it, tagged with which
             // Stop that was. Runs AFTER the response capture above (the
             // trajectory event wants the still-active turn) and is a no-op when

@@ -479,6 +479,60 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     }
   });
 
+  /** Every turn APME archived for one session, oldest first. */
+  async function apmeTurns(sid: string): Promise<Array<{ prompt: string; response: string | null; end_source: string | null }>> {
+    const page = await (await fetch(`http://127.0.0.1:${daemon.port}/apme/tasks?session=${encodeURIComponent(sid)}`,
+      { signal: AbortSignal.timeout(2000) })).json() as { tasks: Array<{ id: string }> };
+    const turns = [];
+    for (const task of page.tasks) {
+      const detail = await (await fetch(`http://127.0.0.1:${daemon.port}/apme/tasks/${task.id}`,
+        { signal: AbortSignal.timeout(2000) })).json() as {
+          turns: Array<{ prompt: string; response: string | null; end_source: string | null; turn_index: number }>;
+        };
+      turns.push(...detail.turns);
+    }
+    return turns.sort((a, b) => (a as { turn_index: number }).turn_index - (b as { turn_index: number }).turn_index);
+  }
+
+  const NOTIFICATION = '<task-notification>\n<task-id>e2e-bg</task-id>\n<status>completed</status>\n</task-notification>';
+
+  it('lands a Stop reply on the turn a task notification opened, which the timeline drops', async () => {
+    // The daemon used to route the reply with its timeline's open-turn test,
+    // and the timeline drops this prompt — so the reply went to the PREVIOUS
+    // turn, which already had one, and was lost.
+    const s = { ...SESSION, session_id: 'e2e-session-notify' };
+    await postHook(daemon.port, 'UserPromptSubmit', { ...s, hook_event_name: 'UserPromptSubmit', prompt: 'e2e: first' });
+    await postHook(daemon.port, 'Stop', { ...s, hook_event_name: 'Stop', last_assistant_message: 'FIRST_REPLY' });
+    await postHook(daemon.port, 'UserPromptSubmit', { ...s, hook_event_name: 'UserPromptSubmit', prompt: NOTIFICATION });
+    await postHook(daemon.port, 'Stop', { ...s, hook_event_name: 'Stop', last_assistant_message: 'NOTIFICATION_REPLY' });
+
+    const turns = await waitFor('both turns closed', async () => {
+      const t = await apmeTurns(s.session_id);
+      return t.length === 2 && t.every((x) => x.end_source === 'stop') ? t : undefined;
+    });
+    expect(turns.map((t) => t.response)).toEqual(['FIRST_REPLY', 'NOTIFICATION_REPLY']);
+  });
+
+  it('closes a running turn a queued message displaced as `injected`, reading the real transcript', async () => {
+    const transcript = join(home, 'injected-transcript.jsonl');
+    const s = { ...SESSION, session_id: 'e2e-session-inject', transcript_path: transcript };
+    writeFileSync(transcript, '');
+    await postHook(daemon.port, 'UserPromptSubmit', { ...s, hook_event_name: 'UserPromptSubmit', prompt: 'e2e: long task' });
+    // The turn is mid-run: tool calls written, no end_turn yet.
+    writeFileSync(transcript, `${JSON.stringify({
+      type: 'assistant', timestamp: new Date().toISOString(),
+      message: { role: 'assistant', stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash' }] },
+    })}\n`);
+    await postHook(daemon.port, 'UserPromptSubmit', { ...s, hook_event_name: 'UserPromptSubmit', prompt: NOTIFICATION });
+    await postHook(daemon.port, 'Stop', { ...s, hook_event_name: 'Stop', last_assistant_message: 'LONG_TASK_DONE' });
+
+    const turns = await waitFor('the run\'s Stop', async () => {
+      const t = await apmeTurns(s.session_id);
+      return t.length === 2 && t[1].end_source === 'stop' ? t : undefined;
+    });
+    expect(turns.map((t) => [t.end_source, t.response])).toEqual([['injected', null], ['stop', 'LONG_TASK_DONE']]);
+  });
+
   it('answers the request-response hooks (PreToolUse, Stop) promptly when no device can approve', async () => {
     // Both hooks block Claude's TUI while they wait. With no approval-capable
     // device connected the daemon must hand the decision straight back
