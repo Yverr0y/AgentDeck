@@ -45,7 +45,15 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
   replace the stored credentials at any moment, including with a wrong password that never joins.
   The cost is one extra provision when a board boots out of range of its AP. The write order lives
   in a header-only store (`esp32/src/net/wifi_cred_id_store.h`) so that it runs in the host tests;
-  `wifi_manager.cpp` only supplies the Preferences backend.
+  `wifi_manager.cpp` only supplies the NVS backend.
+- **The store keeps no copy of the id; every call reads NVS.** The first version cached it in a
+  17-byte static and `ttgo` stopped linking: `dram0_0_seg` overflowed by 32 bytes, and `nm` found
+  the store (24 bytes) and its backend (1 byte) to be the only new static data. Stateless, the
+  change adds 0 bytes of static data across all 817 ttgo objects (`nm`, per object, against a build
+  of the parent commit). That parent — master plus the #565 and #566 branches — already overflows
+  `dram0_0_seg` by 8 bytes, so ttgo still does not link, and not because of this change. The read
+  now runs on every `device_info`, so it uses plain `nvs_open`/`nvs_get_str`: `Preferences::begin`
+  logs an error for a missing namespace, which is what a board that was never provisioned has.
 - **Generic boards record the id after the `WiFi.begin` call, using its return value, whether or
   not the join succeeds.** `WiFi.persistent(true)` writes the driver config before connecting, and
   that config is what these boards rejoin. A `WL_CONNECT_FAILED` return records no id. That

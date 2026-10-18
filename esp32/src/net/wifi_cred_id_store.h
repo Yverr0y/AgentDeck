@@ -6,9 +6,10 @@
 // The board's record of which `wifi_provision` its stored WiFi credentials came
 // from (`credId`, reported back as `device_info.wifiCredId`). Header-only over a
 // two-call storage backend so the ordering below runs in the host tests
-// (esp32/sim/tests/wifi_cred_id_test.cpp); wifi_manager.cpp backs it with
-// Preferences. No allocation: one HEX_LENGTH+1 mirror, read on every
-// device_info without touching NVS. C++11 (led8x32 builds at gnu++11).
+// (esp32/sim/tests/wifi_cred_id_test.cpp); wifi_manager.cpp backs it with NVS.
+// Stateless: every call reads storage, so the record costs no static DRAM
+// (ttgo's dram0_0_seg had no room for even a 17-byte mirror), and nothing is
+// allocated. C++11 (led8x32 builds at gnu++11).
 //
 // The rule every write keeps: the record may be missing while the board does
 // hold the daemon's credentials — that costs one redundant provision — but it
@@ -19,22 +20,23 @@
 //    reset between the two writes leaves "none", never a stale id;
 //  - anything that is not a valid id is recorded as none;
 //  - a re-join of credentials already stored (credId == nullptr) leaves it alone;
-//  - a failed write re-reads storage instead of trusting the mirror.
+//  - storage is written only when the record changes.
 //
-// Backend: bool load(char* out, size_t outLen) — false when nothing is stored
-// or it cannot be read; bool save(const char* id) — "" removes the record.
+// Backend, held by value (a handle, not the storage itself):
+// bool load(char* out, size_t outLen) — false when nothing is stored or it
+// cannot be read; bool save(const char* id) — "" removes the record.
 namespace WifiCredId {
 
 template <typename Backend>
 class Store {
 public:
-    explicit Store(Backend& backend) : backend_(backend), loaded_(false) { mirror_[0] = '\0'; }
+    explicit Store(Backend backend = Backend()) : backend_(backend) {}
 
     // The recorded id ("" = none), NUL-terminated into out.
     void load(char* out, size_t outLen) {
         if (out == nullptr || outLen == 0) return;
-        ensureLoaded();
-        strncpy(out, mirror_, outLen - 1);
+        char stored[HEX_LENGTH + 2];
+        strncpy(out, read(stored) ? stored : "", outLen - 1);
         out[outLen - 1] = '\0';
     }
 
@@ -42,56 +44,41 @@ public:
     // credentials.
     void beforeWrite(const char* credId) {
         if (credId == nullptr) return;
-        ensureLoaded();
-        if (valid(credId) && strcmp(mirror_, credId) == 0) return;
-        record("");
+        char stored[HEX_LENGTH + 2];
+        if (valid(credId) && read(stored) && strcmp(stored, credId) == 0) return;
+        forget();
     }
 
     // ...and wrote them, or failed to (`written`).
     void afterWrite(const char* credId, bool written) {
         if (credId == nullptr) return;
-        record(written && valid(credId) ? credId : "");
+        if (!written || !valid(credId)) {
+            forget();
+            return;
+        }
+        char stored[HEX_LENGTH + 2];
+        if (read(stored) && strcmp(stored, credId) == 0) return;
+        backend_.save(credId);
     }
 
     // The stored credentials may change without a provision (captive portal,
     // reset): the record can no longer vouch for them.
-    void forget() { record(""); }
+    void forget() {
+        char stored[HEX_LENGTH + 2];
+        if (backend_.load(stored, sizeof(stored))) backend_.save("");
+    }
 
 private:
-    void ensureLoaded() {
-        if (loaded_) return;
-        loaded_ = true;
-        mirror_[0] = '\0';
-        // One spare byte, so an over-long stored value reads as invalid rather
-        // than as its first HEX_LENGTH characters.
-        char stored[HEX_LENGTH + 2];
+    // One spare byte, so an over-long stored value reads as invalid rather
+    // than as its first HEX_LENGTH characters.
+    bool read(char (&stored)[HEX_LENGTH + 2]) {
         stored[0] = '\0';
-        if (backend_.load(stored, sizeof(stored))) {
-            stored[sizeof(stored) - 1] = '\0';
-            if (valid(stored)) copyId(stored);
-        }
+        if (!backend_.load(stored, sizeof(stored))) return false;
+        stored[sizeof(stored) - 1] = '\0';
+        return valid(stored);
     }
 
-    void record(const char* id) {
-        ensureLoaded();
-        if (strcmp(mirror_, id) == 0) return;
-        if (!backend_.save(id)) {
-            // What storage holds now is unknown: read it back on next use
-            // rather than report an id these credentials may not have.
-            loaded_ = false;
-            return;
-        }
-        copyId(id);
-    }
-
-    void copyId(const char* id) {
-        strncpy(mirror_, id, HEX_LENGTH);
-        mirror_[HEX_LENGTH] = '\0';
-    }
-
-    Backend& backend_;
-    char mirror_[HEX_LENGTH + 1];
-    bool loaded_;
+    Backend backend_;
 };
 
 }  // namespace WifiCredId

@@ -11,23 +11,30 @@ struct FakeNvs {
     bool present = false;
     std::string value;
     bool saveOk = true;
-    int loads = 0;
     int saves = 0;
+};
+
+// The store holds its backend by value, so the backend is a handle.
+struct FakeBackend {
+    FakeNvs* nvs;
     bool load(char* out, size_t outLen) {
-        ++loads;
-        if (!present) return false;
-        strncpy(out, value.c_str(), outLen - 1);
+        if (!nvs->present) return false;
+        strncpy(out, nvs->value.c_str(), outLen - 1);
         out[outLen - 1] = '\0';
         return true;
     }
     bool save(const char* id) {
-        ++saves;
-        if (!saveOk) return false;
-        present = id[0] != '\0';
-        value = id;
+        ++nvs->saves;
+        if (!nvs->saveOk) return false;
+        nvs->present = id[0] != '\0';
+        nvs->value = id;
         return true;
     }
 };
+
+using Store = WifiCredId::Store<FakeBackend>;
+
+Store over(FakeNvs& nvs) { return Store(FakeBackend{&nvs}); }
 
 FakeNvs holding(const char* id) {
     FakeNvs nvs;
@@ -36,9 +43,9 @@ FakeNvs holding(const char* id) {
     return nvs;
 }
 
-std::string recorded(WifiCredId::Store<FakeNvs>& store) {
+std::string recorded(FakeNvs& nvs) {
     char out[WifiCredId::HEX_LENGTH + 1];
-    store.load(out, sizeof(out));
+    over(nvs).load(out, sizeof(out));
     return out;
 }
 
@@ -57,88 +64,85 @@ int main() {
 
     {  // A provision records its id once its credentials are written.
         FakeNvs nvs;
-        WifiCredId::Store<FakeNvs> store(nvs);
-        assert(recorded(store).empty());
-        store.beforeWrite(kId);
+        assert(recorded(nvs).empty());
+        over(nvs).beforeWrite(kId);
         assert(nvs.saves == 0);  // nothing to forget
-        store.afterWrite(kId, true);
-        assert(nvs.present && nvs.value == kId && recorded(store) == kId);
-        const int saves = nvs.saves;
-        store.beforeWrite(kId);  // the same provision again (IPS10 endpoint refresh)
-        store.afterWrite(kId, true);
-        assert(nvs.saves == saves);
+        over(nvs).afterWrite(kId, true);
+        assert(nvs.present && nvs.value == kId && recorded(nvs) == kId);
+        over(nvs).beforeWrite(kId);  // the same provision again (IPS10 endpoint refresh)
+        over(nvs).afterWrite(kId, true);
+        assert(nvs.saves == 1);  // storage is written only when the record changes
     }
     {  // A different provision forgets the old id BEFORE its credentials land,
        // so a reset between the two writes leaves none, never a stale id.
         FakeNvs nvs = holding(kOther);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        store.beforeWrite(kId);
+        over(nvs).beforeWrite(kId);
         assert(!nvs.present);
-        store.afterWrite(kId, true);
-        assert(nvs.value == kId && recorded(store) == kId);
+        over(nvs).afterWrite(kId, true);
+        assert(nvs.value == kId && recorded(nvs) == kId);
     }
     {  // Credentials that failed to save are not vouched for.
         FakeNvs nvs = holding(kOther);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        store.beforeWrite(kId);
-        store.afterWrite(kId, false);
-        assert(!nvs.present && recorded(store).empty());
+        over(nvs).beforeWrite(kId);
+        over(nvs).afterWrite(kId, false);
+        assert(!nvs.present && recorded(nvs).empty());
     }
     for (const char* id : {"", "NOT-HEX", "4FBB066B2801B4AE", "4fbb066b2801b4ae0"}) {
         // A provision without an id (an older daemon) or with an invalid one clears it.
         FakeNvs nvs = holding(kId);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        store.beforeWrite(id);
-        store.afterWrite(id, true);
-        assert(!nvs.present && recorded(store).empty());
+        over(nvs).beforeWrite(id);
+        over(nvs).afterWrite(id, true);
+        assert(!nvs.present && recorded(nvs).empty());
     }
     {  // A re-join of credentials already stored leaves it alone.
         FakeNvs nvs = holding(kId);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        store.beforeWrite(nullptr);
-        store.afterWrite(nullptr, true);
-        store.afterWrite(nullptr, false);
-        assert(nvs.saves == 0 && recorded(store) == kId);
+        over(nvs).beforeWrite(nullptr);
+        over(nvs).afterWrite(nullptr, true);
+        over(nvs).afterWrite(nullptr, false);
+        assert(nvs.saves == 0 && recorded(nvs) == kId);
     }
     {  // Portal or reset: forgotten, and forgetting twice writes once.
         FakeNvs nvs = holding(kId);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        store.forget();
-        assert(!nvs.present && recorded(store).empty());
-        const int saves = nvs.saves;
-        store.forget();
-        assert(nvs.saves == saves);
+        over(nvs).forget();
+        assert(!nvs.present && recorded(nvs).empty());
+        over(nvs).forget();
+        assert(nvs.saves == 1);
     }
-    {  // Read once: a device_info per identify does not open NVS each time.
+    {  // Nothing is cached: device_info reports what storage holds now.
         FakeNvs nvs = holding(kId);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        assert(recorded(store) == kId && recorded(store) == kId);
-        assert(nvs.loads == 1);
+        Store store = over(nvs);
+        char out[WifiCredId::HEX_LENGTH + 1];
+        store.load(out, sizeof(out));
+        assert(std::string(out) == kId);
+        nvs.present = false;
+        store.load(out, sizeof(out));
+        assert(out[0] == '\0');
     }
     for (const char* stored : {"4FBB066B2801B4AE", "4fbb066b2801b4ae0", "zz"}) {
         // Storage that holds anything but a valid id reads as none.
         FakeNvs nvs = holding(stored);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        assert(recorded(store).empty());
+        assert(recorded(nvs).empty());
     }
     {  // A small output buffer truncates, it never overruns.
         FakeNvs nvs = holding(kId);
-        WifiCredId::Store<FakeNvs> store(nvs);
         char small[5];
-        store.load(small, sizeof(small));
+        over(nvs).load(small, sizeof(small));
         assert(std::string(small) == "4fbb");
     }
-    {  // A failed id write re-reads storage instead of trusting the mirror.
+    {  // A failed id write is not papered over: the record is what storage holds.
         FakeNvs nvs = holding(kOther);
-        WifiCredId::Store<FakeNvs> store(nvs);
-        assert(recorded(store) == kOther);
         nvs.saveOk = false;
-        store.forget();
-        const int loads = nvs.loads;
-        assert(recorded(store) == kOther && nvs.loads == loads + 1);
+        over(nvs).forget();
+        assert(recorded(nvs) == kOther);
         nvs.saveOk = true;
-        store.forget();
-        assert(!nvs.present && recorded(store).empty());
+        over(nvs).forget();
+        assert(!nvs.present && recorded(nvs).empty());
+
+        FakeNvs empty;
+        empty.saveOk = false;
+        over(empty).beforeWrite(kId);
+        over(empty).afterWrite(kId, true);
+        assert(recorded(empty).empty());
     }
     return 0;
 }
