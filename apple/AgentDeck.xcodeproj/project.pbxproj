@@ -126,6 +126,7 @@
 		28C908B7D7C412A638C6DA31 /* TimeboxModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8655DDFFAFB655DEABF213F5 /* TimeboxModule.swift */; };
 		295942533870EAD425D871FE /* AppleBuildBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE54073C739D0A39C5112C94 /* AppleBuildBoundaryTests.swift */; };
 		29B890C4DC7E107CDAD0D209 /* ApmeJudgeMlx.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64EB18086FC44B69D1CBE171 /* ApmeJudgeMlx.swift */; };
+		29CC4AEF894AEBCC934EC9C5 /* BridgeDiscoveryLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3ADC7DBDBDBAD81580DCE1 /* BridgeDiscoveryLogTests.swift */; };
 		2A91978796D69836486BB35C /* BubbleSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD3A6826EADF11BB4C4F139 /* BubbleSystem.swift */; };
 		2A9F9EB1D882DA8C8DA64FE8 /* 3d-residents.usdz in Resources */ = {isa = PBXBuildFile; fileRef = 3A59CDD89266C18C80F6F324 /* 3d-residents.usdz */; };
 		2B3260981E2A9655FF51E1DD /* AquariumCommunications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98E76042DE187F12F34436B /* AquariumCommunications.swift */; };
@@ -288,6 +289,7 @@
 		5B7A5FC7C0209AF3CF13C563 /* D200HLayoutModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 075254486BFFC613DB33B99D /* D200HLayoutModel.swift */; };
 		5B85AB56A17AAB8EA44E2737 /* MdnsAdvertisement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120080C645BA7732411E648B /* MdnsAdvertisement.swift */; };
 		5BB32AB0F02012A28980DF5A /* CiCompanionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04EE0452F5D269B019F3D30F /* CiCompanionPresentation.swift */; };
+		5BCD8A6D3633B4B1F6E9D497 /* BridgeDiscoveryLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3ADC7DBDBDBAD81580DCE1 /* BridgeDiscoveryLogTests.swift */; };
 		5BFDAB0CCA8D688B1435F42D /* AppReviewPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0B6AFDC194533BFA388DECA /* AppReviewPrompt.swift */; };
 		5C124CE89476651AE712EE47 /* TimeboxDivoomPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE667561A919A52759C5225E /* TimeboxDivoomPacket.swift */; };
 		5D22CA1A7188F9A96A069A4A /* ESP32WifiProvisionRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8EDAFEB2675A6E30B66A9A /* ESP32WifiProvisionRules.generated.swift */; };
@@ -873,6 +875,7 @@
 		2B6B05AD3CC720BD76A681F9 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		2B8EDAFEB2675A6E30B66A9A /* ESP32WifiProvisionRules.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32WifiProvisionRules.generated.swift; sourceTree = "<group>"; };
 		2C095A676EC89446C067731C /* AquariumShoal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AquariumShoal.swift; sourceTree = "<group>"; };
+		2C3ADC7DBDBDBAD81580DCE1 /* BridgeDiscoveryLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeDiscoveryLogTests.swift; sourceTree = "<group>"; };
 		2C734B04F5E770B8B5FE2B70 /* SwiftSurfaceProtocolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftSurfaceProtocolTests.swift; sourceTree = "<group>"; };
 		2D2F35C5E4DF5DAE1C93F54B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2D66C7EEA9726686205AF8EC /* DockVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockVisibilityController.swift; sourceTree = "<group>"; };
@@ -1283,6 +1286,7 @@
 				6F0A3614C2DF6495CAB410B1 /* AppReviewPromptTests.swift */,
 				BC6DDE006B6FC16D2E76AFFE /* AuthTokenAdoptionTests.swift */,
 				C821C177B92E74026E90370B /* BridgeConnectionLifetimeTests.swift */,
+				2C3ADC7DBDBDBAD81580DCE1 /* BridgeDiscoveryLogTests.swift */,
 				44FA10A61851AAD5430F1685 /* CiWaitRulesTests.swift */,
 				ABBD412B771BBC8D6616B48D /* ClaudeBackgroundJobRulesTests.swift */,
 				160B2258BF46CD03C53B5AC0 /* ClaudePermissionRulesTests.swift */,
@@ -2134,6 +2138,7 @@
 				295942533870EAD425D871FE /* AppleBuildBoundaryTests.swift in Sources */,
 				797EB64211FFF8F679AD9729 /* AuthTokenAdoptionTests.swift in Sources */,
 				DFB3FA4B30FB86B41C73DEEE /* BridgeConnectionLifetimeTests.swift in Sources */,
+				5BCD8A6D3633B4B1F6E9D497 /* BridgeDiscoveryLogTests.swift in Sources */,
 				8CB40A396077F92F9140E25F /* CiWaitRulesTests.swift in Sources */,
 				3AA3A8CEDFE2A89F0708D96E /* ClaudeBackgroundJobRulesTests.swift in Sources */,
 				ADC9C0B4303BEA1EEB33E969 /* ClaudePermissionRulesTests.swift in Sources */,
@@ -2240,6 +2245,7 @@
 				91690383EAD320DBC7CDFC1B /* AppleBuildBoundaryTests.swift in Sources */,
 				709FD2470C5B2365B1702151 /* AuthTokenAdoptionTests.swift in Sources */,
 				1B5F822F375E236D02BC69AC /* BridgeConnectionLifetimeTests.swift in Sources */,
+				29CC4AEF894AEBCC934EC9C5 /* BridgeDiscoveryLogTests.swift in Sources */,
 				C5F162AA9AB80292E55F6046 /* CiWaitRulesTests.swift in Sources */,
 				400DA2617A474B0330E9D615 /* ClaudeBackgroundJobRulesTests.swift in Sources */,
 				C984EE6C8F562962DBE4EB5B /* ClaudePermissionRulesTests.swift in Sources */,

@@ -137,7 +137,7 @@ final class BridgeDiscovery: ObservableObject, @unchecked Sendable {
                 self.localNetworkDenied = false
             }
             for r in results {
-                print("[Discovery]   endpoint=\(r.endpoint) metadata=\(r.metadata)")
+                print("[Discovery]   endpoint=\(r.endpoint) txtKeys=\(Self.txtKeys(r.metadata))")
             }
             self.handleResults(results)
         }
@@ -164,6 +164,14 @@ final class BridgeDiscovery: ObservableObject, @unchecked Sendable {
     private static func isLocalNetworkDenied(_ error: NWError) -> Bool {
         if case .dns(let code) = error, code == -65570 { return true }
         return String(describing: error).contains("PolicyDenied")
+    }
+
+    /// A result's TXT keys, never its values: an older daemon advertised its
+    /// pairing token there, and the browse log reaches the Xcode console and
+    /// diagnostic bundles.
+    static func txtKeys(_ metadata: NWBrowser.Result.Metadata) -> [String] {
+        guard case .bonjour(let record) = metadata else { return [] }
+        return record.dictionary.keys.sorted()
     }
 
     /// Clear `localNetworkDenied` only after the browser has stayed `.ready` for a

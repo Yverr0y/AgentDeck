@@ -41,10 +41,11 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
   one after.** The failure that matters is asymmetric. A missing id costs one redundant
   provision. A stale id that names credentials the board no longer holds means the daemon never
   sends the ones it needs. So a reset between the two NVS writes must leave no id, and when the
-  old id cannot be cleared the credentials are not written at all (`beforeWrite` returns false;
-  the ack says `credentials not saved` on the deferred-save boards). A board whose NVS refuses
-  that write cannot keep its pairing token across a reboot either, so the refusal costs nothing
-  that worked. Forgetting does not trust a failed read: an unreadable record is cleared, not
+  old id cannot be cleared the credentials it would describe are not written (`beforeWrite`
+  returns false). A board that writes before it joins then acks `credentials not saved`. The
+  IPS10 joins first and saves after, so there a refused clear keeps the saved credentials and
+  their id, and the ack reports the join. A board whose NVS refuses that write cannot keep its
+  pairing token across a reboot either, so the refusal costs nothing that worked. Forgetting does not trust a failed read: an unreadable record is cleared, not
   taken for an absent one. The write order lives in a header-only store
   (`esp32/src/net/wifi_cred_id_store.h`) so that it runs in the host tests; `wifi_manager.cpp`
   only supplies the NVS backend.
@@ -99,7 +100,11 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
   firmware that knows neither, the fallback can still be a second provision on one connection,
   after the one its `device_info` triggered. Skipping it when a provision was already sent was
   rejected: that provision may carry the token from before a rotation, and the fallback exists
-  to deliver the new one.
+  to deliver the new one. Skipping it only when that provision carried the current token would
+  keep the rotation case; it is left for if firmware that old still matters. The bound also
+  differs by daemon: the Node daemon remembers each port until it restarts, while the Swift
+  daemon's state belongs to the connection, so such firmware gets the fallback again on each
+  serial reopen there. That predates this change.
 - **A firmware downgrade can still leave a stale id; it is documented, not fixed.** Firmware that
   predates the id changes credentials without touching `adwifi`/`cred_id`, so a board taken
   down to such a build, given other credentials there and flashed back reports an id for
@@ -107,7 +112,9 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
   id skips it. Recovery is any change of the daemon's credentials or token, the portal, or a
   WiFi reset. The fix, a fingerprint of the stored credentials kept beside the id and compared
   at boot, needs another NVS key and a boot-time read of the driver config on every board, for
-  a path that takes a downgrade, a credential change and an upgrade back.
+  a path that takes a downgrade, a credential change and an upgrade back. One rarer path has the
+  same effect: an NVS write that fails inside the portal's pre-save hook, whose result cannot
+  stop WiFiManager's own save.
 - **A Swift-provisioned TC001 loses a provision it used to get by accident.** The Swift daemon
   provisioned every port, identified or not, and TC001's CH340 TX is broken in hardware, so its
   `device_info` never arrives. It now stays unprovisioned by the Swift daemon, the same as under

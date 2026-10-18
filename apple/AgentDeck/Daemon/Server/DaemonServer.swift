@@ -2764,7 +2764,7 @@ final class DaemonServer {
                 // Firmware that predates `auth_provision` drops it silently, and
                 // silence is the only signal we get. Give it a moment, then fall
                 // back to the one message it does understand. It costs a WiFi
-                // re-associate, hence: once per board per token, only after the
+                // re-associate, hence: once per connection per token, only after the
                 // silence, and only with auto-provisioning on (it carries the
                 // user's WiFi credentials).
                 guard !armed.isEmpty, autoProvision, let config = wifiConfig else { return }
