@@ -2728,6 +2728,21 @@ final class DaemonServer {
         await serial.serial.setOnMessage { [weak self] portPath, msg in
             guard let self else { return }
             guard let type = msg["type"] as? String else { return }
+            // A request with a reply: answer the board that asked, on its own
+            // line, shaped like every other serial frame. As a forwarded
+            // command it reached `handleCommand`, which has no case for it, so
+            // a board on USB (the knob's History view) never got its rows.
+            // Node parity: setSerialTimelineQueryHandler.
+            if type == "query_session_timeline" {
+                guard let rawSid = msg["sessionId"] as? String, !rawSid.isEmpty else { return }
+                let since = msg["since"] as? Double
+                Task { @DaemonActor [weak self] in
+                    guard let self else { return }
+                    let reply = SendableDict(await self.sessionTimelineReply(rawSid, since: since, board: true))
+                    await self.serialModule?.serial.sendEvent(reply.value, toPort: portPath)
+                }
+                return
+            }
             // Device→daemon command channel over serial. A board whose WiFi is
             // parked (serial-primary) still steers; without this its taps were
             // dropped by the device_info-only parser.
@@ -4464,14 +4479,13 @@ final class DaemonServer {
         // its Detail view without waiting for live events.
         if cmd["type"] as? String == "query_session_timeline" {
             guard let rawSid = cmd["sessionId"] as? String, !rawSid.isEmpty else { return }
-            let sid = resolveDeviceSessionId(rawSid)
             let since = cmd["since"] as? Double
             Task { @DaemonActor [weak self] in
                 guard let self else { return }
-                let entries = await self.timelineStore.historyForSession(sid, since: since)
-                let dicts = entries.map { self.claudeCodeEntryDict($0) }
-                let msg: [String: Any] = ["type": "timeline_history", "sessionId": sid, "entries": dicts]
-                if let data = msg.jsonData { conn.send(data) }
+                let reply = await self.sessionTimelineReply(rawSid, since: since, board: self.isBoardClient(conn))
+                // A board gets the frame size it can take, as in its connect
+                // burst; a full 16-row reply could overrun its 4 KB buffer.
+                if let data = self.frameForClient(reply, conn)?.jsonData { conn.send(data) }
             }
             return
         }
@@ -4500,17 +4514,7 @@ final class DaemonServer {
             // shrinks the payload instead of blasting the full dashboard state that
             // used to overrun the board's buffer and flap the socket.
             @DaemonActor func esp32Shaped(_ event: [String: Any]) -> Data? {
-                guard let reg = self.cachedWifiEsp32[conn.id] else {
-                    // Not registered yet — but a board tagged in its upgrade
-                    // URL is still an ESP32: shape (or drop) from frame zero.
-                    // The unshaped full-state frame used to land here when the
-                    // burst won the race against the board's device_info and
-                    // choked its 4 KB line buffer into a reconnect loop.
-                    return conn.isEsp32
-                        ? ESP32Serial.wifiEsp32Forward(event, deviceInfo: nil)?.jsonData
-                        : event.jsonData
-                }
-                return ESP32Serial.wifiEsp32Forward(event, deviceInfo: ESP32Serial.wifiDeviceInfo(reg.devices.first))?.jsonData
+                self.frameForClient(event, conn)?.jsonData
             }
 
             @DaemonActor func surfaceAllows(_ event: [String: Any]) -> Bool {
@@ -4940,6 +4944,45 @@ final class DaemonServer {
         if known.contains(raw) { return raw }
         let matches = known.filter { $0.hasPrefix(raw) }
         return matches.count == 1 ? matches[matches.startIndex] : raw
+    }
+
+    /// The reply to a `query_session_timeline`, for whichever transport asked:
+    /// a WebSocket client, or a board on USB through the serial handler.
+    private func sessionTimelineReply(_ rawSid: String, since: Double?, board: Bool) async -> [String: Any] {
+        let sid = resolveDeviceSessionId(rawSid)
+        let entries = await timelineStore.historyForSession(sid, since: since)
+        return Self.sessionTimelineReplyFrame(requested: rawSid, resolved: sid, board: board,
+                                              entries: entries.map { claudeCodeEntryDict($0) })
+    }
+
+    /// A board gets back the id it SENT. It matches the reply against that id
+    /// (the T-Embed knob `strcmp`s its `scrubSessionId[32]`), and board ids
+    /// arrive cut to 31 bytes, so echoing the resolved 36-char UUID or 52-char
+    /// observed id made it discard every reply. Board shaping trims the rows
+    /// before its byte budget. Node parity: `buildSessionTimelineReply`.
+    nonisolated static func sessionTimelineReplyFrame(
+        requested: String, resolved: String, board: Bool, entries: [[String: Any]]
+    ) -> [String: Any] {
+        ["type": "timeline_history", "sessionId": board ? requested : resolved, "entries": entries]
+    }
+
+    private func isBoardClient(_ conn: WebSocketConnection) -> Bool {
+        cachedWifiEsp32[conn.id] != nil || conn.isEsp32
+    }
+
+    /// A frame addressed to one WebSocket client: a board gets the serial-size
+    /// frame (or nil, for an event it never displays), anything else the frame
+    /// as built.
+    private func frameForClient(_ event: [String: Any], _ conn: WebSocketConnection) -> [String: Any]? {
+        guard let reg = cachedWifiEsp32[conn.id] else {
+            // Not registered yet — but a board tagged in its upgrade
+            // URL is still an ESP32: shape (or drop) from frame zero.
+            // The unshaped full-state frame used to land here when the
+            // burst won the race against the board's device_info and
+            // choked its 4 KB line buffer into a reconnect loop.
+            return conn.isEsp32 ? ESP32Serial.wifiEsp32Forward(event, deviceInfo: nil) : event
+        }
+        return ESP32Serial.wifiEsp32Forward(event, deviceInfo: ESP32Serial.wifiDeviceInfo(reg.devices.first))
     }
 
     private func handleCommand(_ cmd: [String: Any]) {
@@ -7747,7 +7790,7 @@ final class DaemonServer {
 
     nonisolated static let serialForwardableCommands: Set<String> = [
         "select_option", "session_command", "permission_decision",
-        "peripheral_event", "query_session_timeline", "focus_session", "review_run",
+        "peripheral_event", "focus_session", "review_run",
     ]
 
     /// Mirrors the Node `looksLikePermissionMessage` regex.
