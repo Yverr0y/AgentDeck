@@ -1084,6 +1084,7 @@
         "bridge/src/__tests__/calendar.test.ts",
         "bridge/src/__tests__/desk-awareness.test.ts",
         "shared/src/__tests__/esp32-boards.test.ts",
+        "shared/src/__tests__/esp32-wifi-provision*.test.ts",
         "shared/src/__tests__/idotmatrix-identity.test.ts",
         "shared/src/__tests__/mdns-identity.test.ts",
         "shared/src/__tests__/d200h-*.test.ts",

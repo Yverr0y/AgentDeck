@@ -279,7 +279,8 @@ import {
   describeDaemonPosture,
   resolveDaemonPosture,
 } from './network-posture.js';
-import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendAuthProvisionToAll, sendWifiProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm } from './esp32-serial.js';
+import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendAuthProvisionToAll, sendLegacyRearmProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm } from './esp32-serial.js';
+import { buildWifiProvision } from './esp32-wifi-cred.js';
 import { clampLeaseSeconds, clearLease, readLease, writeLease } from './esp32-flash-lease.js';
 import { loadWifiConfig } from './wifi-config.js';
 import { getAdbDeviceCountCached, getCachedAdbDevices } from './adb-reverse.js';
@@ -5176,7 +5177,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // that stays quiet falls back to the one message its firmware does
     // understand. It is a FALLBACK because it costs a WiFi re-associate: it
     // fires once per board per token, only after the silence, and only when the
-    // user has auto-provisioning on (it carries their WiFi credentials).
+    // user has auto-provisioning on (it carries their WiFi credentials). A board
+    // reporting `wifiCredId` is never sent it (`sendLegacyRearmProvision`).
     const legacyRearmTimers = new Map<string, NodeJS.Timeout>();
     // Bounds the fallback to once per board per token. The rule and the
     // measurement that forced it live in the module.
@@ -5216,14 +5218,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
               // re-armed again when the token next changes, or when the daemon
               // restarts — both of which are real events, unlike a 30s poll.
               legacyRearm.markRearmed(armedPort, currentToken);
-              const sent = sendWifiProvision(armedPort, {
-                type: 'wifi_provision' as const,
+              const sent = sendLegacyRearmProvision(armedPort, buildWifiProvision({
                 ssid: wifiConfig.ssid,
                 password: wifiConfig.password,
                 bridgeIp: lanIp,
                 bridgePort: port,
                 authToken: getOrCreateToken(),
-              });
+              }));
               if (sent) {
                 log(`[agentdeck] ${armedPort}: firmware predates auth_provision — re-armed over the legacy WiFi provision path`);
               }
@@ -5247,14 +5248,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         msg.wifiConnected &&
         !msg.wifiRadioParked;
       if (msg.type === 'device_info' && (!msg.wifiConnected || shouldRefreshIps10Endpoint)) {
-        const sent = sendWifiProvisionToAll({
-          type: 'wifi_provision' as const,
+        // Built per send: the credential id each board is compared against is
+        // derived from the token this very message carries.
+        const sent = sendWifiProvisionToAll(buildWifiProvision({
           ssid: wifiConfig.ssid,
           password: wifiConfig.password,
           bridgeIp: lanIp,
           bridgePort: port,
           authToken: getOrCreateToken(),
-        });
+        }));
         if (sent > 0) log(`[agentdeck] WiFi provision sent to ${sent} ESP32 device(s) after ${portPath}`);
       } else if (msg.type === 'wifi_provision_ack') {
         log(msg.success ? `[agentdeck] ESP32 WiFi connected: ${msg.ip} ✓` : `[agentdeck] ESP32 WiFi failed: ${msg.error || 'unknown'}`);

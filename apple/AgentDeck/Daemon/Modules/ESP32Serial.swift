@@ -86,6 +86,11 @@ actor ESP32Serial {
         var protocolRevision: Int?
         var wifiConfigured: Bool?
         var wifiConnected: Bool?
+        var wifiRadioParked: Bool?
+        /// Credential id stored with the board's WiFi credentials ("" = none;
+        /// nil = firmware that predates it). Decides provisioning only and is
+        /// never published: with the pairing token it tests WiFi password guesses.
+        var wifiCredId: String?
         var repaintCount: Int?
         var fullRefreshCount: Int?
         var usageCodex5H: Int?
@@ -500,15 +505,22 @@ actor ESP32Serial {
         return sent
     }
 
+    /// Send `wifi_provision` to every connected board that does not already
+    /// hold it, comparing each against the credential id this very message
+    /// carries. Build `msg` with `wifiProvisionMessage` at send time.
     func sendWifiProvisionToAll(_ msg: [String: Any]) -> Int {
         guard let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return 0 }
         var count = 0
         let fingerprint = Self.provisionFingerprint(for: msg)
-        for i in connections.indices {
-            guard connections[i].connected, !connections[i].provisionSent else { continue }
-            if connections[i].deviceInfo?.wifiConnected == true { continue }
-            if provisionFingerprintsByPort[connections[i].port] == fingerprint { continue }
+        let targets = Self.wifiProvisionTargets(
+            connections.map {
+                ProvisionView(port: $0.port, connected: $0.connected,
+                              provisionSent: $0.provisionSent, deviceInfo: $0.deviceInfo)
+            },
+            msg: msg,
+            fingerprintsByPort: provisionFingerprintsByPort)
+        for i in targets {
             sendToConnection(&connections[i], json: json)
             guard connections[i].connected else { continue }
             connections[i].provisionSent = true
@@ -517,6 +529,89 @@ actor ESP32Serial {
         }
         publishStatusShadow()
         return count
+    }
+
+    /// What the fan-out reads from one connection.
+    struct ProvisionView {
+        let port: String
+        let connected: Bool
+        let provisionSent: Bool
+        let deviceInfo: DeviceInfo?
+    }
+
+    /// Which connections (indices) a `wifi_provision` goes to, each compared
+    /// against the credential id this very message carries.
+    static func wifiProvisionTargets(
+        _ views: [ProvisionView], msg: [String: Any], fingerprintsByPort: [String: String]
+    ) -> [Int] {
+        let fingerprint = provisionFingerprint(for: msg)
+        let expectedCredId = msg["credId"] as? String
+        var targets: [Int] = []
+        for (i, view) in views.enumerated() {
+            let decision = ESP32WifiProvisionRules.decision(wifiProvisionInput(
+                connected: view.connected,
+                provisionSent: view.provisionSent,
+                deviceInfo: view.deviceInfo,
+                expectedCredId: expectedCredId))
+            let legacySent = fingerprintsByPort[view.port] == fingerprint
+            if shouldSendWifiProvision(decision, legacyFingerprintSent: legacySent) { targets.append(i) }
+        }
+        return targets
+    }
+
+    /// A `wifi_provision` for one send. The credential id comes from the token
+    /// placed in the same message, so a board stores the id beside exactly the
+    /// credentials and token that produced it; build it per send, since the
+    /// token can change under a running daemon (Node: buildWifiProvision in
+    /// bridge/src/esp32-wifi-cred.ts).
+    static func wifiProvisionMessage(
+        ssid: String, password: String, bridgeIP: String, bridgePort: Int, authToken: String
+    ) -> [String: Any] {
+        var msg: [String: Any] = [
+            "type": "wifi_provision",
+            "ssid": ssid,
+            "password": password,
+            "bridgeIp": bridgeIP,
+            "bridgePort": bridgePort,
+            "authToken": authToken,
+        ]
+        if let credId = ESP32WifiProvisionRules.credId(authToken: authToken, ssid: ssid, password: password) {
+            msg["credId"] = credId
+        }
+        return msg
+    }
+
+    /// One connection as the shared provisioning decision reads it
+    /// (`ESP32WifiProvisionRules`, generated from shared/src/esp32-wifi-provision.ts).
+    /// This daemon never re-sends to a radio-up IPS10: `auth_provision` carries
+    /// the endpoint, and on that board a provision re-joins the AP.
+    static func wifiProvisionInput(
+        connected: Bool, provisionSent: Bool, deviceInfo: DeviceInfo?, expectedCredId: String?
+    ) -> ESP32WifiProvisionRules.Input {
+        ESP32WifiProvisionRules.Input(
+            connected: connected,
+            provisionSent: provisionSent,
+            board: deviceInfo?.board,
+            wifiConfigured: deviceInfo?.wifiConfigured,
+            wifiConnected: deviceInfo?.wifiConnected,
+            wifiRadioParked: deviceInfo?.wifiRadioParked,
+            wifiCredId: deviceInfo?.wifiCredId,
+            expectedCredId: expectedCredId,
+            refreshIps10Endpoint: false)
+    }
+
+    /// The shared decision, except where it fell back to the rule that predates
+    /// the credential id (old firmware, or no id to offer). There this daemon
+    /// keeps its own rule — once per port per credential set per app lifetime —
+    /// rather than Node's "leave a board reporting saved credentials alone",
+    /// which would stop changed credentials reaching boards that persist a
+    /// provision. An id decision needs no fingerprint: a board that reports
+    /// holding these credentials is not re-sent them, and one that reports
+    /// otherwise really needs them.
+    static func shouldSendWifiProvision(
+        _ decision: ESP32WifiProvisionRules.Decision, legacyFingerprintSent: Bool
+    ) -> Bool {
+        decision.legacy ? !legacyFingerprintSent : decision.send
     }
 
     /// Push the current pairing token to every serial-attached board that is
@@ -548,7 +643,7 @@ actor ESP32Serial {
             guard connections[i].connected else { continue }
             // No device_info yet means we have not confirmed an AgentDeck board
             // on this tty; a credential is not something to write speculatively.
-            guard connections[i].deviceInfo?.board != nil else { continue }
+            guard Self.hasIdentified(connections[i].deviceInfo) else { continue }
             if connections[i].authTokenSent == token { continue }
             sendToConnection(&connections[i], json: json)
             guard connections[i].connected else { continue }
@@ -568,13 +663,32 @@ actor ESP32Serial {
     /// only reaches here after the board stayed silent.
     func sendLegacyProvisionIfUnacked(port: String, _ msg: [String: Any]) -> Bool {
         guard let i = connections.firstIndex(where: { $0.port == port && $0.connected }),
-              !connections[i].authProvisionAcked,
+              Self.shouldSendLegacyRearm(acked: connections[i].authProvisionAcked,
+                                         deviceInfo: connections[i].deviceInfo),
               let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return false }
         sendToConnection(&connections[i], json: json)
         guard connections[i].connected else { return false }
         connections[i].provisionSent = true
         return true
+    }
+
+    /// The legacy re-arm skips the credential-id decision, so it goes only to
+    /// firmware that reports no id. Firmware that knows `wifiCredId` also knows
+    /// `auth_provision`: its silence is a lost frame, not old firmware, and a
+    /// full provision would wake a parked radio for credentials it already
+    /// holds (Node parity: `shouldSendLegacyRearm`).
+    static func shouldSendLegacyRearm(acked: Bool, deviceInfo: DeviceInfo?) -> Bool {
+        guard !acked, hasIdentified(deviceInfo) else { return false }
+        return deviceInfo?.wifiCredId == nil
+    }
+
+    /// A board has identified when its `device_info` named one; an empty name
+    /// does not count (Node parity: `!conn.deviceInfo?.board`, and the
+    /// generated provisioning rules).
+    static func hasIdentified(_ deviceInfo: DeviceInfo?) -> Bool {
+        guard let board = deviceInfo?.board else { return false }
+        return !board.isEmpty
     }
 
     /// Send display state (on/off) to all connected ESP32 devices.
@@ -997,6 +1111,8 @@ actor ESP32Serial {
                     protocolRevision: msg["protocolRevision"] as? Int,
                     wifiConfigured: msg["wifiConfigured"] as? Bool,
                     wifiConnected: msg["wifiConnected"] as? Bool,
+                    wifiRadioParked: msg["wifiRadioParked"] as? Bool,
+                    wifiCredId: msg["wifiCredId"] as? String,
                     repaintCount: msg["repaintCount"] as? Int,
                     fullRefreshCount: msg["fullRefreshCount"] as? Int,
                     usageCodex5H: msg["usageCodex5H"] as? Int,
@@ -1244,7 +1360,7 @@ actor ESP32Serial {
         return .success
     }
 
-    private static func provisionFingerprint(for msg: [String: Any]) -> String {
+    static func provisionFingerprint(for msg: [String: Any]) -> String {
         let ssid = msg["ssid"] as? String ?? ""
         let password = msg["password"] as? String ?? ""
         let bridgeIp = msg["bridgeIp"] as? String ?? ""
@@ -1647,6 +1763,8 @@ actor ESP32Serial {
                 protocolRevision: msg["protocolRevision"] as? Int,
                 wifiConfigured: msg["wifiConfigured"] as? Bool,
                 wifiConnected: msg["wifiConnected"] as? Bool,
+                wifiRadioParked: msg["wifiRadioParked"] as? Bool,
+                wifiCredId: msg["wifiCredId"] as? String,
                 repaintCount: msg["repaintCount"] as? Int,
                 fullRefreshCount: msg["fullRefreshCount"] as? Int,
                 usageCodex5H: msg["usageCodex5H"] as? Int,

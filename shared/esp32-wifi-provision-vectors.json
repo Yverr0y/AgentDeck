@@ -1,0 +1,185 @@
+{
+  "comment": "ESP32 WiFi provisioning rules (shared/src/esp32-wifi-provision.ts). Replayed by shared/src/__tests__/esp32-wifi-provision.test.ts, bridge/src/__tests__/esp32-wifi-cred.test.ts (node:crypto) and apple/AgentDeckTests/ESP32WifiProvisionRulesTests.swift (CryptoKit). credId values were cross-checked against Python's hmac module.",
+  "domain": "agentdeck-wifi-cred-v1",
+  "hexLength": 16,
+  "credIds": [
+    {
+      "name": "ascii credentials",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "AgentDeck-Lab",
+      "password": "correct horse battery staple",
+      "credId": "4fbb066b2801b4ae"
+    },
+    {
+      "name": "a rotated token gives a different id for the same credentials",
+      "token": "a0b1c2d3e4f5061728394a5b6c7d8e9f",
+      "ssid": "AgentDeck-Lab",
+      "password": "correct horse battery staple",
+      "credId": "7de137f03d5a8983"
+    },
+    {
+      "name": "a changed password gives a different id",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "AgentDeck-Lab",
+      "password": "correct horse battery staple!",
+      "credId": "6946548626963fa8"
+    },
+    {
+      "name": "non-ASCII SSID and password are UTF-8",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "카페 와이파이 ☕",
+      "password": "pässwörd-日本🙂",
+      "credId": "c3ff0c309570e4ac"
+    },
+    {
+      "name": "the separator keeps the SSID/password boundary (ab|c)",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "ab",
+      "password": "c",
+      "credId": "b9bca840c3e8ce18"
+    },
+    {
+      "name": "the separator keeps the SSID/password boundary (a|bc)",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "a",
+      "password": "bc",
+      "credId": "dd153dd864d6a893"
+    },
+    {
+      "name": "64-hex PSK and a 32-byte SSID",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "ABCDEFGHIJKLMNOPQRSTUVWXYZ012345",
+      "password": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "credId": "0debcd7ba862a43b"
+    },
+    {
+      "name": "no token: no id",
+      "token": "",
+      "ssid": "AgentDeck-Lab",
+      "password": "correct horse battery staple",
+      "credId": null
+    },
+    {
+      "name": "no SSID: no id",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "",
+      "password": "correct horse battery staple",
+      "credId": null
+    },
+    {
+      "name": "no password: no id",
+      "token": "6f1c2a9e4b7d8035e1a2c3d4f5061728",
+      "ssid": "AgentDeck-Lab",
+      "password": "",
+      "credId": null
+    }
+  ],
+  "decisionDefaults": {
+    "connected": true,
+    "provisionSent": false,
+    "board": "t_embed",
+    "refreshIps10Endpoint": true
+  },
+  "decisions": [
+    {
+      "name": "no live connection",
+      "input": { "connected": false, "wifiCredId": "", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "not-connected", "legacy": false
+    },
+    {
+      "name": "no board has identified on this tty",
+      "input": { "board": null, "wifiConfigured": false, "wifiConnected": false },
+      "send": false, "reason": "unidentified", "legacy": false
+    },
+    {
+      "name": "identity is checked before the credential id",
+      "input": { "board": "", "wifiCredId": "", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "unidentified", "legacy": false
+    },
+    {
+      "name": "one provision per connection, even when the id differs",
+      "input": { "provisionSent": true, "wifiConnected": false, "wifiCredId": "", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "already-sent", "legacy": false
+    },
+    {
+      "name": "Node re-sends to an IPS10 whose radio is up",
+      "input": { "board": "ips_10", "wifiConnected": true, "wifiRadioParked": false, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "endpoint-refresh", "legacy": false
+    },
+    {
+      "name": "IPS10 firmware without wifiRadioParked is treated as radio-up (Node rule since 2026-07-07)",
+      "input": { "board": "ips_10", "wifiConnected": true, "wifiConfigured": true },
+      "send": true, "reason": "endpoint-refresh", "legacy": false
+    },
+    {
+      "name": "the Swift daemon never refreshes an IPS10 this way",
+      "input": { "board": "ips_10", "wifiConnected": true, "wifiRadioParked": false, "refreshIps10Endpoint": false, "wifiCredId": "", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "wifi-connected", "legacy": false
+    },
+    {
+      "name": "a parked IPS10 is not refreshed; its id decides",
+      "input": { "board": "ips_10", "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": true, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "credentials-match", "legacy": false
+    },
+    {
+      "name": "a joined board is left alone even when its id differs",
+      "input": { "wifiConnected": true, "wifiRadioParked": false, "wifiConfigured": true, "wifiCredId": "7de137f03d5a8983", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "wifi-connected", "legacy": false
+    },
+    {
+      "name": "a parked generic board reads unconfigured but holds these credentials",
+      "input": { "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": false, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "credentials-match", "legacy": false
+    },
+    {
+      "name": "a board persisting older credentials reads configured and still gets the new ones",
+      "input": { "board": "t_display_pro", "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": true, "wifiCredId": "7de137f03d5a8983", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "credentials-differ", "legacy": false
+    },
+    {
+      "name": "new firmware with no stored id",
+      "input": { "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": true, "wifiCredId": "", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "credentials-differ", "legacy": false
+    },
+    {
+      "name": "ids compare exactly (no case folding)",
+      "input": { "wifiConnected": false, "wifiConfigured": false, "wifiCredId": "4FBB066B2801B4AE", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "credentials-differ", "legacy": false
+    },
+    {
+      "name": "new firmware, but this daemon has no id to offer: configured",
+      "input": { "wifiConnected": false, "wifiConfigured": true, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": null },
+      "send": false, "reason": "legacy-configured", "legacy": true
+    },
+    {
+      "name": "new firmware, but this daemon has no id to offer: unconfigured",
+      "input": { "wifiConnected": false, "wifiConfigured": false, "wifiCredId": "", "expectedCredId": null },
+      "send": true, "reason": "legacy-unconfigured", "legacy": true
+    },
+    {
+      "name": "an empty expected id is no id",
+      "input": { "wifiConnected": false, "wifiConfigured": false, "wifiCredId": "", "expectedCredId": "" },
+      "send": true, "reason": "legacy-unconfigured", "legacy": true
+    },
+    {
+      "name": "firmware that predates the id: configured",
+      "input": { "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": true, "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "legacy-configured", "legacy": true
+    },
+    {
+      "name": "firmware that predates the id: unconfigured",
+      "input": { "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": false, "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "legacy-unconfigured", "legacy": true
+    },
+    {
+      "name": "a null wifiCredId is no information",
+      "input": { "wifiConnected": false, "wifiConfigured": false, "wifiCredId": null, "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "legacy-unconfigured", "legacy": true
+    },
+    {
+      "name": "absent WiFi fields read as not configured",
+      "input": { "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "legacy-unconfigured", "legacy": true
+    }
+  ]
+}

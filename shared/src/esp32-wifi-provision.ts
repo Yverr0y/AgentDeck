@@ -1,0 +1,139 @@
+/**
+ * ESP32 WiFi provisioning — whether a serial-attached board needs a
+ * `wifi_provision`, and the credential id that lets it answer "I already hold
+ * these" with its radio off.
+ *
+ * Both questions used to be read off `device_info.wifiConfigured`, which cannot
+ * answer either of them:
+ *
+ *  - A board parked on USB serial has its WiFi driver off, so `WiFi.SSID()` is
+ *    empty and it reports `wifiConfigured: false`. Every serial reopen, lease
+ *    resume and daemon restart re-provisioned it, and on most boards a provision
+ *    joins the AP — a radio wake the firmware's own parking then has to undo.
+ *  - A board that persists a provision for a later join (the `adwifi` store:
+ *    IPS10, T-Display-S3-Pro, NM-EPD-420, EPD47) reports `true` from that store
+ *    instead, so the daemon never sent it CHANGED credentials at all.
+ *
+ * Both are "does this board hold the credentials this daemon would send?". The
+ * daemon puts an id of those credentials in the provision ({@link WifiProvisionDecision}
+ * reads it back from `device_info.wifiCredId`), and the board stores it beside
+ * the credentials themselves.
+ *
+ * The id is HMAC-SHA256 keyed by the pairing token the same provision carries,
+ * never a bare hash: anyone who saw a bare hash of an SSID and password could
+ * test password guesses against it offline. Both daemons converge on one token
+ * per machine, so their ids agree; `agentdeck token rotate` re-provisions each
+ * board once. The HMAC is computed where a crypto library is —
+ * `bridge/src/esp32-wifi-cred.ts` (node:crypto) and the generated Swift mirror
+ * (CryptoKit) — so this module stays importable in a browser. Behaviour is
+ * pinned by `shared/esp32-wifi-provision-vectors.json`, which the shared,
+ * bridge and Swift suites replay.
+ */
+
+/** Domain separation for the id's HMAC message. Bump the suffix, never reuse it. */
+export const WIFI_CRED_ID_DOMAIN = 'agentdeck-wifi-cred-v1';
+
+/** Hex characters of the HMAC-SHA256 digest an id keeps (64 bits). */
+export const WIFI_CRED_ID_HEX_LENGTH = 16;
+
+/**
+ * The board whose radio-up provision the Node daemon re-sends, so it re-learns
+ * the bridge endpoint it persists for a WiFi-only boot (2026-07-07).
+ */
+export const WIFI_PROVISION_ENDPOINT_REFRESH_BOARD = 'ips_10';
+
+/**
+ * Whether a provision carrying these can have an id. Without a token there is
+ * no key, and without an SSID and password a board has nothing to store; such
+ * a provision carries no id, and a board that receives it clears its own.
+ */
+export function wifiCredIdComputable(authToken: string, ssid: string, password: string): boolean {
+  return authToken !== '' && ssid !== '' && password !== '';
+}
+
+/**
+ * The HMAC message an id signs, UTF-8 encoded by the caller; the key is the
+ * provision's `authToken`, UTF-8 encoded, and the id is the first
+ * {@link WIFI_CRED_ID_HEX_LENGTH} lowercase hex characters of the digest.
+ */
+export function wifiCredIdMessage(ssid: string, password: string): string {
+  return `${WIFI_CRED_ID_DOMAIN}\0${ssid}\0${password}`;
+}
+
+/** What one serial connection's latest `device_info` says, and what this daemon would send it. */
+export interface WifiProvisionInput {
+  connected: boolean;
+  /** A provision already went over this connection (one per connection). */
+  provisionSent: boolean;
+  /** `device_info.board`; absent until a board has identified on this tty. */
+  board?: string | null;
+  wifiConfigured?: boolean | null;
+  wifiConnected?: boolean | null;
+  wifiRadioParked?: boolean | null;
+  /**
+   * `device_info.wifiCredId`: a string ("" = none stored) from firmware that
+   * knows the field, absent from older firmware. Only a string counts.
+   */
+  wifiCredId?: string | null;
+  /** The id of the provision this daemon would send; null when it has none to offer. */
+  expectedCredId?: string | null;
+  /**
+   * Re-send to a {@link WIFI_PROVISION_ENDPOINT_REFRESH_BOARD} whose radio is up.
+   * The Node daemon has done this since 2026-07-07. The Swift daemon never
+   * has, and does not start now: `auth_provision` carries the endpoint to any
+   * firmware that reads it, and on that board this provision re-joins the AP.
+   */
+  refreshIps10Endpoint?: boolean;
+}
+
+export type WifiProvisionReason =
+  | 'not-connected'
+  | 'unidentified'
+  | 'already-sent'
+  | 'endpoint-refresh'
+  | 'wifi-connected'
+  | 'credentials-match'
+  | 'credentials-differ'
+  | 'legacy-configured'
+  | 'legacy-unconfigured';
+
+export interface WifiProvisionDecision {
+  send: boolean;
+  reason: WifiProvisionReason;
+  /**
+   * The answer came from the rule that predates the id — the firmware does not
+   * report one, or this daemon has none to compare. That rule is the Node
+   * daemon's (a board reporting saved credentials is left alone). The Swift
+   * daemon keeps its own there, once per port per credential set per app
+   * lifetime: either daemon taking the other's would change what old firmware
+   * gets today.
+   */
+  legacy: boolean;
+}
+
+/** Whether to send `wifi_provision` to one serial connection, and why. */
+export function wifiProvisionDecision(input: WifiProvisionInput): WifiProvisionDecision {
+  const verdict = (send: boolean, reason: WifiProvisionReason, legacy = false): WifiProvisionDecision =>
+    ({ send, reason, legacy });
+  if (!input.connected) return verdict(false, 'not-connected');
+  // Nothing has confirmed an AgentDeck board on this tty yet, and WiFi
+  // credentials are not something to write speculatively.
+  if (!input.board) return verdict(false, 'unidentified');
+  if (input.provisionSent) return verdict(false, 'already-sent');
+  if (input.refreshIps10Endpoint === true &&
+      input.board === WIFI_PROVISION_ENDPOINT_REFRESH_BOARD &&
+      input.wifiConnected === true &&
+      input.wifiRadioParked !== true) {
+    return verdict(true, 'endpoint-refresh');
+  }
+  // Joined: re-injecting credentials would fight the firmware's radio policy.
+  if (input.wifiConnected === true) return verdict(false, 'wifi-connected');
+  if (typeof input.wifiCredId === 'string' && input.expectedCredId) {
+    return input.wifiCredId === input.expectedCredId
+      ? verdict(false, 'credentials-match')
+      : verdict(true, 'credentials-differ');
+  }
+  return input.wifiConfigured === true
+    ? verdict(false, 'legacy-configured', true)
+    : verdict(true, 'legacy-unconfigured', true);
+}
