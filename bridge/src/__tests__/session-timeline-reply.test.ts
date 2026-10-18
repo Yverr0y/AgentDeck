@@ -48,7 +48,7 @@ describe('query_session_timeline reply', () => {
     const reply = buildSessionTimelineReply({ sessionId: UUID }, { toolEvents: false, board: true }, source({ [UUID]: rows })) as
       unknown as { entries: Array<{ type: string; raw: string; detail?: string; localHm?: string }> };
     expect(reply).not.toBeNull();
-    expect(JSON.stringify(reply).length).toBeLessThan(4096);
+    expect(Buffer.byteLength(JSON.stringify(reply), 'utf8')).toBeLessThan(4096);
     expect(reply.entries.length).toBeGreaterThan(10);
     const newest = reply.entries.at(-1)!;
     expect(newest.type).toBe('chat_response');

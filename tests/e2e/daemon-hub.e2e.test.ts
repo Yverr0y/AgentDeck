@@ -336,7 +336,7 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
       board.send({ type: 'query_session_timeline', sessionId: boardId });
       const history = await waitFor('the board\'s History reply', () => board.frames.find(
         (f) => f.type === 'timeline_history' && f.sessionId === boardId)) as { entries: Array<Record<string, unknown>> };
-      expect(JSON.stringify(history).length).toBeLessThan(4096);
+      expect(Buffer.byteLength(JSON.stringify(history), 'utf8')).toBeLessThan(4096);
       const turn = history.entries.filter((e) => e.type === 'chat_start' || e.type === 'chat_response');
       expect(turn.map((e) => e.type)).toEqual(['chat_start', 'chat_response']);
       expect(Buffer.byteLength(String(turn[1].detail ?? ''), 'utf8')).toBeLessThanOrEqual(199);

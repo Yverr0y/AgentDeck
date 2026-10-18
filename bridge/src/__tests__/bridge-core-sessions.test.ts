@@ -182,6 +182,22 @@ describe('BridgeCore sessions_list', () => {
     expect((core.getLastSessionsListEvent() as any).sessions.map((s: { id: string }) => s.id)).toEqual(['new-session']);
   });
 
+  it('still caches an older roster when the newest build fails', async () => {
+    let finishOld!: (rows: any[]) => void;
+    mockBuildEnrichedSessionsList
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }))
+      .mockRejectedValueOnce(new Error('enricher threw'));
+    vi.spyOn(core.wsServer, 'broadcast').mockImplementation(() => {});
+    vi.spyOn(core.wsServer, 'sendTo').mockImplementation(() => {});
+    const older = core.broadcastSessionsList();
+    core.sendInitialState({ readyState: 1, send: vi.fn() } as any, { agentType: 'claude-code', isAlive: true });
+    await vi.waitFor(() => expect(mockBuildEnrichedSessionsList).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    finishOld([{ id: 'old-session', port: 0, projectName: 'Old', alive: true, state: 'idle', agentType: 'claude-code' }]);
+    await older;
+    expect((core.getLastSessionsListEvent() as any)?.sessions?.map((s: { id: string }) => s.id)).toEqual(['old-session']);
+  });
+
   it('sendInitialState sends enriched sessions_list to the connecting client', async () => {
     mockBuildEnrichedSessionsList.mockResolvedValue([
       {
