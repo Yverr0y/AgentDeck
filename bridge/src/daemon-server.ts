@@ -3859,7 +3859,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // must not pin "+N" on a row that no longer exists.
           subagentTimeline?.forget(hookSid);
           coordination.forget(hookSid);
-          const rows = core.bridgeTimeline.getHistoryForSession(hookSid, undefined, 24);
+          const rows = core.bridgeTimeline.getChatRowsForSession(hookSid);
           let lastStart: TimelineEntry | undefined;
           let lastCompletionTs = 0;
           for (const row of rows) {
@@ -4012,9 +4012,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // `result`, the Swift daemon's field chain). Only emit while a turn is
         // actually open (a chat_start newer than the session's last
         // completion) so a duplicate/late Stop or an interrupted turn doesn't
-        // re-emit the previous response.
+        // re-emit the previous response. The session's chat rows are read
+        // whole: a window over all its rows let a long turn's own tool rows
+        // push its chat_start out of view.
         if (boundary === 'stop') {
-          const rows = core.bridgeTimeline.getHistoryForSession(hookSid, undefined, 24);
+          const rows = core.bridgeTimeline.getChatRowsForSession(hookSid);
           let lastStart: TimelineEntry | undefined;
           let lastResponse: TimelineEntry | undefined;
           let lastCompletionTs = 0;
@@ -6259,7 +6261,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       const since = (msg as { since?: unknown }).since;
       if (typeof sessionId === 'string' && sessionId) {
         const sinceMs = typeof since === 'number' ? since : undefined;
-        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs);
+        const toolEvents = surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY);
+        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs, undefined, { toolEvents });
         // Passively-observed sessions never push timeline rows (the relay only
         // covers managed + hook sessions), so the store comes back empty for
         // them. Reconstruct a recent-activity timeline from their transcript so
@@ -6279,7 +6282,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             entries = kiroTimelineForSession(sessionId, { since: sinceMs });
           } catch { /* read-only best effort */ }
         }
-        if (!surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY)) {
+        if (!toolEvents) {
           entries = entries.filter((entry) => entry.toolEvent !== true);
         }
         // Boards keep their ≤4096 B frame rule here too; dashboards get the
@@ -6551,8 +6554,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         })() : undefined);
       // Recent request↔response lines so the judge evaluates the diff
       // against what the user actually asked (not just code in isolation).
-      const recentActivity = core.bridgeTimeline.getHistoryForSession(sessionId, undefined, 16)
+      const recentActivity = core.bridgeTimeline.getChatRowsForSession(sessionId)
         .filter((e) => e.type === 'chat_start' || e.type === 'chat_response')
+        .slice(-16)
         .map((e) => `${e.type === 'chat_start' ? 'USER' : 'AGENT'}: ${e.raw}`)
         .join('\n');
       void runSessionReview({
