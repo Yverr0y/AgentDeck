@@ -13,6 +13,7 @@ export * from './voice-ptt.js';
 export * from './net-utils.js';
 export * from './exec-file-probe.js';
 export * from './pairing-code.js';
+export * from './local-trust.js';
 export * from './mdns-identity.js';
 export * from './timeline.js';
 export * from './subagent-activity.js';

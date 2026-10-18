@@ -162,7 +162,7 @@
   "Runs against a connected physical device.": "연결된 실제 기기로 검사합니다.",
   "Packaging, signing and store-submission checks on a release tag.": "릴리스 태그의 패키징·서명·스토어 제출을 검사합니다.",
   "LAN security & pairing": "LAN 보안과 페어링",
-  "Is the LAN surface default-deny, and does pairing hand out credentials only with the operator's consent?": "LAN 접근을 기본 거부하고, 운영자가 동의한 경우에만 페어링 자격 증명을 발급하는가?",
+  "Is the LAN surface default-deny, does a browser page on this machine get no more than a LAN peer, and does pairing hand out credentials only with the operator's consent?": "LAN 접근을 기본 거부하고, 이 컴퓨터의 브라우저 페이지에 LAN 피어 이상의 권한을 주지 않으며, 운영자가 동의한 경우에만 페어링 자격 증명을 발급하는가?",
   "End-to-end (real processes)": "E2E (실제 프로세스)",
   "Does the shipped daemon work when started and driven from outside?": "배포되는 데몬을 외부에서 시작하고 조작했을 때 정상 동작하는가?",
   "Timeline": "타임라인",

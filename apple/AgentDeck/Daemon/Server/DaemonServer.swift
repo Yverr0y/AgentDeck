@@ -2828,6 +2828,44 @@ final class DaemonServer {
         return .json(["error": "Unauthorized — pairing token required for LAN access"], status: 401)
     }
 
+    /// The access policy as the server installs it, short of the pairing
+    /// window's async read: who counts as same-machine, who carries a
+    /// credential, then `httpAccessResponse`. Kept here rather than in the
+    /// closure so a test of it is a test of the wiring
+    /// (`DaemonAccessPolicyWiringTests`).
+    nonisolated static func accessPolicyResponse(
+        for request: HTTPServer.HTTPRequest, daemonPort: UInt16, pairingWindowOpen: Bool
+    ) -> HTTPServer.HTTPResponse? {
+        let sameMachine = AuthManager.shared.isLocalConnection(request.remoteIP)
+        // A web page in a browser here connects from this machine too; its
+        // Host and Origin tell it from a local program (LocalTrust). A page
+        // is answered as a network peer would be.
+        let localTrust = sameMachine
+            ? LocalTrust.verdict(for: request, port: Int(daemonPort)) : nil
+        let isLocal = localTrust == .trusted
+        var tokenValid = false
+        if let t = request.queryParams["token"], AuthManager.shared.validateToken(t) { tokenValid = true }
+        if !tokenValid, let auth = request.headers["authorization"], auth.hasPrefix("Bearer "),
+           AuthManager.shared.validateToken(String(auth.dropFirst("Bearer ".count))) { tokenValid = true }
+        // An operator-approved peer is authenticated; it simply carries its
+        // credential as an address rather than a token (PairingKnockStore).
+        // Folded in here rather than as a third parameter so
+        // httpAccessResponse stays the pure truth table its test drives —
+        // "authenticated" is one input, however the peer earned it. An
+        // approval names a device on the network: none was ever granted to
+        // a web page on this machine.
+        let authenticated = tokenValid || (!sameMachine && PairingKnockStore.shared.isApproved(
+            ip: request.remoteIP,
+            deviceId: request.headers[PairingCodeRules.DEVICE_ID_HEADER]))
+        if let localTrust, localTrust != .trusted, !authenticated {
+            LocalTrust.logRefusal(surface: "HTTP", verdict: localTrust, headers: request.headers)
+        }
+        return httpAccessResponse(
+            method: request.method, path: request.path,
+            isLocal: isLocal, tokenValid: authenticated, daemonPort: daemonPort,
+            pairingWindowOpen: pairingWindowOpen)
+    }
+
     /// A request body as a JSON object, or empty when there is nothing usable.
     ///
     /// Empty rather than nil on purpose for the pairing routes: an unparseable
@@ -3150,24 +3188,8 @@ final class DaemonServer {
         // module inventory, no session state. Everything else 401s before
         // route dispatch (stream routes included — see HTTPServer.handle).
         await httpServer.setAccessPolicy { request in
-            let isLocal = AuthManager.shared.isLocalConnection(request.remoteIP)
-            var tokenValid = false
-            if let t = request.queryParams["token"], AuthManager.shared.validateToken(t) { tokenValid = true }
-            if !tokenValid, let auth = request.headers["authorization"], auth.hasPrefix("Bearer "),
-               AuthManager.shared.validateToken(String(auth.dropFirst("Bearer ".count))) { tokenValid = true }
             let pairingOpen = await PairingWindowStore.shared.isOpen()
-            // An operator-approved peer is authenticated; it simply carries its
-            // credential as an address rather than a token (PairingKnockStore).
-            // Folded in here rather than as a third parameter so
-            // httpAccessResponse stays the pure truth table its test drives —
-            // "authenticated" is one input, however the peer earned it.
-            let authenticated = tokenValid || PairingKnockStore.shared.isApproved(
-                ip: request.remoteIP,
-                deviceId: request.headers[PairingCodeRules.DEVICE_ID_HEADER])
-            return Self.httpAccessResponse(
-                method: request.method, path: request.path,
-                isLocal: isLocal, tokenValid: authenticated, daemonPort: daemonPort,
-                pairingWindowOpen: pairingOpen)
+            return Self.accessPolicyResponse(for: request, daemonPort: daemonPort, pairingWindowOpen: pairingOpen)
         }
 
         // ── Pairing code ──────────────────────────────────────────────────
@@ -3347,11 +3369,11 @@ final class DaemonServer {
         // the LAN access policy: unauthenticated remote peers get 401.
         await httpServer.get("/setup-status") { [weak self] _ in
             let health = await self?.buildModuleHealth().value ?? ["state": "disconnected"]
-            return .json([
+            return HTTPServer.HTTPResponse.json([
                 "status": "ok", "mode": "daemon", "port": daemonPort,
                 "state": health["state"] as? String ?? "disconnected",
                 "isSwift": true,
-            ] as [String: Any])
+            ] as [String: Any]).allowingAnyOrigin()
         }
 
         await httpServer.get("/dashboard/providers") { [weak self] _ in
@@ -3945,14 +3967,20 @@ final class DaemonServer {
             return await self.pixooPngResponse()
         }
 
+        // The frame and its stream are readable from any origin, as the Node
+        // daemon's are: a rendered terrarium image carries no secret.
         await httpServer.get("/pixoo/frame") { [weak self] _ in
-            guard let self else { return .text("No frame available", status: 204) }
-            return await self.pixooFrameResponse()
+            guard let self else {
+                return HTTPServer.HTTPResponse.text("No frame available", status: 204).allowingAnyOrigin()
+            }
+            return await self.pixooFrameResponse().allowingAnyOrigin()
         }
 
         await httpServer.stream("/pixoo/stream") { [weak self] _, conn in
             guard let self else {
-                let raw = Data((HTTPServer.formatHTTPHeaders(status: 503, headers: ["Content-Type": "text/plain"]) + "Connection: close\r\n\r\nPreview unavailable").utf8)
+                let raw = Data((HTTPServer.formatHTTPHeaders(status: 503, headers: [
+                    "Content-Type": "text/plain", HTTPServer.allowAnyOriginHeader: "*",
+                ]) + "Connection: close\r\n\r\nPreview unavailable").utf8)
                 conn.send(raw) { _ in conn.cancel() }
                 return
             }
@@ -4025,6 +4053,7 @@ final class DaemonServer {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            HTTPServer.allowAnyOriginHeader: "*",
         ]) + "\r\n"
 
         let sentHeader = await Self.send(conn, data: Data(header.utf8))
