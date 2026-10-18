@@ -99,6 +99,49 @@ Swift daemon keeps the button until the hold times out.
 - Node e2e: `tests/e2e/daemon-hub.e2e.test.ts` passes 13/13 locally against a
   real isolated daemon on macOS, with `AGENTDECK_E2E_ALLOW_DARWIN=1` and a fake
   `security` on PATH so no Keychain dialog can open. It covers an unattended
-  pass, a WS allow and deny, and an interrupt release.
-- Swift: XCTest replays the same vectors, the policy round-trip and the gate
-  lifecycle.
+  pass, a WS allow and deny, the deck-key presses below, and an interrupt
+  release.
+- Swift: XCTest replays the same vectors, the policy round-trip, the gate
+  lifecycle, the press decision and the OpenClaw id guard.
+
+**Review fixes (same day).** An adversarial review of the PR found three
+defects.
+
+- **The deck's keys did nothing.** A Stream Deck's Allow / Deny keys send an
+  option press (`session_command{select_option, index, question}`), never
+  `permission_decision`. A held Codex approval ignored them in both daemons;
+  only a client sending `permission_decision` could answer. Both daemons now
+  map a press on an open hold onto the same resolution: index 0 or `y` allows,
+  1 or `n` denies (`codexHoldPressDecision`, generated into Swift; the vectors'
+  `presses` are replayed by both suites). A press that echoes a question the
+  hold does not show is dropped, as the Claude gate does. The e2e presses a
+  stale Deny, then Allow with the shown question, then a bare `select_option`
+  Deny on a 31-character id prefix.
+- **Swift answered the wrong approval.** A `permission_decision` that no gate
+  claimed fell through to whichever OpenClaw approval was up, whatever its
+  `requestId`. It now reaches the approval only when the id is that
+  approval's; an unknown id resolves nothing and is logged.
+- **A managed PTY ingested the hold request.** A Claude or OpenCode bridge
+  forwarded a nested Codex hold request without its header, so the daemon
+  ingested it as a second notification. The forwarder now restates the header
+  as its own 2 s budget, below the hold minimum, so the daemon answers at once
+  without ingesting. A Codex bridge answers the hold request itself without
+  emitting. Inside a managed PTY the hold is therefore inactive and Codex shows
+  its own prompt.
+
+Mutation checks: reverting the Node press routing fails the e2e, disabling the
+echo guard fails its unit test in both suites, and dropping the Swift id guard
+fails its XCTest.
+
+Left alone, as the review noted:
+
+- `codex_user_prompt_submit` releases an open hold as `ended`, like the other
+  turn-end events.
+- `retractCodexThread` does not release an open hold. The hold outlives the
+  row until its timeout or the turn's end.
+- The #273 relay worker refuses option answers for non-Claude ids, so a hub's
+  Stream Deck cannot answer a relayed Codex hold. Surfaces that send
+  `permission_decision` can.
+- Swift routing inside `handleCommand` has no unit seam. XCTest covers the pure
+  press decision (`codexApprovalPress`) and the adapter's id guard; the Node
+  e2e drives the routes.
