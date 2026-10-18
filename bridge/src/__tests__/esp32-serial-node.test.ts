@@ -244,6 +244,28 @@ describe('handleSerialLine (source)', () => {
     }
   });
 
+  it('retains numeric internal-reserve lines and nothing appended to them', () => {
+    const log = vi.spyOn(logger, 'logTagged').mockImplementation(() => {});
+    try {
+      const conn = mockConn();
+      const boot = '[Reserve] at=boot capacity=15360 regions=1 requested=16384';
+      const heapFail = '[Reserve] at=heap-fail capacity=15360 free=14336 min=9216 allocFailures=1';
+      const otaEnd = '[Reserve] at=ota-end capacity=15360 free=15360 min=9216 allocFailures=1';
+      handleSerialLine(conn, boot);
+      handleSerialLine(conn, heapFail);
+      handleSerialLine(conn, otaEnd);
+      handleSerialLine(conn, otaEnd + ' ssid=private');
+      handleSerialLine(conn, '[Reserve] at=boot capacity=lots');
+      handleSerialLine(conn, '[Reserve] internal pool 15360 B usable');
+      expect(log).toHaveBeenCalledTimes(3);
+      expect(log).toHaveBeenNthCalledWith(1, 'esp32-heap', `${conn.port}: ${boot}`);
+      expect(log).toHaveBeenNthCalledWith(2, 'esp32-heap', `${conn.port}: ${heapFail}`);
+      expect(log).toHaveBeenNthCalledWith(3, 'esp32-heap', `${conn.port}: ${otaEnd}`);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it('retains hosted software-reset evidence without logging subsequent private lines', () => {
     const log = vi.spyOn(logger, 'logTagged').mockImplementation(() => {});
     try {

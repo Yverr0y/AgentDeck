@@ -386,6 +386,9 @@ interface WifiEsp32Device {
   allocFailures?: number;
   allocFailLastBytes?: number;
   allocFailLastCaps?: number;
+  internalReserveKb?: number;
+  internalReserveFreeKb?: number;
+  internalReserveMinKb?: number;
   otaSupported?: boolean;
   otaSlotCount?: number;
   otaSlotSize?: number;
@@ -825,6 +828,9 @@ function registerWifiEsp32(d: Record<string, unknown>, ws: WebSocket): void {
     allocFailures: typeof d.allocFailures === 'number' ? d.allocFailures : undefined,
     allocFailLastBytes: typeof d.allocFailLastBytes === 'number' ? d.allocFailLastBytes : undefined,
     allocFailLastCaps: typeof d.allocFailLastCaps === 'number' ? d.allocFailLastCaps : undefined,
+    internalReserveKb: typeof d.internalReserveKb === 'number' ? d.internalReserveKb : undefined,
+    internalReserveFreeKb: typeof d.internalReserveFreeKb === 'number' ? d.internalReserveFreeKb : undefined,
+    internalReserveMinKb: typeof d.internalReserveMinKb === 'number' ? d.internalReserveMinKb : undefined,
     otaSupported: typeof d.otaSupported === 'boolean' ? d.otaSupported : undefined,
     otaSlotCount: typeof d.otaSlotCount === 'number' ? d.otaSlotCount : undefined,
     otaSlotSize: typeof d.otaSlotSize === 'number' ? d.otaSlotSize : undefined,
