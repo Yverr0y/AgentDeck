@@ -13,7 +13,7 @@ import type {
   BridgeEvent,
   WifiProvisionMessage,
 } from '@agentdeck/shared/protocol';
-import { State, PermissionMode } from '@agentdeck/shared';
+import { State, PermissionMode, type TimelineEntry } from '@agentdeck/shared';
 import ciProjection from '../../../shared/ci-wait-projection-vectors.json';
 import {
   prepareForSerial,
@@ -40,8 +40,14 @@ import {
   recordForeignProbeFailure,
   isForeignPortDenylisted,
   __resetForeignPortState,
+  sendEventToBoard,
+  setSerialCommandSink,
+  setSerialTimelineQueryHandler,
   type SerialConnection,
 } from '../esp32-serial.js';
+import { boardTimelineSeed } from '../board-timeline-entry.js';
+import { wireSessionTimelineReplies } from '../session-timeline-reply.js';
+import { resolveSessionIdPrefix } from '../session-id-resolve.js';
 
 describe('CI waiting evidence projection', () => {
   it('serializes the same pending/terminal evidence as the full waitingOn policy', () => {
@@ -735,6 +741,110 @@ describe('prepareForSerial (source)', () => {
     // Newest survive, chronological order preserved
     expect(prepared.entries[prepared.entries.length - 1].raw).toBe('row 99');
     expect(prepared.entries[0].ts).toBeLessThan(prepared.entries[1].ts);
+  });
+});
+
+// ─── Claude tool rows ───────────────────────────────────────────────
+// Per-tool hook rows (`toolEvent`) go only to clients that offer
+// `timeline.tool-events.read`, and a board offers nothing. The WiFi transformer
+// always dropped them; serial sent every one, so a board's 64-row ring filled
+// with them on USB and not on WiFi.
+
+describe('Claude tool rows on the serial path', () => {
+  const chat = (i: number) => ({ ts: 1752700000000 + i, type: 'chat_start', raw: `row ${i}` });
+  const tool = (i: number) => ({ ts: 1752700000000 + i, type: 'tool_request', raw: 'Read requested', toolEvent: true });
+  // A pending flush timer keeps sendToConnection from scheduling a real write,
+  // so the queue is what the board would be sent.
+  const queueConn = () => ({
+    port: '/dev/cu.usbmodem-test', connected: true, deviceInfo: { board: 't_embed' },
+    writeQueue: [] as string[], writeTimer: {} as ReturnType<typeof setTimeout>,
+  }) as unknown as SerialConnection;
+
+  it('drops a live tool row and still sends every other timeline row', () => {
+    const conn = queueConn();
+    sendEventToBoard(conn, { type: 'timeline_event', entry: tool(1) } as any);
+    expect(conn.writeQueue).toEqual([]);
+    sendEventToBoard(conn, { type: 'timeline_event', entry: chat(2) } as any);
+    // The flag decides, not the type: a tool_request without it (an approval
+    // row) is a turn-level row every client reads.
+    sendEventToBoard(conn, { type: 'timeline_event', entry: { ...chat(3), type: 'tool_request', raw: 'Bash' } } as any);
+    expect(conn.writeQueue.map((line) => JSON.parse(line).entry.raw)).toEqual(['row 2', 'Bash']);
+  });
+
+  it('ships a history frame with tool rows exactly as it ships one without them', () => {
+    // Cut to the 64-row ring first, these 104 rows would keep only rows
+    // 40–63 and lose the rest to tool rows the board must not get anyway.
+    const chats = Array.from({ length: 64 }, (_, i) => chat(i));
+    const entries = [...chats, ...Array.from({ length: 40 }, (_, i) => tool(100 + i))];
+    const prepared = prepareForSerial({ type: 'timeline_history', entries } as any) as any;
+    expect(prepared).toEqual(prepareForSerial({ type: 'timeline_history', entries: chats } as any));
+    expect(prepared.entries.length).toBeGreaterThan(24);
+    expect(prepared.entries[prepared.entries.length - 1].raw).toBe('row 63');
+  });
+
+  it('seeds a connecting board with the newest rows it may show', () => {
+    const history = [chat(1), chat(2), tool(3), chat(4), tool(5), tool(6), tool(7), tool(8), tool(9), tool(10)];
+    expect(boardTimelineSeed(history, 3).map((entry) => entry.raw)).toEqual(['row 1', 'row 2', 'row 4']);
+  });
+});
+
+describe('query_session_timeline over serial', () => {
+  // A pending flush timer keeps sendToConnection from scheduling a real write,
+  // so the queue is what the board would be sent.
+  const queueConn = () => ({
+    port: '/dev/cu.usbmodem-knob', connected: true, deviceInfo: { board: 't_embed' }, deviceInfoFresh: true,
+    lastReadAt: 0, writeQueue: [] as string[], writeTimer: {} as ReturnType<typeof setTimeout>,
+  }) as unknown as SerialConnection;
+  // A real session id is a 36-char UUID. The board holds the 31-byte cut its
+  // sessions_list carried, asks with that, and strcmp()s the reply against it.
+  const FULL_ID = 'a3dab322-5f0e-4c6b-9d1a-7e2f40c0ffee';
+  const BOARD_ID = FULL_ID.slice(0, 31);
+  const wire = (rows: Array<Record<string, unknown>>) => wireSessionTimelineReplies({
+    resolveSessionId: (raw) => (typeof raw === 'string' && raw ? resolveSessionIdPrefix(raw, [FULL_ID]) : ''),
+    entriesFor: (sessionId) => (sessionId === FULL_ID ? rows : []) as unknown as TimelineEntry[],
+  });
+
+  it('answers the board on its own line, under the id the board asked with', () => {
+    const commands: unknown[] = [];
+    setSerialCommandSink((cmd) => commands.push(cmd));
+    wire([
+      { ts: 1752700000000, type: 'chat_start', raw: 'run the suite', sessionId: FULL_ID },
+      { ts: 1752700001000, type: 'tool_request', raw: 'Bash requested', sessionId: FULL_ID, toolEvent: true },
+      // A long reply as the newest row: 9 KB of detail, past the whole budget.
+      { ts: 1752700002000, type: 'chat_response', raw: 'x'.repeat(300), detail: '完'.repeat(3000), sessionId: FULL_ID },
+    ]);
+    try {
+      const conn = queueConn();
+      handleSerialLine(conn, JSON.stringify({ type: 'query_session_timeline', sessionId: BOARD_ID }));
+      expect(commands).toEqual([]);
+      expect(conn.writeQueue).toHaveLength(1);
+      const reply = JSON.parse(conn.writeQueue[0]);
+      expect(reply.type).toBe('timeline_history');
+      expect(reply.sessionId).toBe(BOARD_ID);
+      expect(reply.entries.map((e: { type: string }) => e.type)).toEqual(['chat_start', 'chat_response']);
+      expect(reply.entries[1].raw).toHaveLength(119);
+      expect(Buffer.byteLength(reply.entries[1].detail, 'utf8')).toBeLessThanOrEqual(199);
+      expect(reply.entries[1].localHm).toMatch(/^\d\d:\d\d$/);
+
+      // The commands that share the old forward list still reach the sink.
+      handleSerialLine(conn, '{"type":"focus_session","sessionId":"s1"}');
+      expect(commands).toEqual([{ type: 'focus_session', sessionId: 's1' }]);
+    } finally {
+      setSerialCommandSink(null);
+      setSerialTimelineQueryHandler(null);
+    }
+  });
+
+  it('sends nothing for a session with no rows to answer with', () => {
+    wire([]);
+    try {
+      const conn = queueConn();
+      handleSerialLine(conn, JSON.stringify({ type: 'query_session_timeline', sessionId: BOARD_ID }));
+      handleSerialLine(conn, '{"type":"query_session_timeline","sessionId":""}');
+      expect(conn.writeQueue).toEqual([]);
+    } finally {
+      setSerialTimelineQueryHandler(null);
+    }
   });
 });
 

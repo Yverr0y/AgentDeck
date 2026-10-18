@@ -514,8 +514,9 @@ agentdeck apme coverage --since 30d [--json]
 136건, 그보다 짧은 540건 중 5건이었다. 이제 응답의 주인은 **collector 의 열린 턴**이
 정한다(`ApmeCollector.recordStopReply`; 열린 턴이 없을 때만 마지막으로 닫힌 턴에, 그 턴에 응답이
 없을 때만). 지난 행은 backfill 하지 않았다 — transcript 에 응답이 남아 있어 복구는 가능하지만
-별도 결정이다. 같은 24행 판정은 기기 타임라인의 `chat_response` 행 발행도 정하므로, 긴 Claude
-턴은 타임라인에도 응답 행이 빠질 수 있다(후속 과제, 이 PR 범위 밖).
+별도 결정이다. 기기 타임라인의 `chat_response` 행도 같은 24행 판정으로 발행됐는데, 지금은
+세션의 chat 행 전부를 읽어 판정하므로(`getChatRowsForSession`, #574) 긴 턴의 응답 행은 더
+빠지지 않는다. 알림이 연 턴은 타임라인에 `chat_start` 가 없으니 여전히 응답 행이 없다.
 
 **에이전트별 APME 생산자 (2026-10-18):**
 
@@ -525,7 +526,7 @@ agentdeck apme coverage --since 30d [--json]
 | codex-cli | `codex_*` 훅 + rollout | — (데스크톱 앱의 턴도 `codex_*` 훅으로 들어오면 codex-cli 행이 된다; codex-app 행은 없다) |
 | openclaw | Gateway 이벤트(세션 키별 run) | — |
 | hermes | `hermes_*` 훅 | — |
-| opencode | 옵저버 플러그인(`opencode_*` 훅) | 플러그인의 `opencode_stop` 이 모델을 싣지 않음 → `Model 0%` |
+| opencode | 옵저버 플러그인(`opencode_*` 훅) | v5 이전 플러그인은 `opencode_stop` 에 모델을 싣지 않는다 → 다시 설치하기 전까지 `Model 0%` |
 | kiro-cli / kiro-ide | Kiro 타임라인 피드(`chat_start` / `chat_response`) | 도구·모델 없음; kiro-ide 세션도 kiro-cli 로 연다; 기록된 작업 8건이 전부 trivial 로 거부 |
 | antigravity | **없음** — 패시브 옵저버는 roster/상태용 transcript 폴링만 하고, 데몬은 `antigravity_*` 훅을 받을 준비만 돼 있다(설치기 없음) | 전부 |
 
