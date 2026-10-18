@@ -7,7 +7,8 @@ export const BOARD_TIMELINE_ROWS = 64;
  * Claude's per-tool hook rows are opt-in: only a client that offers
  * `timeline.tool-events.read` receives them (docs/surface-protocol.md), and a
  * board never offers it. Over WiFi the daemon's event transformer drops them;
- * serial has no negotiation, so its shaping drops them with this predicate.
+ * serial has no negotiation, so its shaping drops them with this predicate, as
+ * does the Pixoo bridge, which reads the raw broadcast.
  */
 export function isToolEventRow(entry: unknown): boolean {
   return (entry as { toolEvent?: unknown } | null | undefined)?.toolEvent === true;
