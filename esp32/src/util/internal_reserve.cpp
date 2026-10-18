@@ -1,9 +1,17 @@
 #include "internal_reserve.h"
 
 #include <esp_heap_caps.h>
-#if CONFIG_SPIRAM
+
+// The pool is built only into PSRAM environments (the ones whose build flags
+// define BOARD_HAS_PSRAM). The classic ESP32 libraries set CONFIG_SPIRAM even
+// for TTGO, which has no PSRAM, so begin() could only return early there, and
+// TTGO's static DRAM is about 1 KB from full: no place for dead counters.
+#if CONFIG_SPIRAM && defined(BOARD_HAS_PSRAM)
+#define INTERNAL_RESERVE_POOL 1
 #include <esp_heap_caps_init.h>
 #include <heap_memory_layout.h>
+#else
+#define INTERNAL_RESERVE_POOL 0
 #endif
 
 #include "config.h"
@@ -13,7 +21,7 @@ namespace InternalReserve {
 
 namespace {
 
-#if CONFIG_SPIRAM
+#if INTERNAL_RESERVE_POOL
 // No allocation asks for this capability (ESP-IDF does not use PIDs), so it
 // changes nothing about which requests the pool serves; it only lets the
 // heap_caps_get_*_size() queries read the pool apart from the rest of RAM.
@@ -25,18 +33,21 @@ constexpr uint32_t CARVE_CAPS = MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CA
 constexpr size_t MIN_REGION_BYTES = 4096;
 #endif
 
+#if INTERNAL_RESERVE_POOL
 // Written once by begin(), before any other task exists.
 uint32_t capacity = 0;
 bool minTracked = false;
-#if CONFIG_SPIRAM
 uint32_t regions = 0;
 uint32_t requested = 0;
+#else
+constexpr uint32_t capacity = 0;
+constexpr bool minTracked = false;
 #endif
 
 }  // namespace
 
 void begin() {
-#if CONFIG_SPIRAM
+#if INTERNAL_RESERVE_POOL
     requested = INTERNAL_RESERVE_BYTES;
     if (requested == 0 || !psramFound()) return;
 
@@ -78,7 +89,7 @@ void begin() {
 uint32_t capacityBytes() { return capacity; }
 
 uint32_t freeBytes() {
-#if CONFIG_SPIRAM
+#if INTERNAL_RESERVE_POOL
     if (capacity == 0) return 0;
     return heap_caps_get_free_size(POOL_MARKER);
 #else
@@ -89,7 +100,7 @@ uint32_t freeBytes() {
 bool minFreeKnown() { return minTracked; }
 
 uint32_t minFreeBytes() {
-#if CONFIG_SPIRAM
+#if INTERNAL_RESERVE_POOL
     if (!minTracked) return 0;
     return heap_caps_get_minimum_free_size(POOL_MARKER);
 #else
@@ -99,7 +110,7 @@ uint32_t minFreeBytes() {
 
 // Formatted on the stack: Print::printf mallocs for lines over 63 bytes.
 void logBoot() {
-#if CONFIG_SPIRAM
+#if INTERNAL_RESERVE_POOL
     if (requested == 0) return;
     char line[128];
     snprintf(line, sizeof(line), "[Reserve] at=boot capacity=%lu regions=%lu requested=%lu tracked=%d",
