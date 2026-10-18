@@ -197,6 +197,21 @@ Codex 는 훅의 `model`, Claude 는 transcript(단 `<synthetic>` — 클라이�
 codex 턴 732건은 rollout 전체 스캔으로 응답을 1회 복원했다(`efficiency_json.
 response_source=rollout_backfill_2026-09-03`).
 
+**OpenCode 는 observer plugin v5 부터 Stop 에 모델을 싣는다.** 그 전 플러그인의
+`opencode_stop` 에는 모델이 없어서 30일간 끝난 관측 OpenCode 턴 39개의 model_id 가 전부
+NULL 이었다(`agentdeck apme coverage`, 2026-10-18). OpenCode 는 assistant `message.updated`
+마다 `modelID`/`providerID` 를 싣는다 — 자체 이벤트 로그에서 10,474건 전부, 완료 전
+첫 갱신 포함(1.18.35). 플러그인은 턴의 마지막 assistant 메시지 값을 세션별로 들고 있다가
+Stop 에 `model`/`model_provider` 로 보내고 턴과 함께 버린다(child 세션 값은 부모 턴에
+섞지 않는다). `providerID` 는 endpoint 이므로 모델 id 보다 우선한다:
+`mlx-community/Qwen…` 은 모델 id 만으로는 `alibaba` 지만 MLX 가 서빙했으니 `local` 이다.
+허용 목록 밖의 이름(`zai-coding-plan`, OpenCode Zen 의 `opencode`)은 모델 id 로 내려가고,
+둘 다 모르면 `unknown` 그대로다. Swift 데몬은 훅 Stop 의 `model` 을 아예 턴에 찍지 않았다
+— run 을 열 때 `model_name` 만 읽으니 Codex 턴도 모델이 없었다 — 그래서
+`DaemonServer.stampApmeStopIdentity` 가 Node 의 Stop 경로와 같은 일을 한다. 기존
+플러그인 파일은 `agentdeck daemon install`(또는 setup, `agentdeck opencode`)이 다시 쓸 때
+v5 가 된다.
+
 **Stop 시 빈 transcript 읽기는 답이 아니다.** Claude Code 는 마지막 assistant 레코드를 쓰는
 도중에 Stop 훅을 돌린다 — 실측: Stop 21:20:22Z, 1,638자 응답 레코드 21:20:22.395Z. 한 주
 Claude stop 턴 344건 중 113건이 그렇게 응답 없이 보관됐다. `deferred-reply-read.ts` 가
@@ -230,6 +245,7 @@ Claude 턴을 닫는 권한은 Stop hook **하나뿐**이고 그 전달은 fire-
 | `interrupted` | 사용자가 ESC 로 취소 — Claude Code 는 취소 시 hook 을 **하나도 emit 하지 않으므로** 애초에 올 Stop 이 없었다. 유실이 아니다 |
 | `aborted` | **클라이언트가** 턴을 끝냄 — 사용량 한도(`You've hit your session limit`), 인증 만료(`Please run /login`), 크레딧 소진, API 429/529. assistant 레코드 하나에 `stop_reason: "stop_sequence"` 로 기록되고 Stop hook 은 발화하지 않는다. 취소와 같은 이유로 유실이 아니다 |
 | `superseded` | 이 프롬프트의 턴이 **돌기도 전에** 다음 프롬프트가 도착 — 큐잉된 메시지와 `<task-notification>` 주입은 ~130ms 간격 쌍으로 들어오고, 모델 턴 하나가 둘을 처리하며 Stop 도 하나만 빚진다(마지막 것에 대해). 밀려난 행은 "프롬프트당 턴 1개" 계수 방식의 산물이지 유실이 아니다 |
+| `injected` | 턴이 **실행 중일 때** Claude Code 가 큐잉한 메시지(백그라운드 작업의 `<task-notification>`, 서브에이전트의 `<agent-message>`, 다른 세션의 `<cross-session-message>`)가 배달됨 — 실행 중 턴의 도구 경계에서 `UserPromptSubmit` 이 발화하므로 턴이 끝나기도 전에 밀려난다. 그 시점엔 빚진 Stop 이 없었고, 뒤따르는 Stop 하나가 그 메시지가 연 턴을 닫는다. 유실이 아니다 |
 | `session_end` / `clear` | 턴이 열린 채로 세션이 끝나거나 `/clear` 로 잘림 |
 | `run_close` | 열린 턴 밑에서 abandoned-run reaper 가 run 을 닫음. 실측(2026-09-03, 5.5일): 52건 중 45건이 턴 시작과 다음 턴 사이에 **데몬 재시작**을 끼고 있었다 — 에이전트가 Stop 을 잃은 게 아니라 받을 프로세스가 없었다. `stop-health` 의 `Reaped` 열로 따로 세고, 비율에는 넣지 않는다(세션 종료로 접어 세던 시절 codex 유실 29% 가 11% 로 읽혔다) |
 | `NULL` | 아직 열려 있음(`ended_at IS NULL`), 또는 컬럼 도입 이전 행 |
@@ -246,11 +262,17 @@ Claude 턴을 닫는 권한은 Stop hook **하나뿐**이고 그 전달은 fire-
 
 **`superseded` 는 계수 방식의 산물이다.** 턴은 `UserPromptSubmit` 마다 생성되는데, 큐잉된 메시지와 `<task-notification>` 주입은 ~130ms 간격 쌍으로 도착하고 Claude 는 그 둘을 **모델 턴 하나로** 처리한다. 그래서 앞 행은 "돌지도 않은 턴"이고 Stop 은 마지막 행 하나에만 빚진다. 판별 근거는 시간 임계값이 아니라 transcript 다 — 턴이 열린 뒤 assistant 레코드가 **하나도** 없으면 그 턴은 돈 적이 없다. transcript 를 못 읽으면 `next_prompt` 로 남긴다(읽을 수 없음 ≠ 근거 없음).
 
+**`injected` 는 실행 중에 배달된 큐 메시지다 (2026-10-18).** Claude Code 는 백그라운드 작업 완료·서브에이전트 결과·다른 세션의 SendMessage 를 사용자 프롬프트로 큐잉하고, 세션이 놀고 있으면 새 턴으로, **턴이 돌고 있으면 그 턴의 다음 도구 경계에서** 배달하며 어느 쪽이든 `UserPromptSubmit` 을 발화한다. 후자에서 collector 는 아직 끝나지 않은 턴을 다음 프롬프트로 닫았고, 그게 `next_prompt`(미복구 유실)로 집계됐다. 실측(30일, 한 스토어): Claude `next_prompt` 587건 중 **517건이 이 모양** — 들어온 프롬프트가 큐 메시지 봉투로 시작하고, transcript 에 턴이 열린 뒤 `end_turn` 이 하나도 없었다. 재분류하면 Claude Stop 유실은 **35% → 8%** 로 읽힌다(나머지 70건 = 봉투 없는 타이핑 프롬프트 65 + 끝난 뒤 Stop 을 잃은 5).
+
+판별엔 두 사실이 모두 필요하다(`superseded` 와 같은 원칙). ① 들어온 프롬프트가 `<task-notification>` / `<agent-message` / `<cross-session-message` 봉투로 **시작**한다 — hook 시점엔 이것만이 "큐잉됐다"는 증거다: 같은 메시지의 transcript `queued_command` 레코드는 hook 보다 ~0.5초 늦게 쓰인다(2026-10-18 실측: hook 00:32:53.826Z, 큐 제거 00:32:54.302Z). 판정 SSOT 는 `shared/src/harness-queued-message.ts`. ② transcript 에 그 턴이 열린 뒤의 `end_turn` 이 없다(`readOpenTurnEvidence.completedAt`; slack 창 안의 더 오래된 `end_turn` 은 이전 턴의 것). 턴이 **끝난 뒤** 알림이 세션을 깨운 경우엔 Stop 을 진짜로 잃은 것이므로 `next_prompt` 로 남는다. 타이핑한 프롬프트도 Claude Code 가 큐잉하지만 봉투가 없어 hook 시점엔 구분할 수 없으므로 `next_prompt` 로 남는다. 우선순위는 `interrupted` → `aborted` → `superseded` → `injected` → `next_prompt`.
+
+**Swift 데몬은 이 구분을 하지 않는다.** 밀려난 턴은 항상 `next_prompt` 로 닫는다 — 샌드박스 앱은 transcript 를 읽을 수 없어 ②를 확인할 수 없고, `superseded`/`interrupted` 판별도 같은 이유로 Node 전용이다(기존 비대칭).
+
 ```bash
 agentdeck apme stop-health --since 7d [--agent claude-code]
 ```
 
-분모는 **판정 가능한 턴만** — `stop + synthetic_stop + next_prompt`. 열린 턴·취소된 턴·중단된 턴·밀려난 턴·세션 종료로 닫힌 턴·reaper 가 닫은 턴(`Reaped`)·도입 이전 행은 Stop 도착 여부의 증거가 아니므로 비율에서 제외한다. 어느 버킷이 분자·분모에 들어가는지는 `stopDeliveryLoss()`(`@agentdeck/shared`) 한 곳에만 있다 — 소비자가 그 규칙을 다시 적으면 범례가 주장하는 것과 다른 값을 재게 된다. 다만 `total` 에는 열린 턴이 포함되는데, 열린 턴이야말로 "아직 안 온 Stop" 이라 분모에서 빼면 측정하려는 실패를 숨기게 되기 때문이다.
+분모는 **판정 가능한 턴만** — `stop + synthetic_stop + next_prompt`. 열린 턴·취소된 턴·중단된 턴·밀려난 턴·실행 중 큐 메시지에 밀린 턴(`Inject`)·세션 종료로 닫힌 턴·reaper 가 닫은 턴(`Reaped`)·도입 이전 행은 Stop 도착 여부의 증거가 아니므로 비율에서 제외한다. 어느 버킷이 분자·분모에 들어가는지는 `stopDeliveryLoss()`(`@agentdeck/shared`) 한 곳에만 있다 — 소비자가 그 규칙을 다시 적으면 범례가 주장하는 것과 다른 값을 재게 된다. 다만 `total` 에는 열린 턴이 포함되는데, 열린 턴이야말로 "아직 안 온 Stop" 이라 분모에서 빼면 측정하려는 실패를 숨기게 되기 때문이다.
 
 ### 판정 반복 루프와 repetition penalty
 
@@ -425,6 +447,67 @@ summary 만 보고 고르던 동안 그런 작업은 **매 tick 다시 판정 �
 
 `Close → verdict` 는 평균이 아니라 백분위다. 몇 주 뒤에 backfill 된 작업 하나가 평균을
 실제 값 전부보다 위로 끌어올린다.
+
+### coverage — 에이전트별로 무엇이 판정까지 도달했는가
+
+```bash
+agentdeck apme coverage --since 30d [--json]
+```
+
+`judge-health` 는 날짜별 합계라서, 작업이 판정에 아예 닿지 않는 에이전트를 합계 속에 숨긴다.
+이 명령은 같은 질문을 **에이전트별로** 묻고, 판정이 기대는 두 캡처 사실 — 끝난 턴이
+에이전트의 응답을 지녔는가, 그 턴을 어느 모델이 처리했는지 아는가 — 을 같이 보여준다.
+
+| 열 | 뜻 |
+|---|---|
+| `Reply` | 끝난 턴(`stop` + `synthetic_stop`) 중 비어 있지 않은 응답을 가진 비율. 끝나지 않은 턴(밀려남·취소·중단·`injected`)은 응답을 빚지지 않으므로 분모에 없다 |
+| `Model` | 끝난 턴 중 `model_id` 를 가진 비율 — scorecard 는 **턴의** 모델로 순위를 매기므로, 없는 턴은 순위에 들 수 없다 |
+| `Declined` / `Waiting` / `AgedOut` / `Coverage` | `judge-health` 와 같은 술어(`JUDGED_SQL` / `DECLINED_SQL`), 같은 배출 창, 같은 `judgeCoverage()` — 두 명령은 작업 하나를 다르게 셀 수 없다(테스트가 합계를 맞대어 고정). 거부 사유별 개수는 표 아래 한 줄과 JSON 에 실린다 |
+
+창은 각 사실이 원래 쓰던 계기의 것을 따른다: run·턴은 `started_at`(stop-health), 작업은
+`ended_at`(judge-health). 그래서 창 이전에 시작된 run 은 턴을 보태도 `Runs` 에는 세지 않는다.
+비율은 `coverageText` 와 같은 이유로 **내림**한다.
+
+첫 실측(2026-10-18, `--since 30d`, 이 PR 의 수정 **이전** 데이터):
+
+| 에이전트 | Runs | Turns | Reply | Model | Tasks | Judged | Declined | Coverage |
+|---|---|---|---|---|---|---|---|---|
+| claude-code | 195 | 1909 | 79% of 1181 | 98% of 1181 | 413 | 381 | 14 | 95% of 399 |
+| codex-cli | 455 | 1074 | 96% of 883 | 98% of 883 | 547 | 502 | 26 | 96% of 521 |
+| hermes | 16 | 16 | 100% of 14 | 100% of 14 | 16 | 14 | 2 | 100% of 14 |
+| kiro-cli | 8 | 8 | 100% of 8 | 0% of 8 | 8 | 0 | 8 (전부 trivial) | — |
+| openclaw | 100 | 127 | 99% of 109 | 99% of 109 | 92 | 80 | 12 | 100% of 80 |
+| opencode | 14 | 44 | 87% of 39 | 0% of 39 | 29 | 25 | 4 | 100% of 25 |
+
+**Claude 의 `Reply` 79% 는 데몬의 Stop 응답 라우팅 결함이었다.** 데몬은 Stop 이 실어 온 응답을
+어느 턴에 붙일지 **타임라인**의 "열린 턴" 판정 — 세션의 최근 24행 안에 완료가 뒤따르지 않은
+`chat_start` 가 있는가 — 으로 골랐다. 흔한 두 턴이 거기에 열린 `chat_start` 를 갖지 않는다:
+`<task-notification>` 이 연 턴(타임라인은 그 프롬프트를 저신호로 버린다), 그리고 자기 도구
+행들이 프롬프트를 24행 창 밖으로 밀어낼 만큼 긴 턴. 그 응답은 **이전 턴**으로 갔다 — 이전 턴에
+응답이 있으면 버려지고, 없으면 한 턴 일찍 붙었다. Stop 시점의 transcript 읽기가 비어서 지연
+재읽기(턴이 닫힌 뒤 도착)로 넘어간 경우만 살아남았다. 실측(30일): Stop 으로 닫힌 Claude 턴
+1,145건 중 **558건이 이 경로**를 탔고 그중 **247건이 응답 없이** 남았다 — 열린 턴으로 간 587건은
+0건. 이 경로를 탄 턴은 알림이 연 턴 432건 중 417건, 그 밖의 턴 중 도구 12회 이상인 173건 중
+136건, 그보다 짧은 540건 중 5건이었다. 이제 응답의 주인은 **collector 의 열린 턴**이
+정한다(`ApmeCollector.recordStopReply`; 열린 턴이 없을 때만 마지막으로 닫힌 턴에, 그 턴에 응답이
+없을 때만). 지난 행은 backfill 하지 않았다 — transcript 에 응답이 남아 있어 복구는 가능하지만
+별도 결정이다. 같은 24행 판정은 기기 타임라인의 `chat_response` 행 발행도 정하므로, 긴 Claude
+턴은 타임라인에도 응답 행이 빠질 수 있다(후속 과제, 이 PR 범위 밖).
+
+**에이전트별 APME 생산자 (2026-10-18):**
+
+| 에이전트 | 생산자 | 빠진 것 |
+|---|---|---|
+| claude-code | Claude 훅(`UserPromptSubmit` / 도구 / `Stop`) + transcript | — |
+| codex-cli | `codex_*` 훅 + rollout | — (데스크톱 앱의 턴도 `codex_*` 훅으로 들어오면 codex-cli 행이 된다; codex-app 행은 없다) |
+| openclaw | Gateway 이벤트(세션 키별 run) | — |
+| hermes | `hermes_*` 훅 | — |
+| opencode | 옵저버 플러그인(`opencode_*` 훅) | 플러그인의 `opencode_stop` 이 모델을 싣지 않음 → `Model 0%` |
+| kiro-cli / kiro-ide | Kiro 타임라인 피드(`chat_start` / `chat_response`) | 도구·모델 없음; kiro-ide 세션도 kiro-cli 로 연다; 기록된 작업 8건이 전부 trivial 로 거부 |
+| antigravity | **없음** — 패시브 옵저버는 roster/상태용 transcript 폴링만 하고, 데몬은 `antigravity_*` 훅을 받을 준비만 돼 있다(설치기 없음) | 전부 |
+
+표에 없는 에이전트는 창 안에 기록이 없다는 뜻이고, 위 표가 그 0 이 "안 썼다"인지 "생산자가
+없다"인지를 가른다.
 
 ### steps — 훅 이벤트 + tool 호출 기록
 

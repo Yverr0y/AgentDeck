@@ -4593,15 +4593,15 @@ apme
     if (rows.length === 0) { log(`No turns started in the last ${opts.since}.`); return; }
 
     log(`\n  Turns started in the last ${opts.since} — how each one's end was learned`);
-    log(`  ${'Agent'.padEnd(14)} ${'Turns'.padEnd(7)} ${'Stop'.padEnd(7)} ${'Synth'.padEnd(7)} ${'NoStop'.padEnd(7)} ${'Esc'.padEnd(6)} ${'Abort'.padEnd(6)} ${'Folded'.padEnd(7)} ${'SessEnd'.padEnd(8)} ${'Reaped'.padEnd(7)} ${'Open'.padEnd(6)} ${'?'.padEnd(6)} Stop loss`);
-    log(`  ${'─'.repeat(14)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(7)} ${'─'.repeat(8)} ${'─'.repeat(7)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(9)}`);
+    log(`  ${'Agent'.padEnd(14)} ${'Turns'.padEnd(7)} ${'Stop'.padEnd(7)} ${'Synth'.padEnd(7)} ${'NoStop'.padEnd(7)} ${'Esc'.padEnd(6)} ${'Abort'.padEnd(6)} ${'Folded'.padEnd(7)} ${'Inject'.padEnd(7)} ${'SessEnd'.padEnd(8)} ${'Reaped'.padEnd(7)} ${'Open'.padEnd(6)} ${'?'.padEnd(6)} Stop loss`);
+    log(`  ${'─'.repeat(14)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(8)} ${'─'.repeat(7)} ${'─'.repeat(6)} ${'─'.repeat(6)} ${'─'.repeat(9)}`);
     for (const r of rows) {
       // Which buckets the ratio may read is defined once, in shared — see
       // `stopDeliveryLoss`. Restating it here is how the instrument would come
       // to measure something other than what its legend claims.
       const { adjudicated, ratio } = stopDeliveryLoss(r);
       const rate = ratio != null ? `${(ratio * 100).toFixed(0)}% of ${adjudicated}` : '—';
-      log(`  ${r.agentType.slice(0, 14).padEnd(14)} ${String(r.total).padEnd(7)} ${String(r.stop).padEnd(7)} ${String(r.syntheticStop).padEnd(7)} ${String(r.nextPrompt).padEnd(7)} ${String(r.interrupted).padEnd(6)} ${String(r.aborted).padEnd(6)} ${String(r.superseded).padEnd(7)} ${String(r.sessionEnd).padEnd(8)} ${String(r.runClose).padEnd(7)} ${String(r.open).padEnd(6)} ${String(r.preInstrument).padEnd(6)} ${rate}`);
+      log(`  ${r.agentType.slice(0, 14).padEnd(14)} ${String(r.total).padEnd(7)} ${String(r.stop).padEnd(7)} ${String(r.syntheticStop).padEnd(7)} ${String(r.nextPrompt).padEnd(7)} ${String(r.interrupted).padEnd(6)} ${String(r.aborted).padEnd(6)} ${String(r.superseded).padEnd(7)} ${String(r.injected).padEnd(7)} ${String(r.sessionEnd).padEnd(8)} ${String(r.runClose).padEnd(7)} ${String(r.open).padEnd(6)} ${String(r.preInstrument).padEnd(6)} ${rate}`);
     }
     log('');
     log("  Synth  = Stop hook dropped, recovered from the agent's own record (transcript watchdog; rollout at the next prompt for Codex)");
@@ -4609,6 +4609,7 @@ apme
     log('  Esc    = user cancelled the turn — Claude Code owes no Stop, so not a loss');
     log('  Abort  = usage limit / auth / API error ended the turn — no Stop is fired for those');
     log('  Folded = a second prompt arrived before this one ran; one turn served both');
+    log('  Inject = a queued message (task notification, agent or cross-session message) arrived mid-turn — the Stop was still owed and closed the turn it opened, so not a loss');
     log('  Reaped = the run was reaped under the open turn — the daemon that would have taken its Stop was gone (a restart)');
     log('  ?      = closed before end_source existed — signal unknown, never guessed');
     log('');
@@ -5017,6 +5018,74 @@ apme
       return;
     }
     for (const report of reports) printReferenceReport(report);
+    log('');
+  });
+
+/** A capture rate as text, rounded DOWN for the reason `coverageText` gives. */
+export function captureRateText(part: number, whole: number): string {
+  if (whole <= 0) return '—';
+  return `${Math.floor((part / whole) * 100)}% of ${whole}`;
+}
+
+apme
+  .command('coverage')
+  .description('Per-agent coverage — whether each agent\'s work reached the judge with its reply and model')
+  .option('--since <window>', 'Lookback window, e.g. 7d / 2w / 60d (default 30d, the judge drain\'s lookback)', '30d')
+  .option('--json', 'Emit JSON instead of the table')
+  .action(async (opts) => {
+    const { initApme } = await import('./apme/index.js');
+    const { TASK_JUDGE_DRAIN_WINDOW_MS } = await import('./apme/runner.js');
+    const apme = await initApme();
+    if (!apme) { log('APME not available'); process.exit(1); }
+
+    const windowMs = parseLookbackWindow(opts.since);
+    if (windowMs == null) { log(`Unrecognized --since value: ${opts.since}`); process.exit(1); }
+    const nowMs = Date.now();
+    const sinceMs = nowMs - windowMs;
+    const agedCutoffMs = nowMs - TASK_JUDGE_DRAIN_WINDOW_MS;
+    const rows = apme.store.agentCoverage({ sinceMs, agedCutoffMs });
+
+    if (opts.json) {
+      log(JSON.stringify({
+        since: opts.since,
+        sinceMs,
+        drainWindowDays: TASK_JUDGE_DRAIN_WINDOW_MS / 86_400_000,
+        // Rates travel with the counts, as in judge-health: the denominators
+        // (finished turns; judged + waiting + aged out) are the instrument.
+        agents: rows.map((r) => ({
+          ...r,
+          replyRate: r.finishedTurns > 0 ? r.repliedTurns / r.finishedTurns : null,
+          modelRate: r.finishedTurns > 0 ? r.modelTurns / r.finishedTurns : null,
+          coverage: judgeCoverage(r),
+        })),
+      }, null, 2));
+      return;
+    }
+    if (rows.length === 0) { log(`\n  No APME data since ${localDay(sinceMs)} (--since ${opts.since}).\n`); return; }
+
+    log(`\n  Work since ${localDay(sinceMs)} (--since ${opts.since}) — what each agent left for the judge`);
+    log(`  ${'Agent'.padEnd(14)} ${'Runs'.padEnd(6)} ${'Turns'.padEnd(7)} ${'Reply'.padEnd(13)} ${'Model'.padEnd(13)} ${'Tasks'.padEnd(7)} ${'Judged'.padEnd(7)} ${'Declined'.padEnd(9)} ${'Waiting'.padEnd(8)} ${'AgedOut'.padEnd(8)} Coverage`);
+    log(`  ${'─'.repeat(14)} ${'─'.repeat(6)} ${'─'.repeat(7)} ${'─'.repeat(13)} ${'─'.repeat(13)} ${'─'.repeat(7)} ${'─'.repeat(7)} ${'─'.repeat(9)} ${'─'.repeat(8)} ${'─'.repeat(8)} ${'─'.repeat(9)}`);
+    for (const r of rows) {
+      log(`  ${r.agentType.slice(0, 14).padEnd(14)} ${String(r.runs).padEnd(6)} ${String(r.turns).padEnd(7)} ${captureRateText(r.repliedTurns, r.finishedTurns).padEnd(13)} ${captureRateText(r.modelTurns, r.finishedTurns).padEnd(13)} ${String(r.closedTasks).padEnd(7)} ${String(r.judged).padEnd(7)} ${String(r.declined).padEnd(9)} ${String(r.waiting).padEnd(8)} ${String(r.agedOut).padEnd(8)} ${coverageText(judgeCoverage(r))}`);
+    }
+    const reasons = rows
+      .map((r) => {
+        const parts = [
+          r.declinedNoReply > 0 ? `no reply ${r.declinedNoReply}` : '',
+          r.declinedAbortedOnly > 0 ? `aborted ${r.declinedAbortedOnly}` : '',
+          r.declinedTrivial > 0 ? `trivial ${r.declinedTrivial}` : '',
+        ].filter(Boolean);
+        return parts.length > 0 ? `${r.agentType} (${parts.join(', ')})` : '';
+      })
+      .filter(Boolean);
+    log('');
+    if (reasons.length > 0) log(`  Declined by reason: ${reasons.join('; ')}`);
+    log('  Reply    = finished turns (a Stop, or one recovered from the agent\'s own record) that kept the agent\'s reply');
+    log('  Model    = finished turns that know which model served them — the scorecard ranks by the turn\'s model');
+    log('  Declined = the judge correctly refused: no reply, aborted-only, or trivial. Not a miss.');
+    log('  Coverage = judged / (judged + waiting + aged out), as in judge-health. Declined rows are not in the denominator.');
+    log('  An agent absent from the table recorded nothing in the window; docs/apme.md lists the agents with no APME producer.');
     log('');
   });
 

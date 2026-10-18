@@ -343,6 +343,7 @@ no subprocesses.
 | `agentdeck apme scorecard` | Model scorecard by category and overall |
 | `agentdeck apme stop-health` | Stop-hook delivery rate — how turns actually closed (`--since 7d`, `--agent`) |
 | `agentdeck apme judge-health` | Judge coverage — whether closed work actually got a verdict (`--since 14d`, `--json`) |
+| `agentdeck apme coverage` | Per-agent coverage — reply and model capture on finished turns, and judge coverage per agent (`--since 30d`, `--json`) |
 | `agentdeck apme prune` | Reclaim `apme.sqlite` disk space by clearing old tool payloads (`--older-than 30`, `--apply`, `--vacuum`) |
 | `agentdeck apme reference-judge` | Re-score tasks the local judge already scored with a stronger model through your Codex CLI login (dry run by default; `--run`, `--limit 10`, `--since 30d`, `--until`, `--expect`, `--retry-parked`, `--model`, `--effort high`, `--category`, `--local-band`, `--project`) |
 | `agentdeck apme agreement` | How closely the local judge agrees with the reference judge: MAE, bias, outcome bands, largest disagreements per judge and sampling design (`--judge`, `--sample`, `--since`, `--top`, `--json`) |

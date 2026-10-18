@@ -30,6 +30,7 @@ import type {
   ApmeTaskListRow,
   ApmeStopDeliveryRow,
   ApmeJudgeHealthRow,
+  ApmeAgentCoverageRow,
 } from './types.js';
 import type {
   ApmeSampleEventRow,
@@ -1222,11 +1223,12 @@ export class ApmeStore {
    *  they are reported separately instead of being folded into any bucket,
    *  because their closing signal is genuinely unknown (see the migration).
    *
-   *  `interrupted`, `aborted` and `superseded` are their own columns rather
-   *  than part of any loss bucket: each is a turn for which Claude Code owes no
-   *  Stop at all, so counting them as dropped hooks would report the user's own
-   *  ESC key, their exhausted usage window, and an artifact of counting turns
-   *  per prompt as infrastructure loss. `stopDeliveryLoss` in
+   *  `interrupted`, `aborted`, `superseded` and `injected` are their own
+   *  columns rather than part of any loss bucket: each is a turn for which
+   *  Claude Code owed no Stop at the moment it was closed, so counting them as
+   *  dropped hooks would report the user's own ESC key, their exhausted usage
+   *  window, an artifact of counting turns per prompt, and a background task
+   *  finishing mid-turn as infrastructure loss. `stopDeliveryLoss` in
    *  `@agentdeck/shared` owns which buckets the ratio may read.
    */
   /** What "judged" means, in one place.
@@ -1321,6 +1323,91 @@ export class ApmeStore {
     return { n: vals.length, p50Ms: at(0.5), p90Ms: at(0.9), maxMs: vals[vals.length - 1], excluded };
   }
 
+  /** Per-agent coverage: how much of each agent's work was captured well
+   *  enough to judge, and what the judge made of it.
+   *
+   *  Each fact keeps the window its own instrument already uses, so the
+   *  commands count the same rows: runs and turns by `started_at` (as
+   *  `stopDelivery`), tasks by `ended_at` with the drain's `agedCutoffMs` (as
+   *  `judgeHealth`, through the same `JUDGED_SQL` / `DECLINED_SQL`). A run
+   *  that started before the window can therefore contribute turns without
+   *  being counted as a run. */
+  agentCoverage(opts: { sinceMs: number; agedCutoffMs: number }): ApmeAgentCoverageRow[] {
+    if (!this.db) return [];
+    const runs = this.db.prepare(
+      `SELECT r.agent_type AS agentType, COUNT(*) AS runs
+         FROM runs r
+        WHERE r.started_at >= ?
+        GROUP BY r.agent_type`,
+    ).all(opts.sinceMs) as Array<Record<string, unknown>>;
+    const turns = this.db.prepare(
+      `SELECT r.agent_type AS agentType,
+              COUNT(*) AS turns,
+              SUM(t.end_source IN ('stop','synthetic_stop')) AS finishedTurns,
+              SUM(t.end_source IN ('stop','synthetic_stop')
+                  AND t.response IS NOT NULL AND trim(t.response) <> '') AS repliedTurns,
+              SUM(t.end_source IN ('stop','synthetic_stop')
+                  AND t.model_id IS NOT NULL AND trim(t.model_id) <> '' AND t.model_id <> 'unknown') AS modelTurns
+         FROM turns t JOIN runs r ON r.id = t.run_id
+        WHERE t.started_at >= ?
+        GROUP BY r.agent_type`,
+    ).all(opts.sinceMs) as Array<Record<string, unknown>>;
+    // Reasons as `retractTaskVerdict` and the runner's gradeability stamp
+    // write them (`JSON.stringify`, so no whitespace around the colon).
+    const declinedFor = (reason: string) =>
+      `SUM(NOT ${ApmeStore.JUDGED_SQL} AND t.notes_json LIKE '%"notGradeable":"${reason}"%')`;
+    const tasks = this.db.prepare(
+      `SELECT r.agent_type AS agentType,
+              COUNT(*) AS closedTasks,
+              SUM(${ApmeStore.JUDGED_SQL}) AS judged,
+              SUM(NOT ${ApmeStore.JUDGED_SQL} AND ${ApmeStore.DECLINED_SQL}) AS declined,
+              SUM(NOT ${ApmeStore.JUDGED_SQL} AND NOT ${ApmeStore.DECLINED_SQL}
+                  AND t.ended_at >= ?) AS waiting,
+              SUM(NOT ${ApmeStore.JUDGED_SQL} AND NOT ${ApmeStore.DECLINED_SQL}
+                  AND t.ended_at < ?) AS agedOut,
+              ${declinedFor('no_reply')} AS declinedNoReply,
+              ${declinedFor('aborted_only')} AS declinedAbortedOnly,
+              ${declinedFor('trivial')} AS declinedTrivial
+         FROM tasks t JOIN runs r ON r.id = t.run_id
+        WHERE t.ended_at IS NOT NULL AND t.ended_at >= ?
+        GROUP BY r.agent_type`,
+    ).all(opts.agedCutoffMs, opts.agedCutoffMs, opts.sinceMs) as Array<Record<string, unknown>>;
+    const byAgent = new Map<string, ApmeAgentCoverageRow>();
+    const row = (agentType: unknown): ApmeAgentCoverageRow => {
+      const key = String(agentType ?? 'unknown');
+      let r = byAgent.get(key);
+      if (!r) {
+        r = {
+          agentType: key, runs: 0, turns: 0, finishedTurns: 0, repliedTurns: 0, modelTurns: 0,
+          closedTasks: 0, judged: 0, declined: 0, waiting: 0, agedOut: 0,
+          declinedNoReply: 0, declinedAbortedOnly: 0, declinedTrivial: 0,
+        };
+        byAgent.set(key, r);
+      }
+      return r;
+    };
+    for (const r of runs) row(r.agentType).runs = Number(r.runs ?? 0);
+    for (const r of turns) {
+      const out = row(r.agentType);
+      out.turns = Number(r.turns ?? 0);
+      out.finishedTurns = Number(r.finishedTurns ?? 0);
+      out.repliedTurns = Number(r.repliedTurns ?? 0);
+      out.modelTurns = Number(r.modelTurns ?? 0);
+    }
+    for (const r of tasks) {
+      const out = row(r.agentType);
+      out.closedTasks = Number(r.closedTasks ?? 0);
+      out.judged = Number(r.judged ?? 0);
+      out.declined = Number(r.declined ?? 0);
+      out.waiting = Number(r.waiting ?? 0);
+      out.agedOut = Number(r.agedOut ?? 0);
+      out.declinedNoReply = Number(r.declinedNoReply ?? 0);
+      out.declinedAbortedOnly = Number(r.declinedAbortedOnly ?? 0);
+      out.declinedTrivial = Number(r.declinedTrivial ?? 0);
+    }
+    return [...byAgent.values()].sort((a, b) => a.agentType.localeCompare(b.agentType));
+  }
+
   stopDelivery(opts: { sinceMs: number; agentType?: string } = { sinceMs: 0 }): ApmeStopDeliveryRow[] {
     if (!this.db) return [];
     const params: unknown[] = [opts.sinceMs];
@@ -1335,6 +1422,7 @@ export class ApmeStore {
               SUM(t.end_source = 'interrupted') AS interrupted,
               SUM(t.end_source = 'aborted') AS aborted,
               SUM(t.end_source = 'superseded') AS superseded,
+              SUM(t.end_source = 'injected') AS injected,
               SUM(t.end_source IN ('session_end','clear')) AS sessionEnd,
               SUM(t.end_source = 'run_close') AS runClose,
               SUM(t.ended_at IS NULL) AS open,
@@ -1353,6 +1441,7 @@ export class ApmeStore {
       interrupted: Number(r.interrupted ?? 0),
       aborted: Number(r.aborted ?? 0),
       superseded: Number(r.superseded ?? 0),
+      injected: Number(r.injected ?? 0),
       sessionEnd: Number(r.sessionEnd ?? 0),
       runClose: Number(r.runClose ?? 0),
       open: Number(r.open ?? 0),
