@@ -7,6 +7,7 @@
 #endif
 
 #include "config.h"
+#include "heap_telemetry.h"
 
 namespace InternalReserve {
 
@@ -96,19 +97,24 @@ uint32_t minFreeBytes() {
 #endif
 }
 
+// Formatted on the stack: Print::printf mallocs for lines over 63 bytes.
 void logBoot() {
 #if CONFIG_SPIRAM
     if (requested == 0) return;
     char line[128];
-    if (capacity == 0) {
-        snprintf(line, sizeof(line), "[Reserve] none (psram=%s)", psramFound() ? "yes" : "no");
-    } else {
-        snprintf(line, sizeof(line), "[Reserve] internal pool %lu B usable in %lu region(s), %lu B requested%s",
-                 (unsigned long)capacity, (unsigned long)regions, (unsigned long)requested,
-                 minTracked ? "" : ", low-water untracked");
-    }
+    snprintf(line, sizeof(line), "[Reserve] at=boot capacity=%lu regions=%lu requested=%lu tracked=%d",
+             (unsigned long)capacity, (unsigned long)regions, (unsigned long)requested, minTracked ? 1 : 0);
     Serial.println(line);
 #endif
+}
+
+void logBeforeRestart(const char* at) {
+    if (capacity == 0 || !minTracked) return;
+    char line[160];
+    snprintf(line, sizeof(line), "[Reserve] at=%s capacity=%lu free=%lu min=%lu allocFailures=%lu", at,
+             (unsigned long)capacity, (unsigned long)freeBytes(), (unsigned long)minFreeBytes(),
+             (unsigned long)HeapTelemetry::failures());
+    Serial.println(line);
 }
 
 }  // namespace InternalReserve

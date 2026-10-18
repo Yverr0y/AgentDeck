@@ -1316,6 +1316,7 @@ static void handleOtaEnd(JsonObject& obj) {
 
     sendOtaAck(otaId, "end", UINT32_MAX, otaRx.written, otaRx.written);
     resetOtaRx();
+    InternalReserve::logBeforeRestart("ota-end");
     delay(250);
     ESP.restart();
 }

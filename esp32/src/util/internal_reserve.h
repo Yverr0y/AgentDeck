@@ -36,7 +36,12 @@ uint32_t freeBytes();
 bool minFreeKnown();
 uint32_t minFreeBytes();
 
-// One "[Reserve]" line: begin() runs before Serial is up.
+// Numeric "[Reserve] at=…" lines, the format the daemon logs under
+// esp32-heap. logBoot() exists because begin() runs before Serial is up;
+// logBeforeRestart() because a restart takes the low-water mark and the
+// failure count with it, and the moment before an OTA reboot is when the
+// WiFi driver has leaned on the pool hardest.
 void logBoot();
+void logBeforeRestart(const char* at);
 
 }  // namespace InternalReserve

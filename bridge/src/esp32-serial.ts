@@ -1009,6 +1009,10 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
       // once-a-minute re-request (sendHeartbeat), so this line is where a
       // failure shows up as it happens.
       logTagged('esp32-heap', `${conn.port}: ${line}`);
+    } else if (/^\[Reserve\] at=[a-z-]{1,16}( [A-Za-z]{1,16}=\d{1,10}){1,6}$/.test(line)) {
+      // The internal RAM pool at boot, and its low-water mark just before an
+      // OTA reboot takes it away (firmware util/internal_reserve.h).
+      logTagged('esp32-heap', `${conn.port}: ${line}`);
     }
     return;
   }
