@@ -24,12 +24,15 @@ describe('generated Codex approval hold mirror in sync', () => {
     expect(swift).toContain(`static let header = ${JSON.stringify(rulesMod.CODEX_APPROVAL_HOLD_HEADER)}`);
     expect(swift).toContain(JSON.stringify(rulesMod.CODEX_APPROVAL_DENY_MESSAGE));
     for (const event of rulesMod.CODEX_APPROVAL_RELEASING_EVENTS) expect(swift).toContain(JSON.stringify(event));
+    expect(swift).toContain(`static let allowIndex = ${rulesMod.CODEX_APPROVAL_ALLOW_INDEX}`);
+    expect(swift).toContain(`static let denyIndex = ${rulesMod.CODEX_APPROVAL_DENY_INDEX}`);
   });
 
   it('the Swift suite replays the shared vector file (grep the test wiring)', () => {
     const swiftTest = readFileSync(`${repoRoot}apple/AgentDeckTests/CodexApprovalHoldTests.swift`, 'utf8');
     expect(swiftTest).toContain('shared/codex-approval-hold-vectors.json');
     expect(swiftTest).toContain('CodexApprovalHoldRules.decision(');
+    expect(swiftTest).toContain('CodexApprovalHoldRules.pressDecision(');
     expect(swiftTest).toContain('CodexConfigInstaller.buildApprovalHoldCommand()');
   });
 });

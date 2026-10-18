@@ -6,9 +6,11 @@ import {
   codexApprovalDecisionBody,
   codexApprovalHoldMs,
   codexHoldDecision,
+  codexHoldPressDecision,
   codexHoldReleasedBy,
   type CodexApprovalOutcome,
   type CodexHoldEligibility,
+  type CodexHoldPress,
 } from '../codex-approval-hold.js';
 
 const VECTORS = JSON.parse(readFileSync(
@@ -18,6 +20,7 @@ const VECTORS = JSON.parse(readFileSync(
   budgets: Array<{ name: string; header: string; defaultMs: number; holdMs: number | null }>;
   eligibility: Array<{ name: string; input: Partial<CodexHoldEligibility>; hold: boolean; reason: string }>;
   eligibilityDefaults: CodexHoldEligibility;
+  presses: Array<{ name: string; press: CodexHoldPress; decision: 'allow' | 'deny' | null }>;
   releasingEvents: string[];
   nonReleasingEvents: string[];
 };
@@ -48,6 +51,12 @@ describe('Codex approval hold rules (shared vectors)', () => {
   for (const v of VECTORS.eligibility) {
     it(`eligibility: ${v.name}`, () => {
       expect(codexHoldDecision({ ...VECTORS.eligibilityDefaults, ...v.input })).toEqual({ hold: v.hold, reason: v.reason });
+    });
+  }
+
+  for (const v of VECTORS.presses) {
+    it(`press: ${v.name}`, () => {
+      expect(codexHoldPressDecision(v.press)).toBe(v.decision);
     });
   }
 

@@ -28,11 +28,16 @@ export function rulesFrom(mod) {
     marginMs: mod.CODEX_APPROVAL_HOLD_MARGIN_MS,
     minMs: mod.CODEX_APPROVAL_HOLD_MIN_MS,
     releasingEvents: [...mod.CODEX_APPROVAL_RELEASING_EVENTS],
+    allowIndex: mod.CODEX_APPROVAL_ALLOW_INDEX,
+    denyIndex: mod.CODEX_APPROVAL_DENY_INDEX,
+    allowWords: [...mod.CODEX_APPROVAL_ALLOW_WORDS],
+    denyWords: [...mod.CODEX_APPROVAL_DENY_WORDS],
   };
 }
 
 export function emitSwift(rules) {
   const events = rules.releasingEvents.map((e) => `        ${str(e)},`).join('\n');
+  const words = (list) => `[${list.map(str).join(', ')}]`;
   return `// GENERATED FILE — DO NOT EDIT.
 // Source of truth: shared/src/codex-approval-hold.ts
 // Regenerate: pnpm generate-codex-approval-hold (drift gated by shared/src/__tests__/codex-approval-hold-sync.test.ts)
@@ -91,6 +96,33 @@ ${events}
               let seconds = Int(value) else { return nil }
         let holdMs = min(defaultMs, seconds * 1000 - holdMarginMs)
         return holdMs >= holdMinMs ? holdMs : nil
+    }
+
+    /// A deck's Allow / Deny keys answer a held approval with an option press
+    /// on the session, not with \`permission_decision\`. Allow first.
+    static let allowIndex = ${rules.allowIndex}
+    static let denyIndex = ${rules.denyIndex}
+    /// \`respond\` carries the option's shortcut.
+    static let allowWords: Set<String> = ${words(rules.allowWords)}
+    static let denyWords: Set<String> = ${words(rules.denyWords)}
+
+    /// The decision an option press makes on a held approval. nil = not an
+    /// Allow or a Deny, and nothing is resolved.
+    static func pressDecision(type: String, index: Int?, value: String?) -> String? {
+        switch type {
+        case "select_option":
+            if index == allowIndex { return "allow" }
+            if index == denyIndex { return "deny" }
+            return nil
+        case "respond":
+            guard let value else { return nil }
+            let word = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if allowWords.contains(word) { return "allow" }
+            if denyWords.contains(word) { return "deny" }
+            return nil
+        default:
+            return nil
+        }
     }
 
     struct Eligibility: Equatable {

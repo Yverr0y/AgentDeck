@@ -62,6 +62,33 @@ enum CodexApprovalHoldRules {
         return holdMs >= holdMinMs ? holdMs : nil
     }
 
+    /// A deck's Allow / Deny keys answer a held approval with an option press
+    /// on the session, not with `permission_decision`. Allow first.
+    static let allowIndex = 0
+    static let denyIndex = 1
+    /// `respond` carries the option's shortcut.
+    static let allowWords: Set<String> = ["y", "yes"]
+    static let denyWords: Set<String> = ["n", "no"]
+
+    /// The decision an option press makes on a held approval. nil = not an
+    /// Allow or a Deny, and nothing is resolved.
+    static func pressDecision(type: String, index: Int?, value: String?) -> String? {
+        switch type {
+        case "select_option":
+            if index == allowIndex { return "allow" }
+            if index == denyIndex { return "deny" }
+            return nil
+        case "respond":
+            guard let value else { return nil }
+            let word = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if allowWords.contains(word) { return "allow" }
+            if denyWords.contains(word) { return "deny" }
+            return nil
+        default:
+            return nil
+        }
+    }
+
     struct Eligibility: Equatable {
         /// `AGENTDECK_OBSERVED_APPROVAL` kill switch, shared with Claude's hold.
         var enabled: Bool

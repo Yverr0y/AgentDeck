@@ -12,6 +12,7 @@ const VECTORS = JSON.parse(readFileSync(
   decisions: Array<{ decision: string; body: unknown }>;
   capturedPermissionRequest: Record<string, unknown>;
   capturedQuestion: string;
+  presses: Array<{ name: string; press: Record<string, unknown>; decision: 'allow' | 'deny' | null }>;
 };
 
 describe('Codex approval hold in the Node daemon', () => {
@@ -44,6 +45,48 @@ describe('CodexApprovalHolds', () => {
     const current = holds.begin('s1');
     expect(holds.finish('s1', 'stale-request', 'pass')).toBe('pass');
     expect(holds.requestIdFor('s1')).toBe(current);
+  });
+});
+
+describe('a deck press on an open hold', () => {
+  const allow = { type: 'select_option', index: 0 };
+
+  it('answers with the decision the shared press vectors name', () => {
+    const holds = new CodexApprovalHolds();
+    const requestId = holds.begin('s1');
+    const shown = { question: VECTORS.capturedQuestion, requestId };
+    for (const v of VECTORS.presses) {
+      const press = holds.press('s1', v.press, shown);
+      if (v.press.type !== 'select_option' && v.press.type !== 'respond') expect(press, v.name).toBeNull();
+      else if (v.decision) expect(press, v.name).toEqual({ kind: 'answer', requestId, decision: v.decision });
+      else expect(press, v.name).toEqual({ kind: 'not-an-answer' });
+    }
+  });
+
+  it('leaves a session with no open hold to its usual route', () => {
+    const holds = new CodexApprovalHolds();
+    expect(holds.press('s1', allow, undefined)).toBeNull();
+    holds.finish('s1', holds.begin('s1'), 'pass');
+    expect(holds.press('s1', allow, undefined)).toBeNull();
+    holds.begin('s2');
+    expect(holds.press('s1', allow, undefined)).toBeNull();
+  });
+
+  it('drops a press that echoes a prompt the hold does not show', () => {
+    const holds = new CodexApprovalHolds();
+    const requestId = holds.begin('s1');
+    const shown = { question: VECTORS.capturedQuestion, requestId };
+    const answer = { kind: 'answer', requestId, decision: 'allow' };
+    expect(holds.press('s1', { ...allow, question: VECTORS.capturedQuestion }, shown)).toEqual(answer);
+    // A device that cut the question short still names it.
+    expect(holds.press('s1', { ...allow, question: VECTORS.capturedQuestion.slice(0, 26) }, shown)).toEqual(answer);
+    expect(holds.press('s1', { ...allow, question: 'Approve Bash: rm -rf build' }, shown)).toEqual({ kind: 'stale' });
+    // The row no longer carries this hold's button.
+    expect(holds.press('s1', { ...allow, question: VECTORS.capturedQuestion }, { question: VECTORS.capturedQuestion }))
+      .toEqual({ kind: 'stale' });
+    expect(holds.press('s1', { ...allow, question: VECTORS.capturedQuestion }, undefined)).toEqual({ kind: 'stale' });
+    // No echo leaves nothing to check: the open hold is answered.
+    expect(holds.press('s1', allow, undefined)).toEqual(answer);
   });
 });
 

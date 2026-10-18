@@ -495,7 +495,7 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     }
   });
 
-  it.runIf(POSIX)('holds a Codex approval for a device decision and releases it when the turn ends', async () => {
+  it.runIf(POSIX)('holds a Codex approval for a device decision, from a deck key too, and releases it when the turn ends', async () => {
     const vectors = JSON.parse(readFileSync(join(ROOT, 'shared/codex-approval-hold-vectors.json'), 'utf8')) as {
       capturedPermissionRequest: Record<string, unknown>;
       capturedQuestion: string;
@@ -526,7 +526,10 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
       const list = frames.filter((f) => f.type === 'sessions_list').at(-1);
       return (list?.sessions as Array<Record<string, unknown>> | undefined)?.find((r) => r.id === rowId);
     };
-    const turns = ['01a14c63-9500-7e71-b111-00000000e201', '01a14c63-9500-7e71-b111-00000000e202', '01a14c63-9500-7e71-b111-00000000e203'];
+    const turns = [
+      '01a14c63-9500-7e71-b111-00000000e201', '01a14c63-9500-7e71-b111-00000000e202', '01a14c63-9500-7e71-b111-00000000e203',
+      '01a14c63-9500-7e71-b111-00000000e204', '01a14c63-9500-7e71-b111-00000000e205',
+    ];
     // No device connected: the hold must not stall the terminal at all, and
     // the prompt still reaches the row as display-only (no button).
     await postHook(daemon.port, 'codex_session_start', { ...base, hook_event_name: 'SessionStart', source: 'startup' });
@@ -558,6 +561,41 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
           return r && !r.requestId && r.state !== 'awaiting_permission' ? true : undefined;
         });
       }
+      // The Stream Deck's Allow / Deny keys send an option press on the
+      // session inside session_command, echoing the question they show — no
+      // permission_decision. The Deny pressed against another prompt (the
+      // hold it was drawn for has been replaced) must answer nothing, so the
+      // decision that reaches Codex is the Allow that names this one.
+      await postHook(daemon.port, 'codex_user_prompt_submit', { ...base, turn_id: turns[3], hook_event_name: 'UserPromptSubmit', prompt: 'approval by deck key' });
+      const keyed = runHold(turns[3]);
+      const keyHeld = await waitFor('held approval (deck key)', () => {
+        const r = row(client.frames);
+        return typeof r?.requestId === 'string' ? r : undefined;
+      });
+      const press = (index: number, question: unknown) =>
+        client.send({ type: 'session_command', sessionId: rowId, command: { type: 'select_option', index, question } });
+      press(1, 'Approve Bash: rm -rf build');
+      press(0, keyHeld.question);
+      const keyOut = await keyed;
+      expect(keyOut.code).toBe(0);
+      expect(JSON.parse(keyOut.stdout)).toEqual(body('allow'));
+      await waitFor('prompt cleared after the deck key', () => {
+        const r = row(client.frames);
+        return r && !r.requestId && r.state !== 'awaiting_permission' ? true : undefined;
+      });
+      // A multi-up panel names the session on a bare select_option, its id
+      // cut to the 31 characters a firmware buffer holds.
+      await postHook(daemon.port, 'codex_user_prompt_submit', { ...base, turn_id: turns[4], hook_event_name: 'UserPromptSubmit', prompt: 'approval by panel' });
+      const paneled = runHold(turns[4]);
+      await waitFor('held approval (panel)', () => (typeof row(client.frames)?.requestId === 'string' ? true : undefined));
+      client.send({ type: 'select_option', sessionId: rowId.slice(0, 31), index: 1 });
+      const panelOut = await paneled;
+      expect(panelOut.code).toBe(0);
+      expect(JSON.parse(panelOut.stdout)).toEqual(body('deny'));
+      await waitFor('prompt cleared after the panel press', () => {
+        const r = row(client.frames);
+        return r && !r.requestId && r.state !== 'awaiting_permission' ? true : undefined;
+      });
       // Ctrl+C under a hold ends the turn it waited in: released with nothing
       // printed, and the prompt goes with the turn instead of lingering.
       await postHook(daemon.port, 'codex_user_prompt_submit', { ...base, turn_id: turns[2], hook_event_name: 'UserPromptSubmit', prompt: 'approval interrupted' });

@@ -5555,6 +5555,26 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       if (isPendingRequest(requestId)) passPending(requestId);
     });
   }
+  /** A deck's Allow / Deny keys on a held Codex approval send an option press
+   *  on the session (the Stream Deck: `select_option` 0 / 1 inside
+   *  `session_command`), never `permission_decision`. Answer the hold through
+   *  the resolution `permission_decision` uses. False = no hold is open on the
+   *  session, and the caller routes the command as before. */
+  function answerCodexApproval(sessionId: string, command: Record<string, unknown>): boolean {
+    const sid = rawSessionId(sessionId);
+    const press = codexApprovalHolds.press(sid, command, getAwaitingOverlay(sid));
+    if (!press) return false;
+    if (press.kind === 'answer') {
+      debug('daemon', `Codex approval answered by a press: ${press.decision} (${sid.slice(0, 8)})`);
+      resolvePending(press.requestId, press.decision);
+    } else if (press.kind === 'stale') {
+      debug('daemon', `Codex approval press dropped: answers a prompt the hold no longer shows (${sid.slice(0, 8)})`);
+      core.broadcastSessionsList().catch(() => {});
+    } else {
+      debug('daemon', `Codex approval press ignored: not an Allow or a Deny (${sid.slice(0, 8)})`);
+    }
+    return true;
+  }
   /** Undo everything a Codex thread's hooks created before it was classified
    *  as not-a-session (ambient suggestion thread, headless child). */
   function retractCodexThread(sid: string, reason: string): void {
@@ -6707,6 +6727,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         }
         return;
       }
+      // Observed Codex: the deck's Allow / Deny keys answer a held approval.
+      // With no hold open the press is dropped below, as before.
+      if (typeof sessionId === 'string' && answerCodexApproval(sessionId, command)) return;
       const sessions = listActiveSessions();
       const target = sessions.find(s => s.id === sessionId) ?? getRemoteSession(sessionId);
       if (!target) {
@@ -6734,6 +6757,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         handleObservedClaudeCommand(sessionId.slice('observed:claude:'.length), cmd as any);
         return;
       }
+      if (answerCodexApproval(sessionId, cmd as unknown as Record<string, unknown>)) return;
       const target = listActiveSessions().find(s => s.id === sessionId) ?? getRemoteSession(sessionId);
       if (target) {
         userFocusedSessionId = sessionId;

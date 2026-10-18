@@ -75,6 +75,39 @@ export function codexHoldReleasedBy(event: string): boolean {
   return CODEX_APPROVAL_RELEASING_EVENTS.includes(event);
 }
 
+/** A deck's Allow / Deny keys answer a held approval with an option press on
+ *  the session (the Stream Deck's observed detail view sends `select_option`,
+ *  wrapped in `session_command`), not with `permission_decision`. The index
+ *  order is the deck's: Allow first. */
+export const CODEX_APPROVAL_ALLOW_INDEX = 0;
+export const CODEX_APPROVAL_DENY_INDEX = 1;
+/** `respond` carries the option's shortcut. */
+export const CODEX_APPROVAL_ALLOW_WORDS: readonly string[] = ['y', 'yes'];
+export const CODEX_APPROVAL_DENY_WORDS: readonly string[] = ['n', 'no'];
+
+export interface CodexHoldPress {
+  type?: unknown;
+  index?: unknown;
+  value?: unknown;
+}
+
+/** The decision an option press makes on a held approval. `null` = the press
+ *  is not an Allow or a Deny (another index, an unknown word), and nothing is
+ *  resolved — a press is never guessed into a decision. */
+export function codexHoldPressDecision(press: CodexHoldPress): 'allow' | 'deny' | null {
+  if (press.type === 'select_option') {
+    if (press.index === CODEX_APPROVAL_ALLOW_INDEX) return 'allow';
+    if (press.index === CODEX_APPROVAL_DENY_INDEX) return 'deny';
+    return null;
+  }
+  if (press.type === 'respond' && typeof press.value === 'string') {
+    const word = press.value.trim().toLowerCase();
+    if (CODEX_APPROVAL_ALLOW_WORDS.includes(word)) return 'allow';
+    if (CODEX_APPROVAL_DENY_WORDS.includes(word)) return 'deny';
+  }
+  return null;
+}
+
 export interface CodexHoldEligibility {
   /** `AGENTDECK_OBSERVED_APPROVAL` kill switch, shared with Claude's hold. */
   enabled: boolean;

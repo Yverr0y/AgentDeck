@@ -148,6 +148,101 @@ final class CodexApprovalHoldTests: XCTestCase {
         }
     }
 
+    func testPresses() throws {
+        let rows = try XCTUnwrap(try vectors()["presses"] as? [[String: Any]])
+        XCTAssertFalse(rows.isEmpty)
+        for row in rows {
+            let name = row["name"] as? String ?? "?"
+            let press = try XCTUnwrap(row["press"] as? [String: Any], name)
+            XCTAssertEqual(
+                CodexApprovalHoldRules.pressDecision(
+                    type: press["type"] as? String ?? "", index: press["index"] as? Int,
+                    value: press["value"] as? String),
+                row["decision"] as? String, name)
+        }
+    }
+
+    // MARK: - A deck press on an open hold
+    //
+    // `codexApprovalPress` is what `DaemonServer.answerCodexApproval` decides
+    // with; the routing that calls it lives in `handleCommand`, which has no
+    // test seam (the Node e2e suite drives the same routes on a real daemon).
+
+    func testAPressAnswersTheOpenHoldWithTheSharedDecision() throws {
+        let v = try vectors()
+        let question = try XCTUnwrap(v["capturedQuestion"] as? String)
+        for row in try XCTUnwrap(v["presses"] as? [[String: Any]]) {
+            let name = row["name"] as? String ?? "?"
+            let press = try XCTUnwrap(row["press"] as? [String: Any], name)
+            let verdict = DaemonServer.codexApprovalPress(
+                command: press, heldRequestId: "req-1", shownRequestId: "req-1", shownQuestion: question)
+            let type = press["type"] as? String
+            if type != "select_option" && type != "respond" {
+                XCTAssertNil(verdict, name)
+            } else if let decision = row["decision"] as? String {
+                XCTAssertEqual(verdict, .answer(requestId: "req-1", decision: decision), name)
+            } else {
+                XCTAssertEqual(verdict, .notAnAnswer, name)
+            }
+        }
+    }
+
+    func testAPressWithNoOpenHoldTakesItsUsualRoute() {
+        XCTAssertNil(DaemonServer.codexApprovalPress(
+            command: ["type": "select_option", "index": 0], heldRequestId: nil,
+            shownRequestId: nil, shownQuestion: "Approve Bash: ls"))
+    }
+
+    func testAPressEchoingAPromptTheHoldDoesNotShowIsDropped() throws {
+        let question = try XCTUnwrap(try vectors()["capturedQuestion"] as? String)
+        func press(_ echo: String?, shownRequestId: String? = "req-1") -> DaemonServer.CodexApprovalPress? {
+            var command: [String: Any] = ["type": "select_option", "index": 0]
+            if let echo { command["question"] = echo }
+            return DaemonServer.codexApprovalPress(
+                command: command, heldRequestId: "req-1", shownRequestId: shownRequestId, shownQuestion: question)
+        }
+        let answer = DaemonServer.CodexApprovalPress.answer(requestId: "req-1", decision: "allow")
+        XCTAssertEqual(press(question), answer)
+        // A device that cut the question short still names it.
+        XCTAssertEqual(press(String(question.prefix(26))), answer)
+        XCTAssertEqual(press("Approve Bash: rm -rf build"), .stale)
+        // The row no longer carries this hold's button.
+        XCTAssertEqual(press(question, shownRequestId: nil), .stale)
+        // No echo leaves nothing to check: the open hold is answered.
+        XCTAssertEqual(press(nil, shownRequestId: nil), answer)
+    }
+
+    // MARK: - permission_decision names its approval
+
+    /// A decision for a hold or gate that is already answered must not fall
+    /// through to the OpenClaw approval that happens to be up — it used to
+    /// approve it (`allow` → allow-once).
+    func testADecisionResolvesOnlyTheOpenClawApprovalItNames() async throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("tests/parity/gateway-frames/exec-approval-requested.json")
+        let frame = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let payload = try XCTUnwrap(frame["payload"] as? [String: Any])
+        let approvalId = try XCTUnwrap(payload["id"] as? String)
+
+        let adapter = OpenClawAdapter(gatewayUrl: "ws://127.0.0.1:9")
+        let none = await adapter.resolvePendingApproval(requestId: approvalId, decision: "allow")
+        XCTAssertFalse(none, "no approval is up")
+        await adapter.receiveGatewayEventForTesting("exec.approval.requested", payload: payload)
+        let shown = await adapter.activeApprovalId()
+        XCTAssertEqual(shown, approvalId)
+
+        let unknown = await adapter.resolvePendingApproval(
+            requestId: "019a0000-0000-7000-8000-00000000c0de", decision: "allow")
+        XCTAssertFalse(unknown, "an id the approval does not carry resolves nothing")
+        let named = await adapter.resolvePendingApproval(requestId: approvalId, decision: "allow")
+        XCTAssertTrue(named, "the approval's own id still resolves it")
+
+        // Clear it, which also stops its reconcile watch.
+        await adapter.receiveGatewayEventForTesting("exec.approval.resolved", payload: ["id": approvalId])
+        let cleared = await adapter.activeApprovalId()
+        XCTAssertNil(cleared)
+    }
+
     func testCapturedRequestReadsAsTheSharedQuestionOnItsSessionRow() throws {
         let v = try vectors()
         let request = try XCTUnwrap(v["capturedPermissionRequest"] as? [String: Any])
