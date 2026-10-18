@@ -13,7 +13,7 @@ import type {
   BridgeEvent,
   WifiProvisionMessage,
 } from '@agentdeck/shared/protocol';
-import { State, PermissionMode } from '@agentdeck/shared';
+import { State, PermissionMode, type TimelineEntry } from '@agentdeck/shared';
 import ciProjection from '../../../shared/ci-wait-projection-vectors.json';
 import {
   prepareForSerial,
@@ -46,6 +46,8 @@ import {
   type SerialConnection,
 } from '../esp32-serial.js';
 import { boardTimelineSeed } from '../board-timeline-entry.js';
+import { wireSessionTimelineReplies } from '../session-timeline-reply.js';
+import { resolveSessionIdPrefix } from '../session-id-resolve.js';
 
 describe('CI waiting evidence projection', () => {
   it('serializes the same pending/terminal evidence as the full waitingOn policy', () => {
@@ -774,46 +776,56 @@ describe('query_session_timeline over serial', () => {
     port: '/dev/cu.usbmodem-knob', connected: true, deviceInfo: { board: 't_embed' }, deviceInfoFresh: true,
     lastReadAt: 0, writeQueue: [] as string[], writeTimer: {} as ReturnType<typeof setTimeout>,
   }) as unknown as SerialConnection;
+  // A real session id is a 36-char UUID. The board holds the 31-byte cut its
+  // sessions_list carried, asks with that, and strcmp()s the reply against it.
+  const FULL_ID = 'a3dab322-5f0e-4c6b-9d1a-7e2f40c0ffee';
+  const BOARD_ID = FULL_ID.slice(0, 31);
+  const wire = (rows: Array<Record<string, unknown>>) => wireSessionTimelineReplies({
+    resolveSessionId: (raw) => (typeof raw === 'string' && raw ? resolveSessionIdPrefix(raw, [FULL_ID]) : ''),
+    entriesFor: (sessionId) => (sessionId === FULL_ID ? rows : []) as unknown as TimelineEntry[],
+  });
 
-  it('answers the board on its own line instead of forwarding the query as a command', () => {
-    const queries: unknown[] = [];
+  it('answers the board on its own line, under the id the board asked with', () => {
     const commands: unknown[] = [];
     setSerialCommandSink((cmd) => commands.push(cmd));
-    setSerialTimelineQueryHandler((query) => {
-      queries.push(query);
-      return {
-        type: 'timeline_history', sessionId: 's1',
-        entries: [{ ts: 1752700000000, type: 'chat_response', raw: 'x'.repeat(300) }],
-      } as unknown as BridgeEvent;
-    });
+    wire([
+      { ts: 1752700000000, type: 'chat_start', raw: 'run the suite', sessionId: FULL_ID },
+      { ts: 1752700001000, type: 'tool_request', raw: 'Bash requested', sessionId: FULL_ID, toolEvent: true },
+      // A long reply as the newest row: 9 KB of detail, past the whole budget.
+      { ts: 1752700002000, type: 'chat_response', raw: 'x'.repeat(300), detail: '完'.repeat(3000), sessionId: FULL_ID },
+    ]);
     try {
       const conn = queueConn();
-      handleSerialLine(conn, '{"type":"query_session_timeline","sessionId":"s1"}');
-      expect(queries).toEqual([{ type: 'query_session_timeline', sessionId: 's1' }]);
+      handleSerialLine(conn, JSON.stringify({ type: 'query_session_timeline', sessionId: BOARD_ID }));
       expect(commands).toEqual([]);
       expect(conn.writeQueue).toHaveLength(1);
       const reply = JSON.parse(conn.writeQueue[0]);
-      // Still scoped to the session the knob asked about, and shaped like any
-      // other serial frame on its way out.
       expect(reply.type).toBe('timeline_history');
-      expect(reply.sessionId).toBe('s1');
-      expect(reply.entries[0].raw).toHaveLength(119);
-      expect(reply.entries[0].localHm).toMatch(/^\d\d:\d\d$/);
+      expect(reply.sessionId).toBe(BOARD_ID);
+      expect(reply.entries.map((e: { type: string }) => e.type)).toEqual(['chat_start', 'chat_response']);
+      expect(reply.entries[1].raw).toHaveLength(119);
+      expect(Buffer.byteLength(reply.entries[1].detail, 'utf8')).toBeLessThanOrEqual(199);
+      expect(reply.entries[1].localHm).toMatch(/^\d\d:\d\d$/);
 
       // The commands that share the old forward list still reach the sink.
       handleSerialLine(conn, '{"type":"focus_session","sessionId":"s1"}');
       expect(commands).toEqual([{ type: 'focus_session', sessionId: 's1' }]);
     } finally {
-      setSerialCommandSink(() => {});
-      setSerialTimelineQueryHandler(() => null);
+      setSerialCommandSink(null);
+      setSerialTimelineQueryHandler(null);
     }
   });
 
-  it('sends nothing when there is no timeline to answer with', () => {
-    setSerialTimelineQueryHandler(() => null);
-    const conn = queueConn();
-    handleSerialLine(conn, '{"type":"query_session_timeline","sessionId":"gone"}');
-    expect(conn.writeQueue).toEqual([]);
+  it('sends nothing for a session with no rows to answer with', () => {
+    wire([]);
+    try {
+      const conn = queueConn();
+      handleSerialLine(conn, JSON.stringify({ type: 'query_session_timeline', sessionId: BOARD_ID }));
+      handleSerialLine(conn, '{"type":"query_session_timeline","sessionId":""}');
+      expect(conn.writeQueue).toEqual([]);
+    } finally {
+      setSerialTimelineQueryHandler(null);
+    }
   });
 });
 

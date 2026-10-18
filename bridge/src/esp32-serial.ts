@@ -931,7 +931,7 @@ let serialTimelineQueryHandler: ((query: { sessionId?: unknown; since?: unknown 
 export function setSerialQuiesceCheck(check: (port: string) => boolean): void {
   serialQuiesceCheck = check;
 }
-export function setSerialCommandSink(sink: (cmd: Record<string, unknown>) => void): void {
+export function setSerialCommandSink(sink: ((cmd: Record<string, unknown>) => void) | null): void {
   serialCommandSink = sink;
 }
 
@@ -941,7 +941,7 @@ export function setSerialCommandSink(sink: (cmd: Record<string, unknown>) => voi
  * port to answer on, and nothing behind it handles the query at all.
  */
 export function setSerialTimelineQueryHandler(
-  handler: (query: { sessionId?: unknown; since?: unknown }) => BridgeEvent | null,
+  handler: ((query: { sessionId?: unknown; since?: unknown }) => BridgeEvent | null) | null,
 ): void {
   serialTimelineQueryHandler = handler;
 }

@@ -144,12 +144,15 @@ describe('Pixoo subagent activity', () => {
 
   it('keeps a running fan-out through a burst of Claude tool rows', () => {
     broadcastPixoo({ type: 'timeline_history', entries: [] } as any);
-    broadcastPixoo({ type: 'timeline_event', entry: dispatch } as any);
-    for (const entry of toolRows) broadcastPixoo({ type: 'timeline_event', entry } as any);
-    expect(currentSubagentActivity(now).s1?.activeCount).toBe(3);
+    try {
+      broadcastPixoo({ type: 'timeline_event', entry: dispatch } as any);
+      for (const entry of toolRows) broadcastPixoo({ type: 'timeline_event', entry } as any);
+      expect(currentSubagentActivity(now).s1?.activeCount).toBe(3);
 
-    broadcastPixoo({ type: 'timeline_history', entries: [dispatch, ...toolRows] } as any);
-    expect(currentSubagentActivity(now).s1?.activeCount).toBe(3);
-    broadcastPixoo({ type: 'timeline_history', entries: [] } as any);
+      broadcastPixoo({ type: 'timeline_history', entries: [dispatch, ...toolRows] } as any);
+      expect(currentSubagentActivity(now).s1?.activeCount).toBe(3);
+    } finally {
+      broadcastPixoo({ type: 'timeline_history', entries: [] } as any);
+    }
   });
 });

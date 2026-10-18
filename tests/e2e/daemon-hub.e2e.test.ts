@@ -137,9 +137,9 @@ async function stopDaemon(daemon: Daemon): Promise<{ selfExited: boolean }> {
   return { selfExited: !forced };
 }
 
-/** A dashboard client: collects every frame the hub pushes. */
-async function connect(port: number): Promise<{ frames: Frame[]; send: (msg: Record<string, unknown>) => void; close: () => void }> {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+/** A dashboard client (or, with `?clientType=esp32`, a board): collects every frame the hub pushes. */
+async function connect(port: number, path = ''): Promise<{ frames: Frame[]; send: (msg: Record<string, unknown>) => void; close: () => void }> {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${path}`);
   const frames: Frame[] = [];
   ws.addEventListener('message', (ev) => {
     try { frames.push(JSON.parse(String(ev.data)) as Frame); } catch { /* binary frames are not part of this contract */ }
@@ -301,6 +301,48 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
       });
     } finally {
       client.close();
+    }
+  });
+
+  it('answers a board asking for a session by the cut id it holds, even after a long reply', async () => {
+    // A board holds session ids cut to 31 bytes and matches a reply against
+    // the id it asked with; a reply under the resolved id, or one whose
+    // newest row was a long reply too big for the frame budget, left the
+    // knob's History view empty. A Codex session, since its roster row needs
+    // no live process behind the hook.
+    const session = { ...SESSION, session_id: 'e2eb0a4d-5f0e-4c6b-9d1a-7e2f40c0ffee', permission_mode: 'bypassPermissions' };
+    const dashboard = await connect(daemon.port);
+    const board = await connect(daemon.port, '/?clientType=esp32');
+    try {
+      await postHook(daemon.port, 'codex_session_start', session);
+      await postHook(daemon.port, 'codex_user_prompt_submit', { ...session, prompt: 'e2e: summarise the run' });
+      await postHook(daemon.port, 'codex_stop', { ...session, last_assistant_message: '완료된 단계 '.repeat(600) });
+      await waitFor('the reply on the wire', () => dashboard.frames.find((f) => f.type === 'timeline_event'
+        && (f.entry as Record<string, unknown>)?.sessionId === session.session_id
+        && (f.entry as Record<string, unknown>)?.type === 'chat_response'))
+        .catch((err: unknown) => { throw new Error(`${String(err)}\n${daemon.log().slice(-3000)}`); });
+
+      // The id the board holds is whatever its own roster carried, cut to fit.
+      const boardId = await waitFor('the session in the board\'s roster', () => {
+        for (const f of board.frames) {
+          if (f.type !== 'sessions_list' || !Array.isArray(f.sessions)) continue;
+          for (const listed of f.sessions as Array<{ id?: unknown }>) {
+            const id = typeof listed.id === 'string' ? listed.id : '';
+            if (id.length === 31 && `observed:codex:${session.session_id}`.startsWith(id)) return id;
+          }
+        }
+        return undefined;
+      });
+      board.send({ type: 'query_session_timeline', sessionId: boardId });
+      const history = await waitFor('the board\'s History reply', () => board.frames.find(
+        (f) => f.type === 'timeline_history' && f.sessionId === boardId)) as { entries: Array<Record<string, unknown>> };
+      expect(JSON.stringify(history).length).toBeLessThan(4096);
+      const turn = history.entries.filter((e) => e.type === 'chat_start' || e.type === 'chat_response');
+      expect(turn.map((e) => e.type)).toEqual(['chat_start', 'chat_response']);
+      expect(Buffer.byteLength(String(turn[1].detail ?? ''), 'utf8')).toBeLessThanOrEqual(199);
+    } finally {
+      board.close();
+      dashboard.close();
     }
   });
 
