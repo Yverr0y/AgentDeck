@@ -1239,6 +1239,10 @@ final class DaemonServer {
     /// overwrite their awaiting_permission overlay from parallel tool hooks
     /// while the device decision is pending (≤ hold timeout).
     private var heldGateSessionIds: Set<String> = []
+    /// Open Codex device-approval holds: session key → the requestId devices
+    /// answer (CodexApprovalHoldRules). A held session is also in
+    /// `heldGateSessionIds` until its hold is released.
+    private var codexHoldRequestBySession: [String: String] = [:]
     /// A structured direct-Claude AskUserQuestion wait.
     ///
     /// One call may carry up to four question groups while SessionInfo has room
@@ -3863,6 +3867,13 @@ final class DaemonServer {
             // agent process. The only session→process link this daemon has.
             let hookPid = Int(request.headers["x-agentdeck-pid"] ?? "")
             guard let self else { return .json(["received": true]) }
+            // Codex device approval (opt-in): the hold handler's twin of the
+            // notification, answered by the hold alone and never ingested —
+            // the notification handler already was (CodexApprovalHoldRules).
+            if rawName == "codex_permission_request",
+               let budget = request.headers[CodexApprovalHoldRules.header] {
+                return await self.holdCodexApproval(body: bodyData, budgetHeader: budget)
+            }
             // A Codex payload on a Claude endpoint is never a Claude steering
             // call (#490): no PreToolUse gate, no Stop directive — the queued
             // deck command would be handed to Codex. Ingest it (re-routed in
@@ -5001,19 +5012,17 @@ final class DaemonServer {
                 return
             }
             let gw = gatewayAdapter
-            // Send ONLY the two params the method takes. Forwarding the whole
-            // device command dragged `type`/`requestId` into the RPC alongside a
-            // decision spelling the Gateway does not accept.
-            let cmdBox = SendableDict(["type": "respond", "value": decision])
             Task {
                 if await ObservedSteering.shared.resolveGate(requestId: requestId, decision: decision) != nil {
                     return // held route handler resumes + clears the overlay
                 }
-                if let gw {
-                    await gw.resolvePendingApproval(command: cmdBox.value)
-                } else {
-                    DaemonLogger.shared.debug("Daemon", "permission_decision: no gate/gateway for request \(requestId)")
+                // Only the OpenClaw approval this id names. Falling through on
+                // any id resolved whichever approval was up — so a late press
+                // for an answered Codex hold or Claude gate approved it.
+                if let gw, await gw.resolvePendingApproval(requestId: requestId, decision: decision) {
+                    return
                 }
+                DaemonLogger.shared.info("permission_decision: no gate or approval for request \(requestId), nothing resolved")
             }
             return
         }
@@ -5093,6 +5102,18 @@ final class DaemonServer {
                 }
             }
             return
+        }
+
+        // Observed Codex: a deck's Allow / Deny keys answer a held approval
+        // with an option press on the session — inside session_command (the
+        // Stream Deck) or bare with its sessionId (multi-up panels) — never
+        // with permission_decision. Ahead of the focused-session fallback
+        // below, which hands a bare press to a focused Claude session. With no
+        // hold open the routes below take the command as before.
+        if let sessionId = cmd["sessionId"] as? String {
+            let press: [String: Any]? = type == "session_command" ? cmd["command"] as? [String: Any]
+                : type == "select_option" ? cmd : nil
+            if let press, answerCodexApproval(sessionId: sessionId, command: press) { return }
         }
 
         // `client_register` is intercepted in `handleWSCommand` (it needs
@@ -6112,6 +6133,14 @@ final class DaemonServer {
             claudeTranscriptPathBySession[sessionId] = tp
         }
 
+        // A held Codex approval waits inside one turn. The turn ending (Ctrl+C,
+        // stop, a new prompt) releases it before the state below is applied —
+        // the hold would otherwise keep `updateSessionHookState` out.
+        if isCodexEvent, let sessionId, codexHoldRequestBySession[sessionId] != nil,
+           CodexApprovalHoldRules.releasingEvents.contains(event) {
+            await releaseCodexHold(sessionId: sessionId)
+        }
+
         switch event {
         case "codex_session_start":
             _ = stateMachine.transition(trigger: "session_start", source: .hook)
@@ -6382,14 +6411,12 @@ final class DaemonServer {
             // terminal). The next lifecycle hook on the session ends the wait:
             // an approval runs the tool, a denial or Ctrl+C ends the turn, a
             // new prompt supersedes it — all of which pass through
-            // updateSessionHookState and overwrite the state.
-            if let sessionId, var entry = pushedSessionsById[sessionId] {
-                entry.state = "awaiting_permission"
-                entry.question = Self.codexPermissionQuestion(json)
-                entry.requestId = nil
-                pushedSessionsById[sessionId] = entry
-                upsertIntoCachedSessions(entry)
-                broadcastSessionsList()
+            // updateSessionHookState and overwrite the state. A held device
+            // approval owns the prompt and its button until it is released, so
+            // a parallel call's notification must not swap the question.
+            if let sessionId, codexHoldRequestBySession[sessionId] == nil {
+                showCodexApprovalPrompt(
+                    sessionId: sessionId, question: Self.codexPermissionQuestion(json), requestId: nil)
             }
         case "codex_interrupt":
             // The user's Ctrl+C on an active turn: no Stop follows, so close
@@ -8196,6 +8223,154 @@ final class DaemonServer {
             "decision": "block",
             "reason": "The user sent this follow-up from their AgentDeck controller: \"\(directive)\". Carry out this instruction now.",
         ])
+    }
+
+    /// Answer a Codex hold request (CodexApprovalHoldRules): hold it for a
+    /// device's Allow/Deny, or answer at once with nothing so Codex draws its
+    /// own prompt. A held request shows the prompt with its button; a released
+    /// one leaves it display-only, since Codex is drawing it now. Mirror of the
+    /// Node daemon's `holdCodexApproval`.
+    private func holdCodexApproval(body: Data, budgetHeader: String) async -> HTTPServer.HTTPResponse {
+        guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+            return .text("")
+        }
+        let sid = Self.hookSessionId(event: "codex_permission_request", json: json) ?? ""
+        let question = Self.codexPermissionQuestion(json)
+        let holdMs = CodexApprovalHoldRules.holdMilliseconds(
+            header: budgetHeader, defaultMs: Int(ObservedSteering.holdTimeoutSeconds * 1000))
+        let background = !sid.isEmpty && (codexAmbientThreads.isAmbient(sid)
+            || CodexAmbientHookRules.isBackgroundCwd(json["cwd"] ?? json["project_path"]))
+        let execChild = !sid.isEmpty && codexExecChildren.knows(sid)
+        let verdict: (hold: Bool, reason: String) = holdMs == nil
+            ? (false, "no-budget")
+            : CodexApprovalHoldRules.decision(.init(
+                enabled: ObservedSteering.gateEnabled,
+                clientCount: activeWSConnectionIds.count,
+                sessionId: sid,
+                background: background,
+                execChild: execChild,
+                visible: pushedSessionsById[sid].map { Self.isCodexSession(sessionId: sid, entry: $0) } ?? false,
+                alreadyHeld: codexHoldRequestBySession[sid] != nil))
+        guard verdict.hold, let holdMs,
+              let requestId = await ObservedSteering.shared.beginCodexGate(
+                  sessionId: sid, clientCount: activeWSConnectionIds.count,
+                  holdSeconds: TimeInterval(holdMs) / 1000) else {
+            DaemonLogger.shared.debug("Steering", "Codex approval not held: \(verdict.hold ? "gate busy" : verdict.reason) (\(sid.prefix(14)))")
+            // The display-only prompt still belongs on the row when Codex ran
+            // only this handler (the notification one untrusted or removed).
+            if !sid.isEmpty, !background, !execChild, codexHoldRequestBySession[sid] == nil,
+               let entry = pushedSessionsById[sid], entry.state != "awaiting_permission" {
+                showCodexApprovalPrompt(sessionId: sid, question: question, requestId: nil)
+            }
+            return .text("")
+        }
+        codexHoldRequestBySession[sid] = requestId
+        heldGateSessionIds.insert(sid)
+        showCodexApprovalPrompt(sessionId: sid, question: question, requestId: requestId)
+        DaemonLogger.shared.info("Steering: Codex approval held (\(sid.prefix(14))) req=\(requestId) for \(holdMs) ms")
+
+        let decision = await ObservedSteering.shared.awaitGate(requestId: requestId)
+
+        // `releaseCodexHold` already dropped the records of a hold whose turn
+        // ended; one this handler still owns is dropped here.
+        let ended = codexHoldRequestBySession[sid] != requestId
+        if !ended {
+            codexHoldRequestBySession.removeValue(forKey: sid)
+            heldGateSessionIds.remove(sid)
+        }
+        let outcome = ended ? "ended" : decision
+        if var entry = pushedSessionsById[sid], entry.requestId == requestId {
+            entry.requestId = nil
+            // Undecided (pass): Codex draws its prompt now, so the question
+            // stays, display-only. Decided or ended: the wait is over.
+            if outcome != "pass", entry.state == "awaiting_permission" {
+                entry.state = "processing"
+                entry.question = nil
+            }
+            pushedSessionsById[sid] = entry
+            upsertIntoCachedSessions(entry)
+        }
+        broadcastSessionsList()
+        DaemonLogger.shared.info("Steering: Codex approval released (\(sid.prefix(14))) → \(outcome)")
+        return .text(CodexApprovalHoldRules.decisionBody(outcome))
+    }
+
+    /// What an option press on a session does to its open Codex hold.
+    enum CodexApprovalPress: Equatable {
+        /// Resolve the hold as a `permission_decision` for `requestId` would.
+        case answer(requestId: String, decision: String)
+        /// Neither an Allow nor a Deny: nothing is resolved.
+        case notAnAnswer
+        /// Echoes a prompt the hold does not show: nothing is resolved, and the
+        /// row is re-sent so the device redraws the live one.
+        case stale
+    }
+
+    /// A deck's Allow / Deny keys answer a hold with an option press on the
+    /// session, never with `permission_decision`. nil = no hold is open, or the
+    /// command is not an option press: it takes its usual route. `shown*` is
+    /// the prompt on the session's row. Mirror of the Node
+    /// `CodexApprovalHolds.press`.
+    nonisolated static func codexApprovalPress(
+        command: [String: Any], heldRequestId: String?, shownRequestId: String?, shownQuestion: String?
+    ) -> CodexApprovalPress? {
+        let type = command["type"] as? String ?? ""
+        guard type == "select_option" || type == "respond", let heldRequestId else { return nil }
+        guard let decision = CodexApprovalHoldRules.pressDecision(
+            type: type, index: command["index"] as? Int, value: command["value"] as? String) else {
+            return .notAnAnswer
+        }
+        // A press that echoes its question must name the prompt this hold
+        // shows: the session may already be on its next approval, and an Allow
+        // aimed at the previous one would approve a command nobody saw.
+        if let echo = command["question"] as? String {
+            guard shownRequestId == heldRequestId, let shownQuestion, !shownQuestion.isEmpty,
+                  ObservedSteering.askEchoMatches(echo, shownQuestion) else { return .stale }
+        }
+        return .answer(requestId: heldRequestId, decision: decision)
+    }
+
+    /// Answer a held Codex approval from a deck's option press through the
+    /// resolution `permission_decision` uses. False = no hold is open on the
+    /// session. Node twin: `answerCodexApproval`.
+    private func answerCodexApproval(sessionId: String, command: [String: Any]) -> Bool {
+        let shown = pushedSessionsById[sessionId]
+        guard let press = Self.codexApprovalPress(
+            command: command, heldRequestId: codexHoldRequestBySession[sessionId],
+            shownRequestId: shown?.requestId, shownQuestion: shown?.question) else { return false }
+        switch press {
+        case .answer(let requestId, let decision):
+            DaemonLogger.shared.info("Steering: Codex approval answered by a press (\(sessionId.prefix(14))) → \(decision)")
+            handleCommand(["type": "permission_decision", "requestId": requestId, "decision": decision])
+        case .stale:
+            DaemonLogger.shared.info("Steering: Codex approval press dropped (\(sessionId.prefix(14))): answers a prompt the hold no longer shows")
+            broadcastSessionsList()
+        case .notAnAnswer:
+            DaemonLogger.shared.debug("Steering", "Codex approval press ignored: not an Allow or a Deny (\(sessionId.prefix(14)))")
+        }
+        return true
+    }
+
+    /// Release an open Codex hold whose turn ended. Its handler finds the
+    /// records gone and reports `ended`: the prompt is cleared, not kept, and
+    /// Codex gets no decision.
+    private func releaseCodexHold(sessionId: String) async {
+        guard let requestId = codexHoldRequestBySession.removeValue(forKey: sessionId) else { return }
+        heldGateSessionIds.remove(sessionId)
+        await ObservedSteering.shared.endGate(requestId: requestId)
+    }
+
+    /// Put a Codex approval prompt on the session's row: answerable (with the
+    /// requestId a device sends back) while a hold is open, display-only
+    /// otherwise.
+    private func showCodexApprovalPrompt(sessionId: String, question: String, requestId: String?) {
+        guard var entry = pushedSessionsById[sessionId] else { return }
+        entry.state = "awaiting_permission"
+        entry.question = question
+        entry.requestId = requestId
+        pushedSessionsById[sessionId] = entry
+        upsertIntoCachedSessions(entry)
+        broadcastSessionsList()
     }
 
     // MARK: - On-demand independent review (REVIEW deck button)
