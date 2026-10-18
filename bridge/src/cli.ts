@@ -114,6 +114,32 @@ function statuslinePolicyFromFlag(flag: unknown): 'on' | 'off' | undefined {
   return flag === true ? 'on' : flag === false ? 'off' : undefined;
 }
 
+/** `--codex-approvals` → add the Codex device-approval hold; `--no-codex-approvals`
+ *  → remove it; neither → keep what config.toml carries (`AGENTDECK_CODEX_APPROVALS`). */
+const codexApprovalsPolicyFromFlag = statuslinePolicyFromFlag;
+
+async function refreshCodexHooks(opts: { codexApprovals?: 'on' | 'off' } = {}): Promise<void> {
+  try {
+    const { installCodexHooksIfNeeded } = await import('@agentdeck/hooks');
+    const result = installCodexHooksIfNeeded(opts.codexApprovals ? { codexApprovals: opts.codexApprovals } : {});
+    if (result.installed) {
+      log('Codex lifecycle hooks installed in ~/.codex/config.toml');
+      if (result.warning) log(`Codex hooks degraded: ${result.warning}`);
+      if (result.approvals && opts.codexApprovals === 'on') {
+        log('Codex device approvals: on. Codex asks you to review the new hook the next time it starts; trust it there.');
+        log('  While a device is connected, a Codex approval waits up to 25 s (AGENTDECK_APPROVAL_HOLD_MS) for its Allow/Deny before Codex shows its own prompt.');
+      } else if (result.approvals) {
+        log('Codex device approvals: on (kept). --no-codex-approvals removes them.');
+      } else if (opts.codexApprovals === 'off') {
+        log('Codex device approvals: off. Approvals appear only in the terminal; devices show them without buttons.');
+      }
+    } else if (result.reason) {
+      log(`Codex hooks skipped: ${result.reason}`);
+      if (opts.codexApprovals) log('Codex device approvals unchanged.');
+    }
+  } catch { /* hooks package not built yet — install still succeeds */ }
+}
+
 async function refreshClaudeHooks(opts: { statusline?: 'auto' | 'on' | 'off' } = {}): Promise<void> {
   try {
     const { installHooks } = await import('@agentdeck/hooks');
@@ -2258,8 +2284,11 @@ daemon
   .option('--loopback', 'Alias for --enterprise')
   .option('--statusline', 'Also install the Claude status-line relay when no status line is configured (one you already have is wrapped by default; a configured status line hides Claude Code\'s footer hints)')
   .option('--no-statusline', 'Remove the Claude status-line relay again, restoring your own status line')
+  .option('--codex-approvals', 'Let a connected device answer Codex approval prompts (Codex waits for the device before drawing its own prompt; it asks you to trust the new hook once)')
+  .option('--no-codex-approvals', 'Remove the Codex device-approval hook again; approvals appear only in the terminal')
   .action(async (opts) => {
     const postureArgs = daemonPostureArgs(opts);
+    const codexApprovals = codexApprovalsPolicyFromFlag(opts.codexApprovals);
     const {
       collectNativeDependencyDiagnostic,
       formatNativeDependencyDiagnosticReport,
@@ -2339,16 +2368,7 @@ daemon
       await refreshClaudeHooks({ statusline: statuslinePolicyFromFlag(opts.statusline) });
       await refreshKiroHooks();
       // Install Codex lifecycle hooks for parity with the macOS install path.
-      try {
-        const { installCodexHooksIfNeeded } = await import('@agentdeck/hooks');
-        const result = installCodexHooksIfNeeded();
-        if (result.installed) {
-          log('Codex lifecycle hooks installed in ~/.codex/config.toml');
-          if (result.warning) log(`Codex hooks degraded: ${result.warning}`);
-        } else if (result.reason) {
-          log(`Codex hooks skipped: ${result.reason}`);
-        }
-      } catch { /* hooks package not built yet — task install still succeeds */ }
+      await refreshCodexHooks({ codexApprovals });
       // OpenCode observer plugin — standalone `opencode` runs report to the
       // daemon timeline the same way direct `codex` runs do.
       try {
@@ -2391,16 +2411,7 @@ daemon
       await refreshClaudeHooks({ statusline: statuslinePolicyFromFlag(opts.statusline) });
       await refreshKiroHooks();
       // Install Codex + OpenCode hooks for parity with the macOS/Windows paths.
-      try {
-        const { installCodexHooksIfNeeded } = await import('@agentdeck/hooks');
-        const result = installCodexHooksIfNeeded();
-        if (result.installed) {
-          log('Codex lifecycle hooks installed in ~/.codex/config.toml');
-          if (result.warning) log(`Codex hooks degraded: ${result.warning}`);
-        } else if (result.reason) {
-          log(`Codex hooks skipped: ${result.reason}`);
-        }
-      } catch { /* hooks package not built yet — install still succeeds */ }
+      await refreshCodexHooks({ codexApprovals });
       try {
         const { installOpenCodeHooksIfNeeded, opencodePluginPath } = await import('@agentdeck/hooks');
         const result = installOpenCodeHooksIfNeeded();
@@ -2427,15 +2438,7 @@ daemon
     await refreshKiroHooks();
     // Install Codex lifecycle hooks parallel to the LaunchAgent install
     // so the daemon hub gets codex_* events as soon as Codex CLI runs.
-    try {
-      const { installCodexHooksIfNeeded } = await import('@agentdeck/hooks');
-      const result = installCodexHooksIfNeeded();
-      if (result.installed) {
-        log('Codex lifecycle hooks installed in ~/.codex/config.toml');
-      } else if (result.reason) {
-        log(`Codex hooks skipped: ${result.reason}`);
-      }
-    } catch { /* hooks package not built yet — daemon install still succeeds */ }
+    await refreshCodexHooks({ codexApprovals });
     // OpenCode observer plugin — standalone `opencode` runs report to the
     // daemon hub as opencode_* events, same pipeline as codex_*.
     try {
