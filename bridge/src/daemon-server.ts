@@ -4088,9 +4088,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // tags `response_kind` tool_only/empty so the runner skips judging.
           if (apme) {
             // Which turn the reply belongs to is the COLLECTOR's question, not
-            // `turnOpen`'s: the timeline drops `<task-notification>` prompts and
-            // a long turn's prompt scrolls out of the 24 rows read above, so it
-            // reads either turn as closed (see `recordStopReply`).
+            // `turnOpen`'s: the timeline drops `<task-notification>` prompts, so
+            // it reads a turn one of them opened as closed (see
+            // `recordStopReply`).
             apme.collector.recordStopReply(hookSid, responseText);
             // Close the APME turn on the Stop that ended it, tagged with which
             // Stop that was. Runs AFTER the response capture above (the
