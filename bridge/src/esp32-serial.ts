@@ -35,7 +35,7 @@ import { dirname, join } from 'path';
 import type { BridgeEvent } from './types.js';
 import { SERIAL_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import type { AuthProvisionMessage, ESP32ToHostMessage, WifiProvisionMessage } from '@agentdeck/shared/protocol';
-import { formatResetTime, truncateUtf8Bytes } from '@agentdeck/shared';
+import { formatResetTime, truncateUtf8Bytes, wifiProvisionDecision, type WifiProvisionDecision } from '@agentdeck/shared';
 import { readLease } from './esp32-flash-lease.js';
 import { BOARD_TIMELINE_ROWS, isToolEventRow, shrinkTimelineEntryForBoard } from './board-timeline-entry.js';
 import { debug, log, logTagged } from './logger.js';
@@ -159,6 +159,10 @@ export interface SerialConnection {
     wifiConfigured?: boolean;
     wifiConnected?: boolean;
     wifiRadioParked?: boolean;
+    /** Credential id stored with the board's WiFi credentials ("" = none;
+     * absent = firmware that predates it). Decides provisioning; never served
+     * on /devices, since with the pairing token it tests WiFi password guesses. */
+    wifiCredId?: string;
     /** The board's own WiFi IP as it reports over serial. Lets the daemon match
      * this serial connection to the same board's WiFi WebSocket and prefer the
      * single serial path (getSerialReachableBoards → transport dedup). */
@@ -273,13 +277,26 @@ function deviceInfoCachePath(): string {
   return join(process.env.AGENTDECK_DATA_DIR || join(homedir(), '.agentdeck'), 'esp32-device-cache.json');
 }
 
+/**
+ * A board's report minus its WiFi credential id. The id decides provisioning on
+ * the live connection only; it is never served on /devices and never written to
+ * the device cache, because together with the pairing token (which any local
+ * process can read off loopback /health) it is an offline test for WiFi
+ * password guesses.
+ */
+function withoutCredId(info: SerialConnection['deviceInfo']): Omit<NonNullable<SerialConnection['deviceInfo']>, 'wifiCredId'> {
+  if (!info) return {};
+  const { wifiCredId: _wifiCredId, ...rest } = info;
+  return rest;
+}
+
 function loadDeviceInfoCache(): void {
   if (deviceInfoCacheLoaded) return;
   deviceInfoCacheLoaded = true;
   try {
     const parsed = JSON.parse(readFileSync(deviceInfoCachePath(), 'utf-8')) as Record<string, NonNullable<SerialConnection['deviceInfo']>>;
     for (const [port, info] of Object.entries(parsed)) {
-      if (info?.board) lastKnownDeviceInfoByPort.set(port, info);
+      if (info?.board) lastKnownDeviceInfoByPort.set(port, withoutCredId(info));
     }
   } catch {
     // Missing cache is normal.
@@ -1048,6 +1065,7 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
           wifiConfigured: msg.wifiConfigured,
           wifiConnected: msg.wifiConnected,
           wifiRadioParked: msg.wifiRadioParked,
+          wifiCredId: typeof msg.wifiCredId === 'string' ? msg.wifiCredId : undefined,
           ip: (msg as any).ip,
           uptimeSec: msg.uptimeSec,
           resetReason: msg.resetReason,
@@ -1096,7 +1114,7 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
         };
         conn.deviceInfoFresh = true;
         if (conn.deviceInfo.board) {
-          lastKnownDeviceInfoByPort.set(conn.port, conn.deviceInfo);
+          lastKnownDeviceInfoByPort.set(conn.port, withoutCredId(conn.deviceInfo));
           persistDeviceInfoCache();
         }
       } else if (msg.type === 'voice_begin' || msg.type === 'voice_end' ||
@@ -1571,6 +1589,16 @@ export function isForeignPortDenylisted(port: string, now = Date.now()): boolean
   return until != null && until > now;
 }
 
+/**
+ * @internal Exported for testing only. Put fake connections in front of the
+ * fan-outs; returns a function that restores the real list.
+ */
+export function __setConnectionsForTest(next: SerialConnection[]): () => void {
+  const previous = connections;
+  connections = next;
+  return () => { connections = previous; };
+}
+
 /** @internal Exported for testing only. Clear all foreign-port tracking state. */
 export function __resetForeignPortState(): void {
   foreignProbeFailures.clear();
@@ -1856,16 +1884,18 @@ export function sendWifiProvision(port: string, msg: WifiProvisionMessage): bool
 }
 
 /**
- * Send WiFi provision to all connected ESP32 devices that haven't been provisioned.
+ * Send WiFi provision to every connected ESP32 that does not already hold it.
+ * Each board is compared against the credential id this very message carries.
  */
 export function sendWifiProvisionToAll(msg: WifiProvisionMessage): number {
   let count = 0;
   for (const conn of connections) {
-    if (!shouldSendWifiProvision(conn)) continue;
+    const decision = wifiProvisionDecisionFor(conn, msg.credId ?? null);
+    if (!decision.send) continue;
     sendToConnection(conn, JSON.stringify(msg), true);
     conn.provisionSent = true;
     count++;
-    debug('ESP32', `→ ${conn.port}: wifi_provision (SSID: ${msg.ssid})`);
+    debug('ESP32', `→ ${conn.port}: wifi_provision (SSID: ${msg.ssid}; ${decision.reason})`);
   }
   return count;
 }
@@ -1900,42 +1930,91 @@ export function sendAuthProvisionToAll(msg: AuthProvisionMessage): string[] {
 
 /** @internal Exported for testing only */
 export function shouldSendAuthProvision(
-  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'authTokenSent'>,
+  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh' | 'authTokenSent'>,
   token: string,
 ): boolean {
   if (!conn.connected) return false;
-  // No device_info yet means we have not confirmed an AgentDeck board on this
-  // tty; writing a credential to an unknown serial peer is not something to do
-  // speculatively.
-  if (!conn.deviceInfo?.board) return false;
+  // Only a board that identified on THIS connection. No device_info means no
+  // AgentDeck board is confirmed on this tty, and a cache-seeded record
+  // describes an earlier connection: the path may now belong to another
+  // device, or to a board still booting after the open reset it, which loses
+  // the frame while `authTokenSent` stops the retry. The board's own
+  // device_info runs this fan-out again.
+  if (!conn.deviceInfoFresh || !conn.deviceInfo?.board) return false;
   if (!token) return false;
   return conn.authTokenSent !== token;
 }
 
-/** @internal Exported for testing only */
-export function shouldSendWifiProvision(conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'provisionSent'>): boolean {
-  if (!conn.connected) return false;
-  if (!conn.deviceInfo?.board) return false;
-  if (conn.provisionSent) return false;
-  // IPS10 carries a daemon endpoint in NVS in addition to WiFi credentials.
-  // Refresh it once while USB serial is active and the radio is online, even
-  // if the board is already configured/connected; otherwise a stale endpoint
-  // can survive and WiFi-only operation keeps dialing the old daemon host.
-  if (conn.deviceInfo.board === 'ips_10' && conn.deviceInfo.wifiConnected && !conn.deviceInfo.wifiRadioParked) {
-    return true;
-  }
-  if (conn.deviceInfo.wifiConnected) return false;
-  // Auto-provision is for first setup. A configured board may intentionally have
-  // WiFi off (IPS10 USB-primary radio parking) or may be temporarily away from
-  // its AP; repeatedly injecting credentials would fight firmware policy.
-  if (conn.deviceInfo.wifiConfigured) return false;
+/**
+ * The legacy re-arm (daemon-server.ts): a full `wifi_provision` to a board that
+ * stayed silent after `auth_provision`. Unlike the fan-out it skips the
+ * credential-id decision, because old firmware can take a token no other way.
+ * So it goes only to a board that identified on this connection and reports no
+ * credential id. Firmware that knows `wifiCredId` also knows `auth_provision`:
+ * its silence is a lost frame, not old firmware, and a full provision would
+ * wake a parked radio for credentials it already holds.
+ */
+export function sendLegacyRearmProvision(port: string, msg: WifiProvisionMessage): boolean {
+  const conn = connections.find(c => c.port === port && c.connected);
+  if (!conn || !shouldSendLegacyRearm(conn)) return false;
+  sendToConnection(conn, JSON.stringify(msg), true);
+  conn.provisionSent = true;
+  debug('ESP32', `→ ${port}: wifi_provision (legacy re-arm, SSID: ${msg.ssid})`);
   return true;
 }
 
+/** @internal Exported for testing only */
+export function shouldSendLegacyRearm(
+  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh'>,
+): boolean {
+  if (!conn.connected || !conn.deviceInfoFresh || !conn.deviceInfo?.board) return false;
+  return typeof conn.deviceInfo.wifiCredId !== 'string';
+}
+
 /**
- * Get device info for all connected ESP32 devices.
+ * The shared provisioning decision (shared/src/esp32-wifi-provision.ts) for one
+ * connection. `expectedCredId` is the id of the provision about to be sent;
+ * null falls back to the rule that predates the id: a board reporting saved
+ * credentials is left alone (it may have WiFi off on purpose, or be away from
+ * its AP, and repeatedly injecting credentials would fight firmware policy).
  */
-export function getESP32DeviceInfo(): Array<{
+function wifiProvisionDecisionFor(
+  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh' | 'provisionSent'>,
+  expectedCredId: string | null,
+): WifiProvisionDecision {
+  // Decide on what the board said over THIS connection. A cache-seeded record
+  // describes an earlier one (the board may have been wiped, reflashed or
+  // swapped since) and never carries the credential id, so it reads as
+  // unidentified until the board's own device_info lands, which runs this
+  // fan-out again.
+  const info = conn.deviceInfoFresh ? conn.deviceInfo : null;
+  return wifiProvisionDecision({
+    connected: conn.connected,
+    provisionSent: conn.provisionSent,
+    board: info?.board,
+    wifiConfigured: info?.wifiConfigured,
+    wifiConnected: info?.wifiConnected,
+    wifiRadioParked: info?.wifiRadioParked,
+    wifiCredId: info?.wifiCredId,
+    expectedCredId,
+    // IPS10 carries a daemon endpoint in NVS in addition to WiFi credentials.
+    // Refresh it once while USB serial is active and the radio is online, even
+    // if the board is already configured/connected; otherwise a stale endpoint
+    // can survive and WiFi-only operation keeps dialing the old daemon host.
+    refreshIps10Endpoint: true,
+  });
+}
+
+/** @internal Exported for testing only */
+export function shouldSendWifiProvision(
+  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh' | 'provisionSent'>,
+  expectedCredId: string | null = null,
+): boolean {
+  return wifiProvisionDecisionFor(conn, expectedCredId).send;
+}
+
+/** One serial board as /devices shows it. */
+export type ESP32DeviceInfoRow = {
   port: string;
   /** True only after device_info arrived on this live serial connection. */
   deviceInfoFresh: boolean;
@@ -1954,16 +2033,29 @@ export function getESP32DeviceInfo(): Array<{
   otaFreeSketchSpace?: number;
   otaReason?: string;
   rssiDbm?: number;
-}> {
+};
+
+/**
+ * Get device info for all connected ESP32 devices.
+ */
+export function getESP32DeviceInfo(): ESP32DeviceInfoRow[] {
   const now = Date.now();
   return connections
     .filter(c => isResponsive(c, now))
-    .map(c => ({
-      port: c.port,
-      ...c.deviceInfo,
-      deviceInfoFresh: c.deviceInfoFresh,
-      lastReadSecondsAgo: c.lastReadAt > 0 ? Math.floor((now - c.lastReadAt) / 1000) : null,
-    }));
+    .map(c => esp32DeviceInfoRow(c, now));
+}
+
+/** @internal Exported for testing only */
+export function esp32DeviceInfoRow(
+  c: Pick<SerialConnection, 'port' | 'deviceInfo' | 'deviceInfoFresh' | 'lastReadAt'>,
+  now: number,
+): ESP32DeviceInfoRow {
+  return {
+    port: c.port,
+    ...withoutCredId(c.deviceInfo),
+    deviceInfoFresh: c.deviceInfoFresh,
+    lastReadSecondsAgo: c.lastReadAt > 0 ? Math.floor((now - c.lastReadAt) / 1000) : null,
+  };
 }
 
 /**

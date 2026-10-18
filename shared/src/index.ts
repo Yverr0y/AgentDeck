@@ -18,6 +18,7 @@ export * from './mdns-identity.js';
 export * from './timeline.js';
 export * from './subagent-activity.js';
 export * from './esp32-boards.js';
+export * from './esp32-wifi-provision.js';
 export * from './model-provider.js';
 export * from './zai-quota.js';
 export * from './timeline-icons.js';

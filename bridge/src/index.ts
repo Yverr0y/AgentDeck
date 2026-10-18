@@ -71,6 +71,7 @@ import {
   onESP32Message,
   sendWifiProvisionToAll,
 } from './esp32-serial.js';
+import { buildWifiProvision } from './esp32-wifi-cred.js';
 import { loadWifiConfig } from './wifi-config.js';
 import { getAdbDeviceCountCached } from './adb-reverse.js';
 import { esp32ConnectionCount, getESP32Ports } from './esp32-serial.js';
@@ -505,14 +506,13 @@ export async function startSession(opts: SessionOptions): Promise<void> {
         msg.wifiConnected &&
         !msg.wifiRadioParked;
       if (msg.type === 'device_info' && (!msg.wifiConnected || shouldRefreshIps10Endpoint)) {
-        const sent = sendWifiProvisionToAll({
-          type: 'wifi_provision' as const,
+        const sent = sendWifiProvisionToAll(buildWifiProvision({
           ssid: wifiConfig.ssid,
           password: wifiConfig.password,
           bridgeIp: lanIp,
           bridgePort: port,
           authToken: core.authToken,
-        });
+        }));
         if (sent > 0) log(`WiFi provision sent to ${sent} ESP32 device(s) after ${portPath}`);
       } else if (msg.type === 'wifi_provision_ack') {
         log(msg.success ? `ESP32 WiFi connected: ${msg.ip} \u2713` : `ESP32 WiFi failed: ${msg.error || 'unknown'}`);
