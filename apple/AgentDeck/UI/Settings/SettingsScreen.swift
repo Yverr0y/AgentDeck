@@ -2416,6 +2416,28 @@ struct SettingsScreen: View {
                 .buttonStyle(.bordered)
                 .disabled(!preferences.codexConfigInstalled)
             }
+
+            // Codex device approvals — the opt-in hold handler. A change
+            // rewrites the managed block under the existing consent; the
+            // config file stays the only record of the choice.
+            if preferences.codexConfigInstalled {
+                Toggle(isOn: Binding(
+                    get: { preferences.codexApprovalsInstalled },
+                    set: { CodexConfigInstaller.setApprovals($0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Answer Codex approvals from devices")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white)
+                        Text("When Codex asks to run a command, it first waits up to \(Int(ObservedSteering.holdTimeoutSeconds)) seconds for Allow or Deny from a connected device, then shows its own prompt as usual. Codex asks you to review the new hook the next time it starts.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(TerrariumHUD.subtext)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .tint(Color(red: 0.231, green: 0.51, blue: 0.965))
+                .padding(.top, 4)
+            }
         }
     }
 

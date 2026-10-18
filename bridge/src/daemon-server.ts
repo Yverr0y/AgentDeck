@@ -72,8 +72,12 @@ import {
 import { askEchoMatches, askGateDecision, askPressVerdict } from './ask-gate.js';
 import {
   registerPending, resolvePending, resolvePendingWithReason,
-  sweepStalePending, drainAllPending, isPendingRequest,
+  sweepStalePending, drainAllPending, isPendingRequest, passPending,
 } from './permission-resolver.js';
+import {
+  CODEX_APPROVAL_HOLD_HEADER, codexApprovalDecisionBody, codexApprovalHoldMs, codexHoldDecision, codexHoldReleasedBy,
+} from '@agentdeck/shared';
+import { CodexApprovalHolds } from './codex-approval-hold.js';
 import {
   shouldHoldPreToolUse, beginAskGate, gateReleased, buildGateQuestion, buildAskAnswerReason,
   consumeStop, requestStop, clearStop, STOP_DENY_REASON,
@@ -232,7 +236,7 @@ import { CodexOtelTracker, CODEX_OTEL_TRACES_PATH, spanNameSummary } from './cod
 import { CodexHookReplayGuard } from './codex-hook-replay.js';
 import { HookCodexSessions, buildCodexPermissionQuestion } from './hook-codex-sessions.js';
 import { HubStateDriverTracker, resolveHubFrameIdentity, shapeHubFrame } from './hub-state-identity.js';
-import { CodexAmbientSessions } from './codex-ambient-hooks.js';
+import { CodexAmbientSessions, isCodexBackgroundCwd } from './codex-ambient-hooks.js';
 import { HermesSessions } from './hermes-sessions.js';
 import { ObservedTurnWatchdogs } from './observed-turn-watchdogs.js';
 import {
@@ -1834,6 +1838,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // Codex Desktop ambient-suggestions threads — see codex-ambient-hooks.ts.
   const codexAmbientSessions = new CodexAmbientSessions();
   const codexHookReplay = new CodexHookReplayGuard();
+  // Open Codex device-approval holds — shared/src/codex-approval-hold.ts.
+  const codexApprovalHolds = new CodexApprovalHolds();
   const hookOpenCodeSessions = new HookOpenCodeSessions();
   // Declared before the HTTP server: the PreToolUse route reads it to decide
   // whether this daemon can type into a session's terminal, and hooks start
@@ -3473,6 +3479,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         if (Number.isInteger(headerPid) && headerPid > 1 && json.agentdeck_pid == null) {
           json.agentdeck_pid = headerPid;
         }
+        // Codex device approval (opt-in): the hold handler's twin of the
+        // notification, answered by the hold alone. The notification handler
+        // owns ingestion; this payload carries no tool_use_id the replay guard
+        // could pair, so ingesting it would record every approval twice.
+        const holdHeader = req.headers[CODEX_APPROVAL_HOLD_HEADER];
+        if (eventName === 'codex_permission_request' && holdHeader !== undefined) {
+          holdCodexApproval(json, Array.isArray(holdHeader) ? holdHeader[0] : holdHeader, res);
+          return;
+        }
         // Harness identity comes from the payload, not the endpoint (#490): a
         // Codex payload under an unprefixed name (`/hooks/Stop`) is the
         // `codex_*` event it is, and one Codex event instance delivered by two
@@ -3645,7 +3660,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // an approval runs the tool (tool_start/tool_end), a denial or
           // Ctrl+C ends the turn (stop/interrupt), a new prompt supersedes it.
           const codexSid = typeof json.session_id === 'string' ? json.session_id : '';
-          if (codexSid) {
+          const heldRequestId = codexSid ? codexApprovalHolds.requestIdFor(codexSid) : undefined;
+          if (codexSid && heldRequestId) {
+            // A held device approval owns the prompt until it is released: a
+            // parallel call's notification or tool hooks must not swap the
+            // question under its button. Only the end of the turn it waits
+            // in releases it early (the hook is likely gone with the turn).
+            if (codexHoldReleasedBy(eventName)) {
+              codexApprovalHolds.end(codexSid);
+              passPending(heldRequestId);
+            }
+          } else if (codexSid) {
             if (eventName === 'codex_permission_request') {
               // `sticky`: the transcript-recency drop is a Claude ESC heuristic;
               // a Codex rollout may be appended while the approval waits, and
@@ -3863,7 +3888,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // must not pin "+N" on a row that no longer exists.
           subagentTimeline?.forget(hookSid);
           coordination.forget(hookSid);
-          const rows = core.bridgeTimeline.getHistoryForSession(hookSid, undefined, 24);
+          const rows = core.bridgeTimeline.getChatRowsForSession(hookSid);
           let lastStart: TimelineEntry | undefined;
           let lastCompletionTs = 0;
           for (const row of rows) {
@@ -3958,10 +3983,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             // transcript holds it. `transcript_path` on a Codex hook is its
             // ROLLOUT, which the Claude reader cannot parse — so every Codex
             // run persisted model_id=NULL while the payload said `gpt-5.6`.
+            // The OpenCode observer (v5) sends `model` plus the endpoint it
+            // came from as `model_provider`.
             const inlineModel = typeof json.model === 'string' ? json.model.trim() : '';
+            const inlineProvider = typeof json.model_provider === 'string' ? json.model_provider.trim() : '';
             const tp = json.transcript_path;
             if (inlineModel) {
-              apme.collector.updateModel(hookSid, inlineModel);
+              apme.collector.updateModel(hookSid, inlineModel, inlineProvider || undefined);
             } else if (hookAgentType === 'claude-code' && typeof tp === 'string' && tp) {
               const model = readModelFromTranscript(tp);
               if (model) apme.collector.updateModel(hookSid, model);
@@ -4016,9 +4044,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         // `result`, the Swift daemon's field chain). Only emit while a turn is
         // actually open (a chat_start newer than the session's last
         // completion) so a duplicate/late Stop or an interrupted turn doesn't
-        // re-emit the previous response.
+        // re-emit the previous response. The session's chat rows are read
+        // whole: a window over all its rows let a long turn's own tool rows
+        // push its chat_start out of view.
         if (boundary === 'stop') {
-          const rows = core.bridgeTimeline.getHistoryForSession(hookSid, undefined, 24);
+          const rows = core.bridgeTimeline.getChatRowsForSession(hookSid);
           let lastStart: TimelineEntry | undefined;
           let lastResponse: TimelineEntry | undefined;
           let lastCompletionTs = 0;
@@ -4085,13 +4115,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // turns against silence. Empty text is still worth recording — it
           // tags `response_kind` tool_only/empty so the runner skips judging.
           if (apme) {
-            if (turnOpen) apme.collector.setTurnResponse(hookSid, responseText);
-            else if (responseText.length > 0) {
-              // No open turn: a missed prompt hook or a late/duplicate stop.
-              // The last-closed fallback refuses to overwrite an existing
-              // response, so a duplicate stop is a no-op instead of a clobber.
-              apme.collector.setLastClosedTurnResponse(hookSid, responseText);
-            }
+            // Which turn the reply belongs to is the COLLECTOR's question, not
+            // `turnOpen`'s: the timeline drops `<task-notification>` prompts and
+            // a long turn's prompt scrolls out of the 24 rows read above, so it
+            // reads either turn as closed (see `recordStopReply`).
+            apme.collector.recordStopReply(hookSid, responseText);
             // Close the APME turn on the Stop that ended it, tagged with which
             // Stop that was. Runs AFTER the response capture above (the
             // trajectory event wants the still-active turn) and is a no-op when
@@ -5244,8 +5272,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // (permanent). Narrowing the readmission window would trade that for
       // never readmitting a class of task at all, which is the worse loss.
       const r = retractUngradeableVerdicts(apme.store, Date.now() - TASK_JUDGE_DRAIN_WINDOW_MS);
-      const n = r.no_reply + r.aborted_only + r.trivial;
-      if (n > 0) log(`[agentdeck] APME withdrew ${n} verdict(s) reached without the agent's work — no reply ${r.no_reply}, client-ended ${r.aborted_only}, trivial ${r.trivial}`);
+      const n = r.no_reply + r.aborted_only + r.trivial + r.notification_only;
+      if (n > 0) log(`[agentdeck] APME withdrew ${n} verdict(s) reached without the agent's work — no reply ${r.no_reply}, client-ended ${r.aborted_only}, trivial ${r.trivial}, notice-only ${r.notification_only}`);
       if (r.readmitted > 0) log(`[agentdeck] APME re-admitted ${r.readmitted} declined task(s) to the judge backlog — their tool trajectory is the agent's work`);
     } catch (err) {
       log(`[agentdeck] APME verdict retraction failed: ${String(err)}`);
@@ -5486,6 +5514,89 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       peers.push({ sessionId: rawSessionId(s.id), pid: s.pid, agentType: s.agentType, projectName: s.projectName });
     }
     return peers;
+  }
+  /** Whether any row shows this Codex session — observer, OTel or hook. */
+  function codexSessionShown(sid: string): boolean {
+    if (hookCodexSessions.snapshot().some((s) => s.sessionId === sid)) return true;
+    return codexOtel.applyTo(passiveSessionObserver.collect([])).some((s) =>
+      (s.agentType === 'codex-cli' || s.agentType === 'codex-app') && rawSessionId(s.id) === sid);
+  }
+  /** Answer a Codex hold request (shared/src/codex-approval-hold.ts): hold it for a
+   *  device's Allow/Deny, or answer at once with nothing so Codex draws its own
+   *  prompt. A held request shows the prompt with its button; a released one
+   *  leaves the prompt as display-only, since Codex is drawing it now. */
+  function holdCodexApproval(json: Record<string, unknown>, header: string, res: import('http').ServerResponse): void {
+    const sid = typeof json.session_id === 'string' ? json.session_id : '';
+    const question = buildCodexPermissionQuestion(json);
+    const holdMs = codexApprovalHoldMs(header, OBSERVED_APPROVAL_HOLD_MS);
+    const background = sid !== '' && (codexAmbientSessions.isAmbient(sid) || isCodexBackgroundCwd(json.cwd));
+    const execChild = sid !== '' && codexExecChildren.knows(sid);
+    const verdict = holdMs === null
+      ? { hold: false, reason: 'no-budget' }
+      : codexHoldDecision({
+        enabled: OBSERVED_APPROVAL_ENABLED,
+        clientCount: core.wsServer.getClientCount(),
+        sessionId: sid,
+        background,
+        execChild,
+        visible: sid !== '' && codexSessionShown(sid),
+        alreadyHeld: sid !== '' && codexApprovalHolds.requestIdFor(sid) !== undefined,
+      });
+    if (!verdict.hold || holdMs === null) {
+      debug('daemon', `Codex approval not held: ${verdict.reason} (${sid.slice(0, 8) || 'no session'})`);
+      // The display-only prompt still belongs on the row when Codex ran only
+      // this handler (the notification one untrusted or removed).
+      if (sid && !background && !execChild && !codexApprovalHolds.requestIdFor(sid) && !getAwaitingOverlay(sid)) {
+        setAwaitingOverlay(sid, question, undefined, { sticky: true });
+        core.broadcastSessionsList().catch(() => {});
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('');
+      return;
+    }
+    const requestId = codexApprovalHolds.begin(sid);
+    debug('daemon', `Codex approval held: req=${requestId} sid=${sid.slice(0, 8)} for ${holdMs} ms`);
+    setAwaitingOverlay(sid, question, requestId, { sticky: true });
+    core.broadcastSessionsList().catch(() => {});
+    registerPending(requestId, res, {
+      sessionId: sid,
+      tool: typeof json.tool_name === 'string' ? json.tool_name : undefined,
+      timeoutMs: holdMs,
+      buildBody: codexApprovalDecisionBody,
+      onResolved: (decision) => {
+        const outcome = codexApprovalHolds.finish(sid, requestId, decision);
+        const current = getAwaitingOverlay(sid);
+        if (current?.requestId === requestId) {
+          if (outcome === 'pass') setAwaitingOverlay(sid, current.question, undefined, { sticky: true });
+          else clearAwaitingOverlay(sid);
+        }
+        core.broadcastSessionsList().catch(() => {});
+      },
+    });
+    // Codex killed the hook (Ctrl+C, quit): nothing will read an answer now.
+    res.on('close', () => {
+      if (isPendingRequest(requestId)) passPending(requestId);
+    });
+  }
+  /** A deck's Allow / Deny keys on a held Codex approval send an option press
+   *  on the session (the Stream Deck: `select_option` 0 / 1 inside
+   *  `session_command`), never `permission_decision`. Answer the hold through
+   *  the resolution `permission_decision` uses. False = no hold is open on the
+   *  session, and the caller routes the command as before. */
+  function answerCodexApproval(sessionId: string, command: Record<string, unknown>): boolean {
+    const sid = rawSessionId(sessionId);
+    const press = codexApprovalHolds.press(sid, command, getAwaitingOverlay(sid));
+    if (!press) return false;
+    if (press.kind === 'answer') {
+      debug('daemon', `Codex approval answered by a press: ${press.decision} (${sid.slice(0, 8)})`);
+      resolvePending(press.requestId, press.decision);
+    } else if (press.kind === 'stale') {
+      debug('daemon', `Codex approval press dropped: answers a prompt the hold no longer shows (${sid.slice(0, 8)})`);
+      core.broadcastSessionsList().catch(() => {});
+    } else {
+      debug('daemon', `Codex approval press ignored: not an Allow or a Deny (${sid.slice(0, 8)})`);
+    }
+    return true;
   }
   /** Undo everything a Codex thread's hooks created before it was classified
    *  as not-a-session (ambient suggestion thread, headless child). */
@@ -6263,7 +6374,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       const since = (msg as { since?: unknown }).since;
       if (typeof sessionId === 'string' && sessionId) {
         const sinceMs = typeof since === 'number' ? since : undefined;
-        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs);
+        const toolEvents = surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY);
+        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs, undefined, { toolEvents });
         // Passively-observed sessions never push timeline rows (the relay only
         // covers managed + hook sessions), so the store comes back empty for
         // them. Reconstruct a recent-activity timeline from their transcript so
@@ -6283,7 +6395,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
             entries = kiroTimelineForSession(sessionId, { since: sinceMs });
           } catch { /* read-only best effort */ }
         }
-        if (!surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY)) {
+        if (!toolEvents) {
           entries = entries.filter((entry) => entry.toolEvent !== true);
         }
         // Boards keep their ≤4096 B frame rule here too; dashboards get the
@@ -6555,8 +6667,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         })() : undefined);
       // Recent request↔response lines so the judge evaluates the diff
       // against what the user actually asked (not just code in isolation).
-      const recentActivity = core.bridgeTimeline.getHistoryForSession(sessionId, undefined, 16)
+      const recentActivity = core.bridgeTimeline.getChatRowsForSession(sessionId)
         .filter((e) => e.type === 'chat_start' || e.type === 'chat_response')
+        .slice(-16)
         .map((e) => `${e.type === 'chat_start' ? 'USER' : 'AGENT'}: ${e.raw}`)
         .join('\n');
       void runSessionReview({
@@ -6639,6 +6752,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         }
         return;
       }
+      // Observed Codex: the deck's Allow / Deny keys answer a held approval.
+      // With no hold open the press is dropped below, as before.
+      if (typeof sessionId === 'string' && answerCodexApproval(sessionId, command)) return;
       const sessions = listActiveSessions();
       const target = sessions.find(s => s.id === sessionId) ?? getRemoteSession(sessionId);
       if (!target) {
@@ -6666,6 +6782,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         handleObservedClaudeCommand(sessionId.slice('observed:claude:'.length), cmd as any);
         return;
       }
+      if (answerCodexApproval(sessionId, cmd as unknown as Record<string, unknown>)) return;
       const target = listActiveSessions().find(s => s.id === sessionId) ?? getRemoteSession(sessionId);
       if (target) {
         userFocusedSessionId = sessionId;
