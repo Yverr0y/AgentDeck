@@ -1523,11 +1523,19 @@ export class ApmeCollector {
     } catch { /* ignore */ }
     const ctx = this.sampleCtxForTurn(sessionId, turnId);
     if (ctx) {
-      this.appendSampleEvent(ctx, {
-        kind: 'assistant_message',
-        dedupCore: hashCore(response.slice(0, 400)),
-        payloadObj: { text: response.slice(0, 10_000), responseKind: kind },
-      });
+      const payloadObj = { text: response.slice(0, 10_000), responseKind: kind };
+      // A Stop whose transcript read came back empty already wrote this turn's
+      // slot with '' — fill it, or the turn carries two assistant messages.
+      const existingEvent = this.store.findAssistantMessageEvent(ctx.taskId, turnId);
+      if (existingEvent?.id != null) {
+        this.store.updateSampleEvent(existingEvent.id, { payload: safeStringify(payloadObj), ts: Date.now() });
+      } else {
+        this.appendSampleEvent(ctx, {
+          kind: 'assistant_message',
+          dedupCore: hashCore(response.slice(0, 400)),
+          payloadObj,
+        });
+      }
     }
   }
 
