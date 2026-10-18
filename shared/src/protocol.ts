@@ -782,6 +782,16 @@ export interface WifiProvisionMessage {
   bridgeIp: string;
   bridgePort: number;
   authToken: string;
+  /**
+   * Id of exactly these credentials: HMAC-SHA256 keyed by `authToken` over
+   * the SSID and password, 16 lowercase hex characters (rules:
+   * `shared/src/esp32-wifi-provision.ts`). Absent when the daemon cannot form
+   * one, and from daemons that predate it. Firmware stores it beside the
+   * credentials and reports it back as {@link DeviceInfoMessage.wifiCredId};
+   * a provision without one clears the board's stored id. Older firmware
+   * ignores the unknown key.
+   */
+  credId?: string;
 }
 
 /**
@@ -827,6 +837,18 @@ export interface DeviceInfoMessage {
   wifiConnected: boolean;
   /** True when firmware intentionally powered WiFi down because USB serial is primary. */
   wifiRadioParked?: boolean;
+  /**
+   * The {@link WifiProvisionMessage.credId} stored with this board's WiFi
+   * credentials, or `""` when none is stored. Firmware that knows the field
+   * always sends it, so absence means older firmware and the daemon falls back
+   * to `wifiConfigured`. It answers what `wifiConfigured` cannot: a parked
+   * board reports `wifiConfigured: false` (its WiFi driver is off) while
+   * holding these credentials, and a board that persists a provision reports
+   * `true` while holding outdated ones. AgentDeck firmware sends it on the
+   * serial copy of `device_info` only, and the daemon keeps it off `/devices`:
+   * with the pairing token, it is an offline test for WiFi password guesses.
+   */
+  wifiCredId?: string;
   /** Board uptime in seconds at the moment the info frame was emitted. */
   uptimeSec?: number;
   /**

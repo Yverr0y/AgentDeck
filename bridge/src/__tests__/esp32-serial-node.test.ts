@@ -5,6 +5,8 @@
  * handleSerialLine, port patterns) without requiring real serial hardware.
  */
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import * as logger from '../logger.js';
 import { SERIAL_FORWARDED_EVENTS, DISPLAY_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import type {
@@ -35,6 +37,7 @@ import {
   TIMELINE_HISTORY_BYTE_BUDGET,
   shouldSendWifiProvision,
   shouldSendAuthProvision,
+  esp32DeviceInfoRow,
   shouldRetryDeviceInfoIdentify,
   isSerialReachableForDedup,
   recordForeignProbeFailure,
@@ -194,6 +197,34 @@ describe('handleSerialLine (source)', () => {
     expect(conn.deviceInfo!.rssiDbm).toBe(-78);
     handleSerialLine(conn, '{"type":"device_info","board":"round_amoled","version":"1.4.0","wifiConfigured":true,"wifiConnected":true,"rssiDbm":0}');
     expect(conn.deviceInfo!.rssiDbm).toBeUndefined();
+  });
+
+  it('carries the WiFi credential id only as a string', () => {
+    const conn = mockConn();
+    handleSerialLine(conn, '{"type":"device_info","board":"t_embed","version":"1.9.3","wifiConfigured":false,"wifiConnected":false,"wifiRadioParked":true,"wifiCredId":"4fbb066b2801b4ae"}');
+    expect(conn.deviceInfo!.wifiCredId).toBe('4fbb066b2801b4ae');
+    handleSerialLine(conn, '{"type":"device_info","board":"t_embed","version":"1.9.3","wifiConfigured":false,"wifiConnected":false,"wifiCredId":""}');
+    expect(conn.deviceInfo!.wifiCredId).toBe('');
+    // Older firmware never sends the key: no information, not "none stored".
+    handleSerialLine(conn, '{"type":"device_info","board":"t_embed","version":"1.9.2","wifiConfigured":false,"wifiConnected":false}');
+    expect(conn.deviceInfo!.wifiCredId).toBeUndefined();
+    handleSerialLine(conn, '{"type":"device_info","board":"t_embed","version":"1.9.3","wifiConfigured":false,"wifiConnected":false,"wifiCredId":42}');
+    expect(conn.deviceInfo!.wifiCredId).toBeUndefined();
+  });
+
+  it('keeps the credential id off /devices and out of the device cache', () => {
+    const conn = mockConn();
+    conn.port = '/dev/cu.usbserial-credid';
+    handleSerialLine(conn, '{"type":"device_info","board":"t_embed","version":"1.9.3","wifiConfigured":false,"wifiConnected":false,"wifiRadioParked":true,"wifiCredId":"4fbb066b2801b4ae"}');
+    // The live connection keeps it: it decides provisioning.
+    expect(conn.deviceInfo!.wifiCredId).toBe('4fbb066b2801b4ae');
+    const row = esp32DeviceInfoRow(conn, Date.now());
+    expect(row.board).toBe('t_embed');
+    expect(row.wifiRadioParked).toBe(true);
+    expect(row).not.toHaveProperty('wifiCredId');
+    const cache = JSON.parse(readFileSync(join(process.env.AGENTDECK_DATA_DIR!, 'esp32-device-cache.json'), 'utf-8'));
+    expect(cache[conn.port]?.board).toBe('t_embed');
+    expect(cache[conn.port]).not.toHaveProperty('wifiCredId');
   });
 
   it('skips debug lines (non-JSON)', () => {
@@ -744,26 +775,62 @@ describe('WiFi provision protocol', () => {
     expect(shouldSendWifiProvision({
       connected: true,
       provisionSent: false,
+      deviceInfoFresh: true,
       deviceInfo: { board: 'ips_10', wifiConfigured: false, wifiConnected: false },
     } as any)).toBe(true);
 
     expect(shouldSendWifiProvision({
       connected: true,
       provisionSent: false,
+      deviceInfoFresh: true,
       deviceInfo: { board: 'ips_10', wifiConfigured: true, wifiConnected: false, wifiRadioParked: true },
     } as any)).toBe(false);
 
     expect(shouldSendWifiProvision({
       connected: true,
       provisionSent: false,
+      deviceInfoFresh: true,
       deviceInfo: { board: 'ips_10', wifiConfigured: true, wifiConnected: true },
     } as any)).toBe(true);
 
     expect(shouldSendWifiProvision({
       connected: true,
       provisionSent: false,
+      deviceInfoFresh: true,
       deviceInfo: { board: 'ttgo_t_display', wifiConfigured: true, wifiConnected: true },
     } as any)).toBe(false);
+  });
+
+  it('decides on what the board said over this connection, not the device cache', () => {
+    // A cache-seeded record describes an earlier connection and never carries
+    // the credential id; the board's own device_info re-runs the fan-out.
+    const parked = {
+      connected: true,
+      provisionSent: false,
+      deviceInfo: { board: 't_embed', wifiConfigured: false, wifiConnected: false, wifiRadioParked: true },
+    } as any;
+    expect(shouldSendWifiProvision({ ...parked, deviceInfoFresh: false }, '4fbb066b2801b4ae')).toBe(false);
+    expect(shouldSendWifiProvision({ ...parked, deviceInfoFresh: true }, '4fbb066b2801b4ae')).toBe(true);
+  });
+
+  it('leaves a parked board alone when it already holds these credentials', () => {
+    const conn = (info: Record<string, unknown>) => ({
+      connected: true, provisionSent: false, deviceInfoFresh: true, deviceInfo: info,
+    } as any);
+    const credId = '4fbb066b2801b4ae';
+    // Generic board: the driver is off, so it reads unconfigured.
+    const generic = { board: 't_embed', wifiConfigured: false, wifiConnected: false, wifiRadioParked: true };
+    expect(shouldSendWifiProvision(conn({ ...generic, wifiCredId: credId }), credId)).toBe(false);
+    expect(shouldSendWifiProvision(conn({ ...generic, wifiCredId: '' }), credId)).toBe(true);
+    // Persisted board: reads configured from its own store, yet changed credentials reach it.
+    const persisted = { board: 't_display_pro', wifiConfigured: true, wifiConnected: false, wifiRadioParked: true };
+    expect(shouldSendWifiProvision(conn({ ...persisted, wifiCredId: '7de137f03d5a8983' }), credId)).toBe(true);
+    expect(shouldSendWifiProvision(conn({ ...persisted, wifiCredId: credId }), credId)).toBe(false);
+    // Firmware that predates the id keeps today's rule.
+    expect(shouldSendWifiProvision(conn(generic), credId)).toBe(true);
+    expect(shouldSendWifiProvision(conn(persisted), credId)).toBe(false);
+    // So does a daemon with no id to offer.
+    expect(shouldSendWifiProvision(conn({ ...persisted, wifiCredId: '7de137f03d5a8983' }), null)).toBe(false);
   });
 
   it('re-arms the pairing token on boards the WiFi gate skips', () => {
@@ -773,6 +840,7 @@ describe('WiFi provision protocol', () => {
     // token would never reach it if the two shared a gate.
     const online = {
       connected: true,
+      deviceInfoFresh: true,
       deviceInfo: { board: 'ttgo_t_display', wifiConfigured: true, wifiConnected: true },
     } as any;
     expect(shouldSendWifiProvision({ ...online, provisionSent: false })).toBe(false);

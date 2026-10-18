@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 #include "mdns_discovery.h"
+#include "wifi_cred_id_store.h"
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <Preferences.h>
@@ -18,6 +19,39 @@ static bool radioParked = false;
 namespace {
 constexpr const char* WIFI_PREFS_NS = "adwifi";
 constexpr const char* WIFI_PREFS_BRIDGE_TOKEN = "bridge_token";
+// Which provision the stored credentials came from (net/wifi_cred_id_store.h).
+// Board-agnostic like the token: every board reports it.
+constexpr const char* WIFI_PREFS_CRED_ID = "cred_id";
+
+struct PrefsCredIdBackend {
+    bool load(char* out, size_t outLen) {
+        Preferences prefs;
+        if (!prefs.begin(WIFI_PREFS_NS, true)) return false;
+        // isKey first: getString on a missing key logs an error, and most
+        // boards hold no id until their next provision.
+        const bool found = prefs.isKey(WIFI_PREFS_CRED_ID) &&
+                           prefs.getString(WIFI_PREFS_CRED_ID, out, outLen) > 0;
+        prefs.end();
+        return found;
+    }
+    bool save(const char* id) {
+        Preferences prefs;
+        if (!prefs.begin(WIFI_PREFS_NS, false)) {
+            Serial.println("[WiFi] Credential id save failed: Preferences open failed");
+            return false;
+        }
+        const bool ok = id[0] == '\0'
+            ? (!prefs.isKey(WIFI_PREFS_CRED_ID) || prefs.remove(WIFI_PREFS_CRED_ID))
+            : prefs.putString(WIFI_PREFS_CRED_ID, id) > 0;
+        prefs.end();
+        if (!ok) Serial.println("[WiFi] Credential id save failed");
+        return ok;
+    }
+};
+// Static, 17-byte mirror; every caller runs on networkTask except wifiReset,
+// which restarts right after.
+PrefsCredIdBackend credIdBackend;
+WifiCredId::Store<PrefsCredIdBackend> credIdStore(credIdBackend);
 }  // namespace
 
 #if defined(BOARD_IPS10) || defined(BOARD_T_DISPLAY_PRO) || \
@@ -57,17 +91,25 @@ bool loadIps10ProvisionedWifi(char* ssid, size_t ssidLen, char* password, size_t
     return ssidBytes > 0 && passwordBytes > 0 && ssid[0] != '\0' && password[0] != '\0';
 }
 
-void saveIps10ProvisionedWifi(const char* ssid, const char* password) {
-    if (!ssid || !password || ssid[0] == '\0' || password[0] == '\0') return;
+bool saveIps10ProvisionedWifi(const char* ssid, const char* password) {
+    if (!ssid || !password || ssid[0] == '\0' || password[0] == '\0') return false;
 
     Preferences prefs;
     if (!prefs.begin(WIFI_PREFS_NS, false)) {
         Serial.println("[WiFi] IPS10 credential save failed: Preferences open failed");
-        return;
+        return false;
     }
-    prefs.putString(WIFI_PREFS_SSID, ssid);
-    prefs.putString(WIFI_PREFS_PASSWORD, password);
+    const bool ssidSaved = prefs.putString(WIFI_PREFS_SSID, ssid) > 0;
+    const bool passwordSaved = prefs.putString(WIFI_PREFS_PASSWORD, password) > 0;
     prefs.end();
+    return ssidSaved && passwordSaved;
+}
+
+// The adwifi store is what these boards join first, so it is what the
+// credential id describes. `credId` == nullptr: a re-join, id left alone.
+void saveProvisionedWifi(const char* ssid, const char* password, const char* credId) {
+    credIdStore.beforeWrite(credId);
+    credIdStore.afterWrite(credId, saveIps10ProvisionedWifi(ssid, password));
 }
 }  // namespace
 #endif
@@ -175,6 +217,8 @@ void wifiInit() {
         Serial.printf("[WiFi] No saved credentials — AP portal active: %s\n", AP_SSID);
         Serial.println("[WiFi] Connect to AP and visit 192.168.4.1 to configure");
         portalActive = true;
+        // Whatever the portal saves does not come from a provision.
+        credIdStore.forget();
     }
 }
 
@@ -191,6 +235,9 @@ void wifiLoop() {
             Serial.println("[WiFi] NTP sync started (UTC)");
             wifiWasConnected = true;
             portalActive = false;
+            // A provision that landed while the portal was open recorded its
+            // id; what joined now may be what the user typed instead.
+            credIdStore.forget();
         }
     }
 }
@@ -293,7 +340,7 @@ bool wifiRadioParked() {
     return radioParked;
 }
 
-bool wifiConnectWith(const char* ssid, const char* password) {
+bool wifiConnectWith(const char* ssid, const char* password, const char* credId) {
     Serial.printf("[WiFi] Connecting to %s...\n", ssid);
 
     // IPS10 may have turned the hosted C6 radio fully off when no saved creds
@@ -306,10 +353,20 @@ bool wifiConnectWith(const char* ssid, const char* password) {
     WiFi.disconnect(false);
     delay(100);
 
+#if !defined(AGENTDECK_PERSISTED_WIFI)
+    // The driver's own NVS config is what this board rejoins, so it is what
+    // the credential id describes (net/wifi_cred_id_store.h has the order).
+    credIdStore.beforeWrite(credId);
+#endif
     // Daemon provisioning must survive restart/OTA; WiFi.begin only writes
     // credentials to flash when persistent mode is enabled.
     WiFi.persistent(true);
+#if defined(AGENTDECK_PERSISTED_WIFI)
     WiFi.begin(ssid, password);
+#else
+    // Written now, whether or not the join below succeeds.
+    credIdStore.afterWrite(credId, WiFi.begin(ssid, password) != WL_CONNECT_FAILED);
+#endif
 
     // Wait up to 10 seconds for connection
     uint32_t start = millis();
@@ -327,7 +384,7 @@ bool wifiConnectWith(const char* ssid, const char* password) {
         wifiWasConnected = true;
         portalActive = false;
 #if defined(AGENTDECK_PERSISTED_WIFI)
-        saveIps10ProvisionedWifi(ssid, password);
+        saveProvisionedWifi(ssid, password, credId);
 #endif
         return true;
     }
@@ -336,13 +393,20 @@ bool wifiConnectWith(const char* ssid, const char* password) {
     return false;
 }
 
-void wifiSaveProvisionedCredentials(const char* ssid, const char* password) {
+void wifiSaveProvisionedCredentials(const char* ssid, const char* password, const char* credId) {
 #if defined(AGENTDECK_PERSISTED_WIFI)
-    saveIps10ProvisionedWifi(ssid, password);
+    saveProvisionedWifi(ssid, password, credId);
 #else
     (void)ssid;
     (void)password;
+    (void)credId;
 #endif
+}
+
+bool wifiLoadCredId(char* out, size_t outLen) {
+    if (!out || outLen == 0) return false;
+    credIdStore.load(out, outLen);
+    return out[0] != '\0';
 }
 
 #if defined(BOARD_T_DISPLAY_PRO)
@@ -451,6 +515,7 @@ bool wifiLoadProvisionedBridge(char* ip, size_t ipLen, uint16_t* port, char* tok
 }
 
 void wifiReset() {
+    credIdStore.forget();  // before the credentials it describes are erased
     Net::mdnsStop();  // resetSettings() turns WiFi off on its way to the restart
     wm.resetSettings();
     ESP.restart();

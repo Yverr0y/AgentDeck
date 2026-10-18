@@ -41,8 +41,12 @@ bool wifiConfigured();
  * Saves credentials to WiFiManager for future auto-connect.
  * Blocks up to 10 seconds waiting for connection.
  * Returns true on success.
+ *
+ * `credId` is the provision's credential id ("" when it carried none), recorded
+ * with the credentials it came with (see wifiLoadCredId). nullptr — a re-join of
+ * credentials already stored — leaves the record alone.
  */
-bool wifiConnectWith(const char* ssid, const char* password);
+bool wifiConnectWith(const char* ssid, const char* password, const char* credId = nullptr);
 
 #if defined(BOARD_T_DISPLAY_PRO)
 /**
@@ -60,7 +64,19 @@ bool wifiTryDeferredJoin();
  * T-Display-S3-Pro and the AGENTDECK_DEFER_BOOT_WIFI_JOIN e-ink panels); the
  * credentials are joined when the radio is restored.
  */
-void wifiSaveProvisionedCredentials(const char* ssid, const char* password);
+void wifiSaveProvisionedCredentials(const char* ssid, const char* password, const char* credId);
+
+/**
+ * Which `wifi_provision` the stored WiFi credentials came from ("" = none), for
+ * `device_info.wifiCredId`. Lets a daemon tell "already holds my credentials"
+ * from "needs them" while the radio is parked, which wifiConfigured() cannot: a
+ * parked radio reads unconfigured on most boards. The board never computes an
+ * id, only remembers one, and forgets it whenever its credentials can change
+ * without a provision (portal, reset) — net/wifi_cred_id_store.h. Report it
+ * over USB serial only: beside the pairing token on the WebSocket it would be
+ * an offline test for WiFi password guesses.
+ */
+bool wifiLoadCredId(char* out, size_t outLen);
 
 /**
  * Store/load a daemon bridge endpoint learned during serial WiFi provisioning.

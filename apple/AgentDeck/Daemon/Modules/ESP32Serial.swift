@@ -86,6 +86,11 @@ actor ESP32Serial {
         var protocolRevision: Int?
         var wifiConfigured: Bool?
         var wifiConnected: Bool?
+        var wifiRadioParked: Bool?
+        /// Credential id stored with the board's WiFi credentials ("" = none;
+        /// nil = firmware that predates it). Decides provisioning only and is
+        /// never published: with the pairing token it tests WiFi password guesses.
+        var wifiCredId: String?
         var repaintCount: Int?
         var fullRefreshCount: Int?
         var usageCodex5H: Int?
@@ -490,15 +495,23 @@ actor ESP32Serial {
         publishStatusShadow()
     }
 
+    /// Send `wifi_provision` to every connected board that does not already
+    /// hold it, comparing each against the credential id this very message
+    /// carries. Build `msg` with `wifiProvisionMessage` at send time.
     func sendWifiProvisionToAll(_ msg: [String: Any]) -> Int {
         guard let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return 0 }
         var count = 0
         let fingerprint = Self.provisionFingerprint(for: msg)
+        let expectedCredId = msg["credId"] as? String
         for i in connections.indices {
-            guard connections[i].connected, !connections[i].provisionSent else { continue }
-            if connections[i].deviceInfo?.wifiConnected == true { continue }
-            if provisionFingerprintsByPort[connections[i].port] == fingerprint { continue }
+            let decision = ESP32WifiProvisionRules.decision(Self.wifiProvisionInput(
+                connected: connections[i].connected,
+                provisionSent: connections[i].provisionSent,
+                deviceInfo: connections[i].deviceInfo,
+                expectedCredId: expectedCredId))
+            let legacySent = provisionFingerprintsByPort[connections[i].port] == fingerprint
+            guard Self.shouldSendWifiProvision(decision, legacyFingerprintSent: legacySent) else { continue }
             sendToConnection(&connections[i], json: json)
             guard connections[i].connected else { continue }
             connections[i].provisionSent = true
@@ -507,6 +520,61 @@ actor ESP32Serial {
         }
         publishStatusShadow()
         return count
+    }
+
+    /// A `wifi_provision` for one send. The credential id comes from the token
+    /// placed in the same message, so a board stores the id beside exactly the
+    /// credentials and token that produced it; build it per send, since the
+    /// token can change under a running daemon (Node: buildWifiProvision in
+    /// bridge/src/esp32-wifi-cred.ts).
+    static func wifiProvisionMessage(
+        ssid: String, password: String, bridgeIP: String, bridgePort: Int, authToken: String
+    ) -> [String: Any] {
+        var msg: [String: Any] = [
+            "type": "wifi_provision",
+            "ssid": ssid,
+            "password": password,
+            "bridgeIp": bridgeIP,
+            "bridgePort": bridgePort,
+            "authToken": authToken,
+        ]
+        if let credId = ESP32WifiProvisionRules.credId(authToken: authToken, ssid: ssid, password: password) {
+            msg["credId"] = credId
+        }
+        return msg
+    }
+
+    /// One connection as the shared provisioning decision reads it
+    /// (`ESP32WifiProvisionRules`, generated from shared/src/esp32-wifi-provision.ts).
+    /// This daemon never re-sends to a radio-up IPS10: `auth_provision` carries
+    /// the endpoint, and on that board a provision re-joins the AP.
+    static func wifiProvisionInput(
+        connected: Bool, provisionSent: Bool, deviceInfo: DeviceInfo?, expectedCredId: String?
+    ) -> ESP32WifiProvisionRules.Input {
+        ESP32WifiProvisionRules.Input(
+            connected: connected,
+            provisionSent: provisionSent,
+            board: deviceInfo?.board,
+            wifiConfigured: deviceInfo?.wifiConfigured,
+            wifiConnected: deviceInfo?.wifiConnected,
+            wifiRadioParked: deviceInfo?.wifiRadioParked,
+            wifiCredId: deviceInfo?.wifiCredId,
+            expectedCredId: expectedCredId,
+            refreshIps10Endpoint: false)
+    }
+
+    /// The shared decision, except where it fell back to the rule that predates
+    /// the credential id (old firmware, or no id to offer). There this daemon
+    /// keeps its own rule — once per port per credential set per app lifetime —
+    /// rather than Node's "leave a board reporting saved credentials alone",
+    /// which would stop changed credentials reaching boards that persist a
+    /// provision. An id decision needs no fingerprint: a board that reports
+    /// holding these credentials is not re-sent them, and one that reports
+    /// otherwise really needs them.
+    static func shouldSendWifiProvision(
+        _ decision: ESP32WifiProvisionRules.Decision, legacyFingerprintSent: Bool
+    ) -> Bool {
+        decision.legacy ? !legacyFingerprintSent : decision.send
     }
 
     /// Push the current pairing token to every serial-attached board that is
@@ -987,6 +1055,8 @@ actor ESP32Serial {
                     protocolRevision: msg["protocolRevision"] as? Int,
                     wifiConfigured: msg["wifiConfigured"] as? Bool,
                     wifiConnected: msg["wifiConnected"] as? Bool,
+                    wifiRadioParked: msg["wifiRadioParked"] as? Bool,
+                    wifiCredId: msg["wifiCredId"] as? String,
                     repaintCount: msg["repaintCount"] as? Int,
                     fullRefreshCount: msg["fullRefreshCount"] as? Int,
                     usageCodex5H: msg["usageCodex5H"] as? Int,
@@ -1637,6 +1707,8 @@ actor ESP32Serial {
                 protocolRevision: msg["protocolRevision"] as? Int,
                 wifiConfigured: msg["wifiConfigured"] as? Bool,
                 wifiConnected: msg["wifiConnected"] as? Bool,
+                wifiRadioParked: msg["wifiRadioParked"] as? Bool,
+                wifiCredId: msg["wifiCredId"] as? String,
                 repaintCount: msg["repaintCount"] as? Int,
                 fullRefreshCount: msg["fullRefreshCount"] as? Int,
                 usageCodex5H: msg["usageCodex5H"] as? Int,

@@ -4,6 +4,7 @@
 #include "../audio/mic_capture.h"
 #include "protocol.h"
 #include "wifi_manager.h"
+#include "wifi_cred_id.generated.h"
 #include "ws_client.h"
 #include "serial_client.h"
 #include "../state/agent_state.h"
@@ -999,6 +1000,9 @@ static void handleWifiProvision(JsonObject& obj) {
     const char* bridgeIp = obj["bridgeIp"] | "";
     uint16_t bridgePort = obj["bridgePort"] | BRIDGE_DEFAULT_PORT;
     const char* authToken = obj["authToken"] | "";
+    // Which credentials these are, recorded beside them for device_info. A
+    // provision without one (an older daemon) clears the record.
+    const char* credId = obj["credId"] | "";
 
     if (ssid[0] == '\0' || password[0] == '\0') {
         Serial.println("[Provision] Missing SSID or password");
@@ -1037,13 +1041,13 @@ static void handleWifiProvision(JsonObject& obj) {
         // on the e-ink panels a join here was the radio that never parked
         // again (net/radio_park_policy.h).
         // WiFi comes up from the serial-death path when USB actually goes away.
-        Net::wifiSaveProvisionedCredentials(ssid, password);
+        Net::wifiSaveProvisionedCredentials(ssid, password, credId);
         Net::wifiSaveProvisionedBridge(bridgeIp, bridgePort, authToken);
         ok = true;
     } else
 #endif
     {
-        ok = Net::wifiConnectWith(ssid, password);
+        ok = Net::wifiConnectWith(ssid, password, credId);
     }
     if (ok) {
         // A voice-capable IPS10 is deliberately dual-home: its 115200-baud
@@ -1379,6 +1383,13 @@ static void sendDeviceInfo() {
     resp["wifiConfigured"] = Net::wifiConfigured();
     resp["wifiConnected"] = Net::wifiConnected();
     resp["wifiRadioParked"] = Net::wifiRadioParked();
+    // Which provision the stored credentials came from ("" = none): lets the
+    // daemon leave a parked board that already holds its credentials alone.
+    // Always present — absent means firmware that predates it — and on the
+    // serial copy only (see the tail).
+    char credId[WifiCredId::HEX_LENGTH + 1];
+    Net::wifiLoadCredId(credId, sizeof(credId));
+    resp["wifiCredId"] = credId;
     resp["uptimeSec"] = millis() / 1000;
     {
         esp_reset_reason_t resetReason = esp_reset_reason();
@@ -1563,6 +1574,7 @@ static void sendDeviceInfo() {
     }
     sendDeviceInfoFrame(resp, buf, sizeof(buf), true, false);
     if (Net::wsConnected()) {
+        resp.remove("wifiCredId");  // serial only, as below
         JsonArray caps = resp["capabilities"].as<JsonArray>();
         if (Audio::speakerAudible()) caps.add("audio_out");
         sendDeviceInfoFrame(resp, buf, sizeof(buf), false, true);
@@ -1570,7 +1582,14 @@ static void sendDeviceInfo() {
 #else
     // Both transports: serial for the USB-attached identify flow, WS so a
     // WiFi-only board (TRMNL 7.5") is registrable by the daemon without a cable.
-    sendDeviceInfoFrame(resp, buf, sizeof(buf), true, Net::wsConnected());
+    // The credential id stays on the serial copy: the WebSocket carries the
+    // pairing token in plaintext, and the two together are an offline test for
+    // WiFi password guesses. Only the serial copy decides provisioning.
+    sendDeviceInfoFrame(resp, buf, sizeof(buf), true, false);
+    if (Net::wsConnected()) {
+        resp.remove("wifiCredId");
+        sendDeviceInfoFrame(resp, buf, sizeof(buf), false, true);
+    }
 #endif
 }
 

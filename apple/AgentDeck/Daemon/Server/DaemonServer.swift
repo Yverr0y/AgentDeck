@@ -2709,16 +2709,6 @@ final class DaemonServer {
         // credential re-arm with it whenever this machine had no WiFi config.
         let lanIp = AuthManager.getLanIP() ?? "127.0.0.1"
         let wifiConfig = WifiConfigManager.load()
-        let provisionMsg: SendableDict? = wifiConfig.map { config in
-            SendableDict([
-                "type": "wifi_provision",
-                "ssid": config.ssid,
-                "password": config.password,
-                "bridgeIp": lanIp,
-                "bridgePort": Int(port),
-                "authToken": auth.token,
-            ])
-        }
         let autoProvision = wifiConfig?.autoProvision == true
         let daemonPort = Int(port)
         await serial.serial.setOnMessage { [weak self] portPath, msg in
@@ -2760,14 +2750,9 @@ final class DaemonServer {
                 // user's WiFi credentials).
                 guard !armed.isEmpty, autoProvision, let config = wifiConfig else { return }
                 try? await Task.sleep(for: .milliseconds(Self.legacyRearmGraceMilliseconds))
-                let legacy = SendableDict([
-                    "type": "wifi_provision",
-                    "ssid": config.ssid,
-                    "password": config.password,
-                    "bridgeIp": lanIp,
-                    "bridgePort": daemonPort,
-                    "authToken": AuthManager.shared.token,
-                ])
+                let legacy = SendableDict(ESP32Serial.wifiProvisionMessage(
+                    ssid: config.ssid, password: config.password,
+                    bridgeIP: lanIp, bridgePort: daemonPort, authToken: AuthManager.shared.token))
                 for armedPort in armed {
                     let sent = await self.serialModule?.serial
                         .sendLegacyProvisionIfUnacked(port: armedPort, legacy.value) ?? false
@@ -2777,9 +2762,14 @@ final class DaemonServer {
                 }
             }
 
-            if autoProvision, let provisionMsg, msg["wifiConnected"] as? Bool != true {
+            if autoProvision, let config = wifiConfig, msg["wifiConnected"] as? Bool != true {
                 Task {
-                    let sent = await self.serialModule?.serial.sendWifiProvisionToAll(provisionMsg.value) ?? 0
+                    // Built per send, from the token served now: each board is
+                    // compared against the credential id this message carries.
+                    let provision = SendableDict(ESP32Serial.wifiProvisionMessage(
+                        ssid: config.ssid, password: config.password,
+                        bridgeIP: lanIp, bridgePort: daemonPort, authToken: AuthManager.shared.token))
+                    let sent = await self.serialModule?.serial.sendWifiProvisionToAll(provision.value) ?? 0
                     if sent > 0 {
                         DaemonLogger.shared.info("WiFi provision sent to \(sent) ESP32 connection(s); trigger port \(portPath)")
                     }

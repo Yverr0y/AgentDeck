@@ -274,6 +274,7 @@ import {
   resolveDaemonPosture,
 } from './network-posture.js';
 import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendAuthProvisionToAll, sendWifiProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm } from './esp32-serial.js';
+import { buildWifiProvision } from './esp32-wifi-cred.js';
 import { clampLeaseSeconds, clearLease, readLease, writeLease } from './esp32-flash-lease.js';
 import { loadWifiConfig } from './wifi-config.js';
 import { getAdbDeviceCountCached, getCachedAdbDevices } from './adb-reverse.js';
@@ -5149,14 +5150,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
               // re-armed again when the token next changes, or when the daemon
               // restarts — both of which are real events, unlike a 30s poll.
               legacyRearm.markRearmed(armedPort, currentToken);
-              const sent = sendWifiProvision(armedPort, {
-                type: 'wifi_provision' as const,
+              const sent = sendWifiProvision(armedPort, buildWifiProvision({
                 ssid: wifiConfig.ssid,
                 password: wifiConfig.password,
                 bridgeIp: lanIp,
                 bridgePort: port,
                 authToken: getOrCreateToken(),
-              });
+              }));
               if (sent) {
                 log(`[agentdeck] ${armedPort}: firmware predates auth_provision — re-armed over the legacy WiFi provision path`);
               }
@@ -5180,14 +5180,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         msg.wifiConnected &&
         !msg.wifiRadioParked;
       if (msg.type === 'device_info' && (!msg.wifiConnected || shouldRefreshIps10Endpoint)) {
-        const sent = sendWifiProvisionToAll({
-          type: 'wifi_provision' as const,
+        // Built per send: the credential id each board is compared against is
+        // derived from the token this very message carries.
+        const sent = sendWifiProvisionToAll(buildWifiProvision({
           ssid: wifiConfig.ssid,
           password: wifiConfig.password,
           bridgeIp: lanIp,
           bridgePort: port,
           authToken: getOrCreateToken(),
-        });
+        }));
         if (sent > 0) log(`[agentdeck] WiFi provision sent to ${sent} ESP32 device(s) after ${portPath}`);
       } else if (msg.type === 'wifi_provision_ack') {
         log(msg.success ? `[agentdeck] ESP32 WiFi connected: ${msg.ip} ✓` : `[agentdeck] ESP32 WiFi failed: ${msg.error || 'unknown'}`);
