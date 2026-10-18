@@ -505,14 +505,15 @@ id, run_id, verdict (approve|reject|neutral), note, ts
 ### reference_evals — reference judge 의 두 번째 판정 (2026-10-18)
 
 ```
-id, task_id, run_id, judge ('codex:<model>@<effort>'), category, rubric_ver,
+id, task_id, run_id, judge ('codex:<model>@<effort>'),
+sample ('uniform' | 'local_band=fail' | 'project=agentdeck' …), category, rubric_ver,
 prompt_sha, overall, scores_json, verdict_json, error,
 local_judge, local_overall, local_rubric_ver, local_judged_at,
 input_tokens, cached_input_tokens, output_tokens, reasoning_tokens,
 latency_ms, created_at
 ```
 
-`agentdeck apme reference-judge --run` 만 쓴다. `evals` 와 분리한 이유: scorecard, outcome, Work 판 어떤 쿼리도 reference 판정을 제품 자신의 판정으로 오인할 수 없게. `local_*` 는 비교 시점의 로컬 판정 스냅샷이고, 실패한 호출도 행으로 남는다(`overall` NULL, `error`). 아래 [Reference judge](#reference-judge-2026-10-18) 절 참고.
+`agentdeck apme reference-judge --run` 만 쓴다. `evals` 와 분리한 이유: scorecard, outcome, Work 판 어떤 쿼리도 reference 판정을 제품 자신의 판정으로 오인할 수 없게. `local_*` 는 비교 시점의 로컬 판정 스냅샷이고, 실패한 호출도 행으로 남는다(`overall` NULL, `error`). `sample` 은 task 를 뽑은 설계다 — 설계가 다른 행은 다른 질문에 답하므로 보고서가 따로 낸다. 아래 [Reference judge](#reference-judge-2026-10-18) 절 참고.
 
 ### 집계 뷰
 
@@ -871,7 +872,7 @@ composite = 0.40 × outcomeScore
 
 로컬 judge 의 판정을 믿지 않고 잰다. 2026-10-16 포지션 워크숍 결정 ⑪ — "`codex exec` 로 구동하는 고급 모델을 reference judge 로, 로컬 judge 와의 agreement 지표, 그리고 불일치로 루브릭을 고치는 OPRO 루프. 사람 레이블은 reference 를 보정할 뿐" — 의 앞 두 조각이다. OPRO 루프는 아직 없다(위 절). `agentdeck apme reference-judge` 가 판정하고 `agentdeck apme agreement` 가 보고한다. 명령 표와 옵션: [cli.md § Evaluation](cli.md#evaluation-apme).
 
-**같은 프롬프트.** 로컬 판정이 끝난 task 의 판정 요청을 `buildTaskJudgeInput` 으로 다시 만든다 — `runTaskEval` 이 판정 요청을 만드는 바로 그 함수다. 두 judge 가 다른 프롬프트를 봤다면 agreement 는 judge 가 아니라 프롬프트를 잰다. `apme-reference-judge.test.ts` 가 라이브 judge 에 전달된 문자열과 같음을 고정한다. 다른 점은 송출 전 마스킹뿐이다: 이 머신의 페어링 토큰(서빙 중인 것 + accepted ring)과 credential 모양 문자열(`redactSecrets` 의 접두사, PEM private key, `sk-`, `AKIA`, `npm_`, `AIza`, `xox?-`)을 `[REDACTED]` 로. 커밋 해시와 UUID 는 남긴다 — judge 가 증거로 읽는다.
+**같은 프롬프트.** 로컬 판정이 끝난 task 의 판정 요청을 `buildTaskJudgeInput` 으로 다시 만든다 — `runTaskEval` 이 판정 요청을 만드는 바로 그 함수다. 두 judge 가 다른 프롬프트를 봤다면 agreement 는 judge 가 아니라 프롬프트를 잰다. `apme-reference-judge.test.ts` 가 라이브 judge 에 전달된 문자열과 같음을 고정한다. 다른 점은 송출 전 마스킹뿐이고, 마스킹은 **필드마다 잘라내기 전에** 한다(`buildTaskJudgeInput` 의 `field` — 턴의 프롬프트·응답, 도구 입력·오류, 서브에이전트 요약). 잘린 뒤에 가리면 credential 이 자기를 알아보게 하는 모양을 잃는다: 1,500자 필드에서 잘린 PEM 키에는 END 줄이 없다. 그 뒤 프롬프트 전체를 한 번 더 훑는다. 로컬 judge 의 프롬프트는 바이트 그대로이고 `prompt_sha` 는 그 해시다. 가리는 것: 이 머신의 페어링 토큰(서빙 중인 것 + accepted ring) 그대로; PEM private key 블록(END 줄이 없으면 그 필드 끝까지); `redactSecrets` 의 접두사; `sk-`, `AKIA`, `npm_`, `AIza`, `xox?-`, GitHub(`gh[oprsu]_`, `github_pat_`), Hugging Face(`hf_`), JWT; 레이블 붙은 값 — `Authorization:` 헤더(`Basic`·`Bearer`·`token`), 대소문자 무관 `bearer`, URL 의 `user:password@`(scheme·host 는 남긴다), 이름이 secret 을 말하는 할당·플래그(`DB_PASSWORD=…`, `"api_key": "…"`, `--password …`, z.ai 의 `ANTHROPIC_AUTH_TOKEN=<hex>.<alnum>`). **best effort 다** — 이 모양 어디에도 들지 않는 credential(레이블 없는 임의 문자열, 일반 단어 비밀번호)은 그대로 나간다. 마스킹이 필드를 줄이면 로컬 judge 에게서 잘려 나간 뒷부분이 reference 에게는 보일 수 있다; dry run 이 task 마다 마스킹 수를 보여준다. 커밋 해시와 UUID, 그리고 secret 을 이름만 말하는 코드(`getToken()`, `password: string`, `max_tokens`, `TOKEN_TYPE=bearer`)는 남긴다 — judge 가 증거로 읽는다.
 
 **`codex exec` 호출.** 사용자 자신의 Codex 로그인으로 부르니 API 키가 없다. 플래그마다 이유가 있다:
 
@@ -889,11 +890,13 @@ composite = 0.40 × outcomeScore
 
 도구 차단도 실측으로 정했다(codex-cli 0.160.1, "가능하면 직접 확인하라"는 합성 프롬프트). read-only 샌드박스인데도 모델은 `rg` 로 `/etc/hosts` 를 읽었고, 기본 설정에서는 웹 검색을 2회 했다. shell 만 끄면 code mode 의 `exec` 도구를 대신 두 번 불렀다. 이 호출은 `--json` 이벤트 어디에도 없고 `RUST_LOG=codex_core=info` 의 `ToolCall: exec` 로만 보였으며, 입력 토큰이 10k 에서 64k 로 늘었다. 위 전부를 끈 구성에서는 ToolCall 0, 요청 1회(10,015 토큰). 이벤트에 도구 item(`command_execution`, `web_search` …)이 하나라도 나오면 그 판정은 저장하지 않고 실패로 남긴다(`isolationBreach`). 이벤트에 안 보이는 호출은 감지가 아니라 차단(`code_mode_host` off)으로 다룬다.
 
+**타임아웃과 중단은 프로세스 트리 전체를 멈춘다.** npm `codex` 래퍼는 네이티브 바이너리를 stdio 를 물려준 자식으로 띄우고 SIGINT/SIGTERM/SIGHUP 만 넘긴다. 그래서 래퍼만 SIGKILL 하던 첫 구현은 타임아웃 뒤에도 진짜 Codex 를 파이프를 연 채 남겨 두었다. POSIX 에서는 judge 를 자기 프로세스 그룹으로 띄우고(`detached`), 타임아웃이면 그룹에 SIGTERM, 2 s 뒤에도 남아 있으면 SIGKILL 을 보낸 다음 임시 디렉터리를 지운다. 그룹은 터미널의 Ctrl-C 를 받지 않으므로 `--run` 동안은 CLI 가 SIGINT/SIGTERM/SIGHUP 을 받아 같은 정지를 하고 끝난다(종료 코드 128 + 신호 번호). Windows 는 `taskkill /T /F` 를 먼저 — 트리를 뿌리부터 걸으므로 뿌리가 살아 있을 때 — 그다음 뿌리를 죽인다. stdout·stderr 는 스트림으로 디코딩한다(청크 경계에서 갈린 한글이 깨지지 않게).
+
 effort 기본값은 `high` — 사용자 Codex 기본값이 `ultra` 여도 따르지 않는다. `ultra` 는 서브에이전트에 위임하는데 판정 하나에는 쓸모가 없다.
 
-**저장.** `reference_evals` 테이블(위 Data schema). `evals` 가 아니므로 scorecard·outcome·Work 판 어떤 쿼리도 reference 판정을 제품의 판정으로 읽지 않는다. 실패한 호출도 행이다.
+**저장.** `reference_evals` 테이블(위 Data schema). `evals` 가 아니므로 scorecard·outcome·Work 판 어떤 쿼리도 reference 판정을 제품의 판정으로 읽지 않는다. 실패한 호출(타임아웃 포함)도 행이다. 중단된 호출(Ctrl-C)과 시작조차 못 한 호출(`codex` 없음)은 행을 남기지 않는다 — task 에 대해 아무것도 말하지 않는다. 같은 (judge, 설계)에서 실패 행이 두 개인 task 는 재실행이 보내지 않는다(park; `--retry-parked` 가 다시 보낸다): 매번 실패하는 task 가 매 실행의 자리를 차지하지 않게. 실패가 세 번 연달아 나면 실행이 멈춘다 — 로그인 만료나 네트워크 장애는 모든 호출을 실패시키고, 그 실패 하나하나가 task 를 park 쪽으로 민다. 스키마 변경은 없다: 실패 행은 이미 있었다.
 
-**표본.** `--since`(기본 30일 — `apme prune` 기본 창과 같아서 tool payload 가 아직 지워지지 않은 task 다) 안의 로컬 판정 task 위에서 균등하게, 순서는 (seed, task id) 해시. dry run 이 보여준 목록이 `--run` 이 보내는 목록이고, 재실행은 같은 설계에서 이미 판정한 task 를 건너뛰고 다음으로 간다. 다른 설계에서 판정한 task 는 건너뛰지 않는다 — 건너뛰면 그 task 가 이 설계의 표본에서 빠진다. 균등 순서 20·21번째가 fail 밴드 표본의 task 였으니, 건너뛰었다면 균등 표본이 fail 을 덜 셌을 것이다. `--local-band`·`--category` 는 표본을 좁힌다. `--project` 는 허용 목록이다 — 적은 프로젝트(Work 판의 `project_name`, 대소문자 무시)의 task 만 뽑으므로 나머지 프로젝트의 텍스트는 머신 밖으로 나가지 않는다. dry run 표에 task 마다 프로젝트가 나온다. 각 행은 자기 설계(`sample`: `uniform`, `local_band=fail` …)를 기록하고 보고서는 (judge, 설계)별로 따로 낸다 — 좁힌 표본의 MAE 는 모집단 추정이 아니라 그 조각의 값이고, `local_band=fail` 의 밴드 일치율은 로컬 fail 의 정밀도다.
+**표본.** `--since`(기본 30일 — `apme prune` 기본 창과 같아서 tool payload 가 아직 지워지지 않은 task 다) 안의 로컬 판정 task 위에서 균등하게, 순서는 (seed, task id) 해시. 재실행은 같은 설계에서 이미 판정했거나 park 된 task 를 건너뛰고 다음으로 간다. dry run 은 풀을 한 시각(`--until`, 기본 지금)의 상태로 읽는다 — 그때까지 닫힌 task, 각자 그때까지의 마지막 로컬 판정, 그때까지 판정·park 된 task 제외 — 그리고 그 시각과 뽑힌 목록의 digest 를 박은 `--run` 명령을 출력한다. 그 명령은 같은 풀을 읽으니 같은 목록을 뽑고, digest 가 다르면(그사이 task 가 다시 분류되거나 지워졌다) 아무것도 보내지 않는다(`--expect`). 그사이 판정·park 된 pick(같은 명령을 먼저 돌렸다)은 빠지고 다른 task 로 채우지 않는다 — run 은 dry run 이 보여준 목록의 부분집합만 보낸다. `--until` 없이 친 `--run` 은 그 순간의 풀에서 뽑는다. 다른 설계에서 판정한 task 는 건너뛰지 않는다 — 건너뛰면 그 task 가 이 설계의 표본에서 빠진다. 균등 순서 20·21번째가 fail 밴드 표본의 task 였으니, 건너뛰었다면 균등 표본이 fail 을 덜 셌을 것이다. `--local-band`·`--category` 는 표본을 좁힌다. `--project` 는 허용 목록이다 — 적은 프로젝트(Work 판의 `project_name`, 대소문자 무시)의 task 만 뽑으므로 나머지 프로젝트의 텍스트는 머신 밖으로 나가지 않는다. dry run 표에 task 마다 프로젝트가 나온다. 각 행은 자기 설계(`sample`: `uniform`, `local_band=fail` …)를 기록하고 보고서는 (judge, 설계)별로 따로 낸다 — 좁힌 표본의 MAE 는 모집단 추정이 아니라 그 조각의 값이고, `local_band=fail` 의 밴드 일치율은 로컬 fail 의 정밀도다.
 
 **지표**(`apme agreement`): n, MAE(95% 부트스트랩 CI), bias = 평균(local − reference)(양수 = 로컬이 후함), Spearman(동점은 평균 순위), outcome 밴드 일치율과 Cohen's κ(`deriveTaskOutcome` 의 0.75/0.5 경계), confusion matrix, 정확히 0 또는 1 인 점수 비율, 로컬 judge 모델·카테고리별 분해, 가장 큰 불일치(양쪽 요약 + reference 의 missed). judge 태그(`codex:<model>@<effort>`)마다 따로 — 다른 모델·effort 는 다른 계기다.
 

@@ -10,15 +10,15 @@
  * `agentdeck apme reference-judge --run`.
  */
 
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { redactSecrets } from '../utils/redact-secrets.js';
 import { codexBinary, codexSpawnPlan } from '../codex-rate-limits-live.js';
-import { deriveTaskOutcome, parseJudgeJson } from './runner.js';
-import type { ApmeLocalVerdictRow, ApmeReferenceEvalRow } from './store.js';
+import { buildTaskJudgeInput, deriveTaskOutcome, parseJudgeJson, type TaskJudgeInput } from './runner.js';
+import type { ApmeLocalVerdictRow, ApmeReferenceEvalRow, ApmeStore } from './store.js';
 
 /** Effort used when `--effort` is not given. High rather than the user's own
  *  Codex default: `ultra` delegates to subagents, which a one-prompt verdict
@@ -95,22 +95,142 @@ export function verdictSchemaFromRubric(rubricPrompt: string): Record<string, un
   return { type: 'object', properties, required: Object.keys(properties), additionalProperties: false };
 }
 
+const REDACTED = '[REDACTED]';
+
+/** A private key block. The second pattern is a key whose END line is not in
+ *  the text — a paste or a field that was cut — and takes the rest of it. */
+const PRIVATE_KEY_PATTERNS: readonly RegExp[] = [
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/g,
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*/g,
+];
+
 /** Credential shapes `redactSecrets` does not know, for text that leaves the
  *  machine. Each has a prefix or structure distinctive enough that a match is
  *  a credential, not prose; commit hashes and UUIDs are left alone because a
  *  judge reads them as evidence. */
 const EGRESS_SECRET_PATTERNS: readonly RegExp[] = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bsk-[A-Za-z0-9_-]{20,}/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bnpm_[A-Za-z0-9]{36}\b/g,
   /\bAIza[0-9A-Za-z_-]{35}/g,
   /\bxox[a-z]-[A-Za-z0-9-]{10,}/g,
+  /\bgh[oprsu]_[A-Za-z0-9]{36,}/g, // GitHub: personal, OAuth, user, server, refresh
+  /\bgithub_pat_[A-Za-z0-9_]{22,}/g,
+  /\bhf_[A-Za-z0-9]{30,}/g, // Hugging Face
+  /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, // JWT: two base64url JSON objects
 ];
 
-/** Strip credentials from a prompt before it goes to a hosted model: this
- *  machine's pairing tokens verbatim, then known credential shapes. Returns
- *  how many spans were replaced so the CLI can say so. */
+/** A value shaped like a generated credential rather than a word or a name:
+ *  letters with digits, or long. A random 20-character token has no digit
+ *  about 3% of the time; prose and identifiers rarely have one. */
+function credentialShaped(value: string): boolean {
+  return value.length >= 32 || (/\d/.test(value) && /[A-Za-z]/.test(value));
+}
+
+/** Code, a reference or a placeholder rather than a value: `getToken()`,
+ *  `process.env.API_KEY`, `${TOKEN}`, `<your-key>`, a redaction already made.
+ *  A dotted path counts only without digits: a z.ai key is `<hex>.<alnum>`. */
+function notALiteral(value: string): boolean {
+  return /[()[\]{}<>$`]/.test(value) || (/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(value) && !/\d/.test(value));
+}
+
+/** Type and keyword values a password-named field takes in code
+ *  (`password: string`), which are not a password. */
+const NOT_A_PASSWORD = new Set(['string', 'number', 'boolean', 'null', 'undefined', 'true', 'false', 'none', 'str', 'any', 'unknown', 'required', 'optional']);
+
+/** How a key that names a secret constrains its value: a password can be a
+ *  plain word; a token, secret or API key must look generated; a name whose
+ *  only hint is a trailing `key` (`SORT_KEY`, `STORAGE_KEY`) must look
+ *  generated and long. Null when the key names no secret. The last word
+ *  decides (split on `_`, `-`, `.` and camelCase), so `PGPASSWORD` and
+ *  `csrftoken` name one while `bypass`, `max_tokens` and `TOKEN_TYPE` do not. */
+function secretKeyKind(key: string): 'password' | 'secret' | 'key' | null {
+  const words = key.replace(/^-+/, '').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/).filter(Boolean);
+  const last = words[words.length - 1];
+  const pair = words.slice(-2).join('_');
+  if (!last) return null;
+  if (/(?:password|passwd|passphrase)$/.test(last) || (last === 'pass' && words.length > 1)) return 'password';
+  if (/(?:secret|token|apikey)$/.test(last) || last === 'credential' || last === 'credentials') return 'secret';
+  if (['api_key', 'access_key', 'secret_key', 'private_key', 'auth_key', 'signing_key', 'encryption_key', 'master_key'].includes(pair)) return 'secret';
+  if ((last === 'key' || last === 'pat') && words.length > 1) return 'key';
+  return null;
+}
+
+function secretValue(kind: 'password' | 'secret' | 'key', value: string, quoted: boolean): boolean {
+  if (value.includes(REDACTED) || notALiteral(value)) return false;
+  if (kind === 'password') return value.length >= 4 && (quoted || !NOT_A_PASSWORD.has(value.toLowerCase()));
+  if (kind === 'secret') return value.length >= 8 && (quoted || credentialShaped(value));
+  return value.length >= 16 && credentialShaped(value);
+}
+
+/** A name ending in a word `secretKeyKind` may accept. Only such names are
+ *  matched at all: a matched name consumes its value, and a non-secret key's
+ *  quoted value (`"command": "export API_TOKEN=…"`) would hide what is in it. */
+const SECRET_NAME_END = '(?:pass(?:word|wd|phrase)?|secret|token|key|credentials?|pat)';
+
+/** A value after a key or flag: double-quoted, single-quoted, quoted with
+ *  `\"` (a JSON string inside a JSON-encoded tool input), or bare up to a
+ *  space, quote, separator or closing bracket. Groups: one per form, so the
+ *  replacement can put the same quotes back. */
+const ASSIGNED_VALUE = String.raw`(?:"([^"\\\n]{1,512})"|'([^'\\\n]{1,512})'|\\"([^"\\\n]{1,512})\\"|([^\s"'\x60,;\\)\]}]{1,512}))`;
+
+function redactAssigned(
+  match: string, prefix: string, kind: ReturnType<typeof secretKeyKind>,
+  [dq, sq, escaped, bare]: string[],
+): string {
+  const value = dq || sq || escaped || bare;
+  const quote = dq ? '"' : sq ? "'" : escaped ? '\\"' : '';
+  return kind && secretValue(kind, value, quote !== '') ? `${prefix}${quote}${REDACTED}${quote}` : match;
+}
+
+/** A credential behind a label. The label stays, so the judge still reads
+ *  what was passed (`DB_PASSWORD=[REDACTED]`, `postgres://[REDACTED]@db`);
+ *  `redact` returns the match unchanged when the value is not a credential. */
+const LABELLED_SECRET_PATTERNS: ReadonlyArray<{ pattern: RegExp; redact: (match: string, ...groups: string[]) => string }> = [
+  // `Authorization: Basic …` / `token …` / `Bearer …` / a bare value.
+  {
+    pattern: /(\bauthorization\\?["']?[ \t]*[:=][ \t]*\\?["']?)((?:basic|bearer|digest|token)[ \t]+)?([^\s"'`,;\\]{8,512})/gi,
+    redact: (match, label, scheme, value) =>
+      !value.includes(REDACTED) && !notALiteral(value) && (scheme || credentialShaped(value)) ? `${label}${scheme}${REDACTED}` : match,
+  },
+  // `bearer <token>` in any case (`redactSecrets` knows only `Bearer `).
+  {
+    pattern: /\b(bearer[ \t]+)([A-Za-z0-9._~+/=-]{16,})/gi,
+    redact: (match, label, value) => (credentialShaped(value) ? `${label}${REDACTED}` : match),
+  },
+  // URL userinfo `scheme://user:pass@host`: scheme and host stay. Greedy to the
+  // authority's last `@`, since a password may hold one. A userinfo with no
+  // password (`ssh://git@host`) stays unless it looks like a token.
+  {
+    pattern: /\b([a-z][a-z0-9+.-]*:\/\/)([^\s/?#]{1,256})@(?=[^\s/?#@])/gi,
+    redact: (match, scheme, userinfo) => {
+      if (userinfo.includes(REDACTED)) return match;
+      const colon = userinfo.indexOf(':');
+      const credential = colon >= 0 ? colon < userinfo.length - 1 : userinfo.length >= 16 && credentialShaped(userinfo);
+      return credential ? `${scheme}${REDACTED}@` : match;
+    },
+  },
+  // `KEY=value`, `"key": "value"`, `key: value`, `--key=value` where the key
+  // names a secret (`secretKeyKind`).
+  {
+    pattern: new RegExp(String.raw`(?<![\w.-])((?:--?)?(?:[A-Za-z][\w.-]{0,63}?)?${SECRET_NAME_END})((?:\\?["'])?)([ \t]*[:=][ \t]*)${ASSIGNED_VALUE}`, 'gi'),
+    redact: (match, key, keyQuote, separator, ...value) =>
+      redactAssigned(match, `${key}${keyQuote}${separator}`, secretKeyKind(key), value),
+  },
+  // `--password hunter2`, `--api-key …`: a flag naming a secret, then its value.
+  {
+    pattern: new RegExp(String.raw`(?<![\w-])(--[a-z0-9-]{0,63}?${SECRET_NAME_END})(?![\w-])([ \t]+)${ASSIGNED_VALUE}`, 'gi'),
+    redact: (match, flag, space, ...value) => redactAssigned(match, `${flag}${space}`, secretKeyKind(flag), value),
+  },
+];
+
+/** Strip credentials from text before it goes to a hosted model. Best effort,
+ *  in this order: this machine's pairing tokens verbatim; private key blocks,
+ *  including one cut before its END line; `redactSecrets`' prefixes; the
+ *  shapes in `EGRESS_SECRET_PATTERNS`; and labelled values — `Authorization`
+ *  headers, `bearer` tokens, URL passwords, and assignments or flags whose
+ *  name says secret. A credential with none of these shapes passes through.
+ *  Returns how many spans were replaced so the CLI can say so. */
 export function redactForEgress(text: string, knownSecrets: readonly string[] = []): { text: string; redactions: number } {
   let out = text;
   let redactions = 0;
@@ -118,13 +238,23 @@ export function redactForEgress(text: string, knownSecrets: readonly string[] = 
     if (secret.length < 16) continue;
     const parts = out.split(secret);
     redactions += parts.length - 1;
-    out = parts.join('[REDACTED]');
+    out = parts.join(REDACTED);
+  }
+  for (const pattern of PRIVATE_KEY_PATTERNS) {
+    out = out.replace(pattern, () => { redactions++; return REDACTED; });
   }
   const prefixed = redactSecrets(out);
   redactions += Math.max(0, (prefixed.match(/\[REDACTED\]/g)?.length ?? 0) - (out.match(/\[REDACTED\]/g)?.length ?? 0));
   out = prefixed;
   for (const pattern of EGRESS_SECRET_PATTERNS) {
-    out = out.replace(pattern, () => { redactions++; return '[REDACTED]'; });
+    out = out.replace(pattern, () => { redactions++; return REDACTED; });
+  }
+  for (const { pattern, redact } of LABELLED_SECRET_PATTERNS) {
+    out = out.replace(pattern, (match: string, ...groups: unknown[]) => {
+      const replaced = redact(match, ...groups.map((g) => (typeof g === 'string' ? g : '')));
+      if (replaced !== match) redactions++;
+      return replaced;
+    });
   }
   return { text: out, redactions };
 }
@@ -237,12 +367,22 @@ export interface CodexJudgeOptions {
   effort: string;
   schema: Record<string, unknown> | null;
   timeoutMs?: number;
+  /** Stops the call the way a timeout does; the CLI aborts it on Ctrl-C. */
+  signal?: AbortSignal;
+  /** SIGTERM-to-SIGKILL grace when a call is stopped (tests shorten it). */
+  killGraceMs?: number;
   /** Override the Codex executable (tests). Defaults to `AGENTDECK_CODEX_BIN`
    *  or `codex` on PATH. */
   binary?: string;
 }
 
+/** How a call ended: `exited` on its own; `timed_out` or `interrupted` (the
+ *  caller's signal) once its process tree was stopped; `not_started` when the
+ *  binary could not be spawned. The last two say nothing about the task. */
+export type CodexJudgeEnd = 'exited' | 'timed_out' | 'interrupted' | 'not_started';
+
 export interface CodexJudgeResult extends CodexExecOutcome {
+  end: CodexJudgeEnd;
   latencyMs: number;
 }
 
@@ -295,11 +435,88 @@ export function codexJudgeArgs(opts: { model: string; effort: string; cwd: strin
   ];
 }
 
+/** How long a stopped call's processes get to exit on SIGTERM before the
+ *  group is sent SIGKILL. */
+export const REFERENCE_KILL_GRACE_MS = 2_000;
+/** How long to wait for the pipes to close once the tree is stopped: a
+ *  process that left the group can hold them open indefinitely. */
+const PIPE_CLOSE_WAIT_MS = 1_000;
+const TASKKILL_TIMEOUT_MS = 10_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** True when `promise` settles within `ms`. */
+async function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise.then(() => true, () => true),
+      new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Signal a POSIX process group. False once the group is gone (ESRCH); any
+ *  other failure leaves it counted as present. */
+function signalGroup(pgid: number, signal: NodeJS.Signals | 0): boolean {
+  try {
+    process.kill(-pgid, signal);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+/** `taskkill /T /F` a Windows process tree, bounded. */
+function taskkillTree(pid: number): Promise<void> {
+  return new Promise((resolve) => {
+    const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    const timer = setTimeout(() => { killer.kill(); resolve(); }, TASKKILL_TIMEOUT_MS);
+    const done = (): void => { clearTimeout(timer); resolve(); };
+    killer.on('error', done);
+    killer.on('exit', done);
+  });
+}
+
+/** Stop everything a call started, then wait (bounded) for its pipes.
+ *  Killing only the spawned process is not enough: the npm `codex` wrapper
+ *  runs the native binary as its child with inherited stdio and forwards only
+ *  SIGINT/SIGTERM/SIGHUP, so a SIGKILL to the wrapper left Codex running. */
+async function stopProcessTree(child: ChildProcess, closed: Promise<void>, graceMs: number): Promise<void> {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  if (process.platform === 'win32') {
+    // taskkill walks the tree from its root, so the root must still be alive.
+    await taskkillTree(pid);
+    child.kill();
+  } else if (signalGroup(pid, 'SIGTERM')) {
+    const deadline = Date.now() + graceMs;
+    while (signalGroup(pid, 0)) {
+      if (Date.now() >= deadline) { signalGroup(pid, 'SIGKILL'); break; }
+      await delay(50);
+    }
+  }
+  if (!(await settlesWithin(closed, PIPE_CLOSE_WAIT_MS))) {
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+  }
+}
+
 /** Run one verdict through `codex exec`. Resolves with whatever was learned —
  *  a timeout, a spawn failure, a failed turn and an isolation breach all come
- *  back as `error`, and a breach also withholds the verdict text. */
+ *  back as `error`, and a breach also withholds the verdict text. A timeout or
+ *  an abort stops the call's whole process tree before this resolves, and the
+ *  scratch directory is removed after that. */
 export async function runCodexJudge(prompt: string, opts: CodexJudgeOptions): Promise<CodexJudgeResult> {
   const started = Date.now();
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_REFERENCE_TIMEOUT_MS;
+  if (opts.signal?.aborted) {
+    return { ...parseCodexExecEvents(''), error: 'interrupted', end: 'interrupted', latencyMs: 0 };
+  }
   const scratch = mkdtempSync(join(tmpdir(), 'agentdeck-refjudge-'));
   // The judge's cwd is an empty child of the scratch directory, so the schema
   // file beside it is not inside what the judge can see.
@@ -316,49 +533,113 @@ export async function runCodexJudge(prompt: string, opts: CodexJudgeOptions): Pr
   // (a temp path under a Windows profile) carries its own quotes.
   if (plan.shell) args = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
 
+  let stopTimer: NodeJS.Timeout | undefined;
+  let onAbort: (() => void) | undefined;
+  // If this process exits mid-call (an uncaught error), the call's group
+  // would outlive it: it is not in the terminal's process group.
+  let onExit: (() => void) | undefined;
   try {
-    return await new Promise<CodexJudgeResult>((resolve) => {
-      let stdout = '';
-      let stderr = '';
-      let settled = false;
-      const child = spawn(plan.command, args, {
+    let child: ChildProcess;
+    try {
+      child = spawn(plan.command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: plan.shell,
         windowsHide: true,
+        // POSIX: its own process group, so a stop reaches everything it starts.
+        detached: process.platform !== 'win32',
       });
-      // `fatal` is a timeout or a spawn failure; `exitCode` is set on close.
-      const finish = (fatal: string | null, exitCode: number | null = null): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        const outcome = parseCodexExecEvents(stdout);
-        const breach = isolationBreach(outcome);
-        const reason = stderrReason(stderr);
-        const exited = exitCode != null && exitCode !== 0 ? `codex exited ${exitCode}${reason ? `: ${reason}` : ''}` : null;
-        resolve({
-          ...outcome,
-          text: breach ? null : outcome.text,
-          error: breach ?? (outcome.text ? outcome.error : (fatal ?? outcome.error ?? exited ?? reason ?? 'no verdict')),
-          latencyMs: Date.now() - started,
-        });
-      };
-      const timer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* already gone */ }
-        if (plan.shell && child.pid) {
-          // Under a shell the child is cmd.exe and codex is its grandchild.
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => {});
-        }
-        finish(`timed out after ${Math.round((opts.timeoutMs ?? DEFAULT_REFERENCE_TIMEOUT_MS) / 1000)} s`);
-      }, opts.timeoutMs ?? DEFAULT_REFERENCE_TIMEOUT_MS);
-      child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf-8'); });
-      child.stderr?.on('data', (chunk: Buffer) => { if (stderr.length < 64_000) stderr += chunk.toString('utf-8'); });
-      child.on('error', (err) => finish(`could not start ${plan.command}: ${err.message}`));
-      child.on('close', (code) => finish(null, code));
-      child.stdin?.on('error', () => { /* a child that died early closes the pipe */ });
-      child.stdin?.end(prompt);
+    } catch (err) {
+      return { ...parseCodexExecEvents(''), error: `could not start ${plan.command}: ${(err as Error).message}`, end: 'not_started', latencyMs: Date.now() - started };
+    }
+    let stdout = '';
+    let stderr = '';
+    // Decoded as a stream, so a character split across chunks survives.
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr?.on('data', (chunk: string) => { if (stderr.length < 64_000) stderr += chunk; });
+    // Set by the child's events, read once the call has settled.
+    const exit: { code: number | null; spawnError: string | null } = { code: null, spawnError: null };
+    const closed = new Promise<void>((resolve) => {
+      child.on('close', (code) => { exit.code = code; resolve(); });
+      // With no pid the spawn failed and no `close` is promised; with one, a
+      // kill failed, and the stop path has its own bounds.
+      child.on('error', (err) => {
+        if (child.pid === undefined) { exit.spawnError = `could not start ${plan.command}: ${err.message}`; resolve(); }
+      });
     });
+    const pid = child.pid;
+    if (pid !== undefined && process.platform !== 'win32') {
+      onExit = () => { signalGroup(pid, 'SIGKILL'); };
+      process.once('exit', onExit);
+    }
+    child.stdin?.on('error', () => { /* a child that died early closes the pipe */ });
+    child.stdin?.end(prompt);
+
+    const stop = new Promise<'timed_out' | 'interrupted'>((resolve) => {
+      stopTimer = setTimeout(() => resolve('timed_out'), timeoutMs);
+      onAbort = () => resolve('interrupted');
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
+    });
+    const first = await Promise.race([closed.then(() => 'closed' as const), stop]);
+    const end: CodexJudgeEnd = first === 'closed' ? (exit.spawnError ? 'not_started' : 'exited') : first;
+    if (first !== 'closed') {
+      await stopProcessTree(child, closed, opts.killGraceMs ?? REFERENCE_KILL_GRACE_MS);
+    } else if (end === 'exited' && pid !== undefined && process.platform !== 'win32' && signalGroup(pid, 0)) {
+      // It closed its pipes, but something it started is still in the group.
+      await stopProcessTree(child, closed, opts.killGraceMs ?? REFERENCE_KILL_GRACE_MS);
+    }
+
+    const outcome = parseCodexExecEvents(stdout);
+    const breach = isolationBreach(outcome);
+    const reason = stderrReason(stderr);
+    const fatal = end === 'timed_out' ? `timed out after ${Math.round(timeoutMs / 1000)} s`
+      : end === 'interrupted' ? 'interrupted'
+      : exit.spawnError;
+    const exited = exit.code != null && exit.code !== 0 ? `codex exited ${exit.code}${reason ? `: ${reason}` : ''}` : null;
+    return {
+      ...outcome,
+      text: breach ? null : outcome.text,
+      error: breach ?? (outcome.text ? outcome.error : (fatal ?? outcome.error ?? exited ?? reason ?? 'no verdict')),
+      end,
+      latencyMs: Date.now() - started,
+    };
   } finally {
-    rmSync(scratch, { recursive: true, force: true });
+    clearTimeout(stopTimer);
+    if (onAbort) opts.signal?.removeEventListener('abort', onAbort);
+    if (onExit) process.removeListener('exit', onExit);
+    // After the stop: Codex's cwd is in here, and Windows will not remove a
+    // directory a live process holds.
+    try { rmSync(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); }
+    catch { /* best effort: a temp directory */ }
+  }
+}
+
+const INTERRUPT_SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+
+/** Run `body` with SIGINT/SIGTERM/SIGHUP turned into an abort of the signal
+ *  it is handed, and the handlers removed once it settles. Codex runs in its
+ *  own process group (`runCodexJudge`), which the terminal's Ctrl-C does not
+ *  reach, so without this a Ctrl-C ended the CLI and left the call running.
+ *  Returns the first signal caught, for the caller to exit with. */
+export async function withInterruptAbort<T>(
+  body: (signal: AbortSignal) => Promise<T>,
+  onInterrupt: (signal: NodeJS.Signals) => void = () => {},
+): Promise<{ value: T; interrupted: NodeJS.Signals | null }> {
+  const controller = new AbortController();
+  const caught: { signal: NodeJS.Signals | null } = { signal: null };
+  const handler = (signal: NodeJS.Signals): void => {
+    if (caught.signal) return;
+    caught.signal = signal;
+    onInterrupt(signal);
+    controller.abort();
+  };
+  for (const s of INTERRUPT_SIGNALS) process.on(s, handler);
+  try {
+    const value = await body(controller.signal);
+    return { value, interrupted: caught.signal };
+  } finally {
+    for (const s of INTERRUPT_SIGNALS) process.removeListener(s, handler);
   }
 }
 
@@ -369,8 +650,9 @@ export function parseReferenceVerdict(text: string | null): ReturnType<typeof pa
 
 /** Order candidates by a hash of (seed, task id) and take the first `limit`
  *  that are not in `skip`. A task keeps its place however the pool changes,
- *  so a dry run shows exactly what `--run` will send, and a later run with
- *  the same seed continues with the next tasks rather than a reshuffle. The
+ *  so a later run with the same seed continues with the next tasks rather
+ *  than a reshuffle. A dry run and a run pick the same tasks only when both
+ *  read the pool as of one time (`planReferenceRun`'s `untilMs`). The
  *  sample is uniform over the pool, so its agreement estimates the pool's;
  *  `localBand` narrows the pool to one local outcome band, which measures how
  *  often the reference confirms that band (precision) and nothing wider. */
@@ -394,6 +676,186 @@ export function pickReferenceCandidates(
     .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
     .slice(0, Math.max(0, opts.limit))
     .map(({ r }) => r);
+}
+
+/** Failed attempts after which a rerun stops sending a task in the same
+ *  design. A task whose call fails every time would otherwise take a pick
+ *  slot in every run; `--retry-parked` sends it again. */
+export const REFERENCE_PARK_AFTER_FAILURES = 2;
+
+/** Failed calls in a row after which a run stops. A failure that is not
+ *  about the task (Codex logged out, the network down) fails every call, and
+ *  each failure is a row that counts toward parking that task. */
+export const REFERENCE_STOP_AFTER_CONSECUTIVE_FAILURES = 3;
+
+/** Tasks with `REFERENCE_PARK_AFTER_FAILURES` failed attempts and no verdict. */
+export function parkedReferenceTasks(failures: ReadonlyMap<string, number>, scored: ReadonlySet<string>): Set<string> {
+  const parked = new Set<string>();
+  for (const [taskId, count] of failures) {
+    if (count >= REFERENCE_PARK_AFTER_FAILURES && !scored.has(taskId)) parked.add(taskId);
+  }
+  return parked;
+}
+
+/** `--until` as epoch ms: digits are epoch milliseconds, anything else a time
+ *  `Date.parse` reads. A future time is refused: tasks that close after the
+ *  dry run would enter the pool the run picks from. */
+export function parseReferenceUntil(value: string, now: number): { untilMs: number } | { error: string } {
+  const text = value.trim();
+  let ms: number;
+  if (/^\d+$/.test(text)) {
+    ms = Number(text);
+    if (ms < 1e11) return { error: `--until ${value} looks like epoch seconds; pass milliseconds or an ISO time` };
+  } else {
+    ms = Date.parse(text);
+    if (!Number.isFinite(ms)) return { error: `Unrecognized --until value: ${value}` };
+  }
+  if (ms > now) return { error: `--until ${value} is in the future` };
+  return { untilMs: ms };
+}
+
+/** Fingerprint of an ordered pick list: the dry run prints it and `--expect`
+ *  checks it. */
+export function referencePicksDigest(taskIds: readonly string[]): string {
+  return createHash('sha256').update(taskIds.join('\n')).digest('hex').slice(0, 12);
+}
+
+/** Pool size `planReferenceRun` reads, newest first. */
+const REFERENCE_POOL_LIMIT = 20_000;
+
+export interface ReferenceRunPlan {
+  pool: ApmeLocalVerdictRow[];
+  /** Tasks with a verdict in this design by `untilMs`. */
+  scored: Set<string>;
+  /** Tasks parked by `untilMs` (empty under `retryParked`). */
+  parked: Set<string>;
+  picks: ApmeLocalVerdictRow[];
+  digest: string;
+}
+
+/** What a run picks, read entirely as the store stood at `untilMs`: tasks
+ *  closed by then with the local verdict they had then, minus the tasks
+ *  scored or parked by then. A dry run and a run given the same `untilMs`
+ *  therefore pick the same list, whatever closed, was judged or was sent in
+ *  between; `handledSince` names what a run must then drop. */
+export function planReferenceRun(store: ApmeStore, opts: {
+  judge: string; sample: string; untilMs: number; windowMs: number; limit: number; seed: string;
+  category?: string; localBand?: OutcomeBucket; projects: readonly string[]; retryParked?: boolean;
+}): ReferenceRunPlan {
+  const pool = store.listLocallyJudgedTasks({ sinceMs: opts.untilMs - opts.windowMs, untilMs: opts.untilMs, limit: REFERENCE_POOL_LIMIT });
+  const scored = store.referenceVerdictTaskIds(opts.judge, opts.sample, opts.untilMs);
+  const parked = opts.retryParked
+    ? new Set<string>()
+    : parkedReferenceTasks(store.referenceFailureCounts(opts.judge, opts.sample, opts.untilMs), scored);
+  const picks = pickReferenceCandidates(pool, {
+    limit: opts.limit, skip: new Set([...scored, ...parked]), seed: opts.seed,
+    category: opts.category, localBand: opts.localBand, projects: opts.projects,
+  });
+  return { pool, scored, parked, picks, digest: referencePicksDigest(picks.map((p) => p.taskId)) };
+}
+
+/** Picks scored or parked after the plan's time, e.g. by an earlier run of
+ *  the same command. A run drops them and picks no replacements, so it never
+ *  sends a task its dry run did not list. */
+export function handledSince(store: ApmeStore, plan: ReferenceRunPlan, opts: { judge: string; sample: string; retryParked?: boolean }): Set<string> {
+  const scored = store.referenceVerdictTaskIds(opts.judge, opts.sample);
+  const parked = opts.retryParked ? new Set<string>() : parkedReferenceTasks(store.referenceFailureCounts(opts.judge, opts.sample), scored);
+  return new Set(plan.picks.filter((p) => scored.has(p.taskId) || parked.has(p.taskId)).map((p) => p.taskId));
+}
+
+/** The `--run` command a dry run prints: its own filters, the pool pinned to
+ *  `untilMs` and the pick list to its digest. */
+export function referenceRunCommand(opts: {
+  untilMs: number; since: string; limit: number; model: string; effort: string; seed: string;
+  category?: string; localBand?: string; projects: readonly string[]; timeoutSec?: number;
+  retryParked?: boolean; digest: string;
+}, platform: NodeJS.Platform = process.platform): string {
+  const quote = (value: string): string => {
+    if (/^[\w.,:@%+=/-]+$/.test(value)) return value;
+    return platform === 'win32' ? `"${value.replace(/"/g, '\\"')}"` : `'${value.replace(/'/g, "'\\''")}'`;
+  };
+  const args = [
+    'agentdeck', 'apme', 'reference-judge', '--run',
+    '--until', new Date(opts.untilMs).toISOString(),
+    '--since', opts.since, '-n', String(opts.limit),
+    '--model', opts.model, '--effort', opts.effort, '--seed', opts.seed,
+    ...(opts.category ? ['--category', opts.category] : []),
+    ...(opts.localBand ? ['--local-band', opts.localBand] : []),
+    ...(opts.projects.length ? ['--project', opts.projects.join(',')] : []),
+    ...(opts.timeoutSec !== undefined ? ['--timeout', String(opts.timeoutSec)] : []),
+    ...(opts.retryParked ? ['--retry-parked'] : []),
+    '--expect', opts.digest,
+  ];
+  return args.map(quote).join(' ');
+}
+
+/** What the reference judge sends for one task. `local` is the local
+ *  judge's own input, whose prompt `promptSha` records; `prompt` is the same
+ *  build with each field redacted before it was clipped, then passed over
+ *  once more whole for text no field covers. Redacting a field can let more
+ *  of it fit under the clip than the local judge saw. */
+export type ReferenceInput =
+  | Exclude<TaskJudgeInput, { kind: 'ready' }>
+  | { kind: 'ready'; local: Extract<TaskJudgeInput, { kind: 'ready' }>; prompt: string; redactions: number };
+
+export function buildReferenceInput(
+  store: ApmeStore,
+  task: { runId: string; taskId: string },
+  knownSecrets: readonly string[] = [],
+): ReferenceInput {
+  const local = buildTaskJudgeInput(store, task);
+  if (local.kind !== 'ready') return local;
+  let redactions = 0;
+  const redacted = buildTaskJudgeInput(store, task, {
+    field: (text) => {
+      const out = redactForEgress(text, knownSecrets);
+      redactions += out.redactions;
+      return out.text;
+    },
+  });
+  // A second read of the same rows; if it no longer builds, send nothing.
+  if (redacted.kind !== 'ready') return { kind: 'missing' };
+  const whole = redactForEgress(redacted.prompt, knownSecrets);
+  return { kind: 'ready', local, prompt: whole.text, redactions: redactions + whole.redactions };
+}
+
+/** The row a reference call leaves, or null for a call that must leave none:
+ *  one that never started or was interrupted says nothing about the task,
+ *  and a failure row would count toward parking it. */
+export function referenceEvalRow(opts: {
+  pick: ApmeLocalVerdictRow;
+  input: Extract<ReferenceInput, { kind: 'ready' }>;
+  result: CodexJudgeResult;
+  judge: string;
+  sample: string;
+  createdAt: number;
+}): ApmeReferenceEvalRow | null {
+  const { pick, input, result } = opts;
+  if (result.end === 'interrupted' || result.end === 'not_started') return null;
+  const parsed = parseReferenceVerdict(result.text);
+  return {
+    taskId: pick.taskId,
+    runId: pick.runId,
+    judge: opts.judge,
+    sample: opts.sample,
+    category: input.local.category ?? input.local.task.taskCategory ?? null,
+    rubricVer: input.local.rubric.version,
+    promptSha: promptSha(input.local.prompt),
+    overall: parsed?.scores.overall ?? null,
+    scoresJson: parsed ? JSON.stringify(parsed.scores) : null,
+    verdictJson: parsed ? JSON.stringify({ summary: parsed.summary, reasoning: parsed.reasoning, done: parsed.done, missed: parsed.missed }) : null,
+    error: parsed ? null : (result.error ?? 'unparseable verdict'),
+    localJudge: pick.localJudge,
+    localOverall: pick.localOverall,
+    localRubricVer: pick.localRubricVer,
+    localJudgedAt: pick.localJudgedAt,
+    inputTokens: result.usage?.inputTokens ?? null,
+    cachedInputTokens: result.usage?.cachedInputTokens ?? null,
+    outputTokens: result.usage?.outputTokens ?? null,
+    reasoningTokens: result.usage?.reasoningTokens ?? null,
+    latencyMs: result.latencyMs,
+    createdAt: opts.createdAt,
+  };
 }
 
 // ─── Agreement ────────────────────────────────────────────────────────────────

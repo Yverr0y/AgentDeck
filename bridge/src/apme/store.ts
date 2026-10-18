@@ -347,7 +347,8 @@ CREATE TABLE IF NOT EXISTS vibe_feedback (
 -- Work board query can mistake it for the product's own verdict. local_* is a
 -- snapshot of the local verdict it was compared against. A failed call is a
 -- row too (overall NULL, error set): the reference judge's own failure rate is
--- part of what it measures. sample names the design the task was drawn under
+-- part of what it measures, and a rerun stops re-sending a task after two of
+-- them in one design. sample names the design the task was drawn under
 -- ('uniform', or the filters, e.g. 'local_band=fail'): rows from different
 -- designs answer different questions and are reported apart.
 CREATE TABLE IF NOT EXISTS reference_evals (
@@ -1836,9 +1837,12 @@ export class ApmeStore {
   /** Closed tasks the local judge scored, newest first, each with its LATEST
    *  `task_judge` overall verdict. Declined tasks never carry one, so they
    *  cannot appear. `category` mirrors the judge's own resolution: the task's,
-   *  else the run's. */
-  listLocallyJudgedTasks(opts: { sinceMs: number; limit: number }): ApmeLocalVerdictRow[] {
+   *  else the run's. `untilMs` reads the pool as it stood then — tasks closed
+   *  by then, each with the latest verdict made by then — so a later run can
+   *  pick from the pool a dry run listed. */
+  listLocallyJudgedTasks(opts: { sinceMs: number; untilMs?: number; limit: number }): ApmeLocalVerdictRow[] {
     if (!this.db) return [];
+    const until = opts.untilMs ?? Number.MAX_SAFE_INTEGER;
     const rows = this.db.prepare(
       `SELECT t.id AS task_id, t.run_id, r.agent_type, r.project_name,
               COALESCE(NULLIF(t.task_category, 'unknown'), NULLIF(r.task_category, 'unknown')) AS category,
@@ -1849,12 +1853,12 @@ export class ApmeStore {
          JOIN evals e ON e.id = (
               SELECT e2.id FROM evals e2
                WHERE e2.task_id = t.id AND e2.layer = 'task_judge' AND e2.metric = 'overall'
-                 AND e2.score IS NOT NULL
+                 AND e2.score IS NOT NULL AND e2.created_at <= ?
                ORDER BY e2.created_at DESC, e2.id DESC LIMIT 1)
-        WHERE t.ended_at IS NOT NULL AND t.ended_at >= ?
-        ORDER BY t.ended_at DESC
+        WHERE t.ended_at IS NOT NULL AND t.ended_at >= ? AND t.ended_at <= ?
+        ORDER BY t.ended_at DESC, t.id DESC
         LIMIT ?`,
-    ).all(opts.sinceMs, opts.limit) as Array<Record<string, unknown>>;
+    ).all(until, opts.sinceMs, until, opts.limit) as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       taskId: r.task_id as string,
       runId: r.run_id as string,
@@ -1889,16 +1893,30 @@ export class ApmeStore {
   }
 
   /** Task ids this judge already produced a verdict for in this sampling
-   *  design. Failed attempts do not count, so a rerun retries them. A verdict
+   *  design (by `untilMs`, when given). Failed attempts do not count, so a
+   *  rerun retries them (`referenceFailureCounts` bounds that). A verdict
    *  made for another design does not count either: skipping it would drop
    *  that task from this design's sample, and a uniform sample that skips the
    *  fail-band sample's tasks under-counts fails. */
-  referenceVerdictTaskIds(judge: string, sample: string): Set<string> {
+  referenceVerdictTaskIds(judge: string, sample: string, untilMs?: number): Set<string> {
     if (!this.db) return new Set();
     const rows = this.db.prepare(
-      'SELECT DISTINCT task_id FROM reference_evals WHERE judge = ? AND sample = ? AND overall IS NOT NULL',
-    ).all(judge, sample) as Array<{ task_id: string }>;
+      `SELECT DISTINCT task_id FROM reference_evals
+        WHERE judge = ? AND sample = ? AND overall IS NOT NULL AND created_at <= ?`,
+    ).all(judge, sample, untilMs ?? Number.MAX_SAFE_INTEGER) as Array<{ task_id: string }>;
     return new Set(rows.map((r) => r.task_id));
+  }
+
+  /** Failed attempts (`overall` NULL) per task for this judge and sampling
+   *  design, made by `untilMs` when given. */
+  referenceFailureCounts(judge: string, sample: string, untilMs?: number): Map<string, number> {
+    if (!this.db) return new Map();
+    const rows = this.db.prepare(
+      `SELECT task_id, COUNT(*) AS failures FROM reference_evals
+        WHERE judge = ? AND sample = ? AND overall IS NULL AND created_at <= ?
+        GROUP BY task_id`,
+    ).all(judge, sample, untilMs ?? Number.MAX_SAFE_INTEGER) as Array<{ task_id: string; failures: number }>;
+    return new Map(rows.map((r) => [r.task_id, r.failures]));
   }
 
   /** Reference attempts, oldest first; `judge` and `sample` narrow. */

@@ -879,10 +879,17 @@ export type TaskJudgeInput =
  *  (`reference-judge.ts`) both build their prompt here. An agreement number
  *  between two judges that were shown different prompts compares the prompts,
  *  not the judges. Stamping a declined task is the live judge's side effect,
- *  so it stays there. */
+ *  so it stays there.
+ *
+ *  `field` rewrites each piece of task text (prompt, reply, tool input, error,
+ *  subagent summary) BEFORE it is clipped. The live judge passes none, so its
+ *  prompt is unchanged; the reference judge passes its redactor, because a
+ *  credential cut by the clip loses the shape that identifies it — a private
+ *  key loses its END line. */
 export function buildTaskJudgeInput(
   store: ApmeStore,
   { runId, taskId, category, boundarySignal }: { runId: string; taskId: string; category?: string; boundarySignal?: string },
+  { field = (text: string) => text }: { field?: (text: string) => string } = {},
 ): TaskJudgeInput {
   const task = store.getTask(taskId);
   if (!task) return { kind: 'missing' };
@@ -914,8 +921,8 @@ export function buildTaskJudgeInput(
   const lines: string[] = [];
   for (const t of clipped) {
     const idx = t.turn_index as number;
-    const prompt = ((t.prompt as string | null) ?? '').slice(0, 1500);
-    const response = ((t.response as string | null) ?? '').slice(0, 2500);
+    const prompt = field((t.prompt as string | null) ?? '').slice(0, 1500);
+    const response = field((t.response as string | null) ?? '').slice(0, 2500);
     lines.push(`[Turn ${idx}] User: ${prompt || '(empty)'}`);
     if (response) lines.push(`Agent: ${response}`);
   }
@@ -926,7 +933,7 @@ export function buildTaskJudgeInput(
   // The canonical SessionSample gives the judge the typed tool trajectory
   // (req #5/#6) and per-sample cost (req #7) — context the turn rows lack.
   const sample = store.getSample(taskId);
-  const trajectoryLines = sample ? buildTrajectoryLines(sample) : [];
+  const trajectoryLines = sample ? buildTrajectoryLines(sample, 30, field) : [];
   const costLine = sample
     ? `cost: ${sample.cost.inputTokens}in/${sample.cost.outputTokens}out tok, $${sample.cost.costUsd.toFixed(4)}, model ${sample.model.modelId}`
     : '';
@@ -951,24 +958,27 @@ export function buildTaskJudgeInput(
 }
 
 /** Render a SessionSample's typed trajectory as compact judge-prompt lines.
- *  Gives the judge tool-call sequences + model usage the turn rows omit. */
-export function buildTrajectoryLines(sample: SessionSample, cap = 30): string[] {
+ *  Gives the judge tool-call sequences + model usage the turn rows omit.
+ *  `field` rewrites each piece of task text before it is clipped (see
+ *  `buildTaskJudgeInput`). */
+export function buildTrajectoryLines(sample: SessionSample, cap = 30, field: (text: string) => string = (text) => text): string[] {
   const lines: string[] = [];
   const events: TrajectoryEvent[] = sample.events.slice(0, cap);
   for (const e of events) {
     switch (e.kind) {
       case 'tool': {
+        const error = e.error ? ` [err: ${field(String(e.error)).slice(0, 80)}]` : '';
         // A pruned tool call (#302, retention >30 days) has no `input` to
         // show — say so explicitly rather than rendering `tool X()`, which
         // reads to a judge as "called with no arguments" and is not what
         // happened.
         if (e.pruned) {
-          lines.push(`  tool ${e.name}(…) [payload pruned]${e.status ? ` → ${e.status}` : ''}${e.error ? ` [err: ${String(e.error).slice(0, 80)}]` : ''}`);
+          lines.push(`  tool ${e.name}(…) [payload pruned]${e.status ? ` → ${e.status}` : ''}${error}`);
           break;
         }
         let input = '';
-        try { input = e.input == null ? '' : JSON.stringify(e.input).slice(0, 120); } catch { input = ''; }
-        lines.push(`  tool ${e.name}(${input})${e.status ? ` → ${e.status}` : ''}${e.error ? ` [err: ${String(e.error).slice(0, 80)}]` : ''}`);
+        try { input = e.input == null ? '' : field(JSON.stringify(e.input)).slice(0, 120); } catch { input = ''; }
+        lines.push(`  tool ${e.name}(${input})${e.status ? ` → ${e.status}` : ''}${error}`);
         break;
       }
       case 'model':
@@ -976,7 +986,7 @@ export function buildTrajectoryLines(sample: SessionSample, cap = 30): string[] 
         break;
       case 'subagent': {
         const duration = e.durationMs == null ? '' : ` (${Math.round(e.durationMs / 1000)}s)`;
-        const summary = e.summary ? `: ${e.summary.slice(0, 160)}` : '';
+        const summary = e.summary ? `: ${field(e.summary).slice(0, 160)}` : '';
         lines.push(`  subagent ${e.name} → ${e.phase}${duration}${summary}`);
         break;
       }

@@ -4833,13 +4833,17 @@ apme
   .command('reference-judge')
   .description(
     'Score tasks the local judge already scored with a stronger model through your Codex CLI login ' +
-    '(codex exec), to measure the local judge. Default is a DRY RUN that lists what would be sent; ' +
-    'pass --run to send. Each call sends that task\'s prompts, replies and tool trajectory, with ' +
-    'credentials redacted, to the model behind your Codex login.',
+    '(codex exec), to measure the local judge. Default is a DRY RUN that lists what would be sent and ' +
+    'prints the --run command that sends that list; pass --run to send. Each call sends that task\'s ' +
+    'prompts, replies and tool trajectory to the model behind your Codex login. Credentials with a ' +
+    'recognizable shape are redacted first (best effort: a credential with no such shape is sent).',
   )
   .option('--run', 'Actually call the reference model (default: dry run)')
   .option('-n, --limit <n>', 'Tasks to score in this run', '10')
-  .option('--since <window>', 'Only tasks closed within this window, e.g. 7d / 2w', '30d')
+  .option('--since <window>', 'Only tasks closed within this window before --until, e.g. 7d / 2w', '30d')
+  .option('--until <time>', 'Read the pool as it stood at this time, epoch ms or ISO (default: now); the dry run prints it for --run')
+  .option('--expect <digest>', 'Send nothing unless the picked list matches this digest (the dry run prints it)')
+  .option('--retry-parked', 'Also send tasks parked after repeated failed attempts in this sample')
   .option('--model <model>', 'Codex model (default: the `model` set in ~/.codex/config.toml)')
   .option('--effort <effort>', 'Reasoning effort: low / medium / high / xhigh / max (default: high)')
   .option('--category <category>', 'Only tasks of this category')
@@ -4849,9 +4853,9 @@ apme
   .option('--timeout <sec>', 'Per-task timeout in seconds', '300')
   .action(async (opts) => {
     const { initApme } = await import('./apme/index.js');
-    const { buildTaskJudgeInput } = await import('./apme/runner.js');
     const ref = await import('./apme/reference-judge.js');
     const { readKnownTokens } = await import('./auth.js');
+    const { constants: osConstants } = await import('os');
     const apme = await initApme();
     if (!apme) { log('APME not available'); process.exit(1); }
 
@@ -4861,6 +4865,12 @@ apme
     if (!Number.isInteger(limit) || limit <= 0) { log(`Invalid --limit: ${opts.limit}`); process.exit(1); }
     const timeoutSec = Number(opts.timeout);
     if (!Number.isFinite(timeoutSec) || timeoutSec <= 0) { log(`Invalid --timeout: ${opts.timeout}`); process.exit(1); }
+    let untilMs = Date.now();
+    if (opts.until !== undefined) {
+      const until = ref.parseReferenceUntil(String(opts.until), untilMs);
+      if ('error' in until) { log(until.error); process.exit(1); }
+      untilMs = until.untilMs;
+    }
     const model: string | null = opts.model ?? ref.readCodexDefaultModel();
     if (!model) {
       log('No --model given and ~/.codex/config.toml sets no `model`. Pass --model <name>.');
@@ -4875,81 +4885,102 @@ apme
       ? opts.project.split(',').map((p: string) => p.trim()).filter(Boolean)
       : [];
     if (opts.project !== undefined && projects.length === 0) { log(`Invalid --project: ${opts.project}`); process.exit(1); }
+    const retryParked = Boolean(opts.retryParked);
     const judge = ref.referenceJudgeTag(model, effort);
     const sample = ref.referenceSampleLabel({ category: opts.category, localBand: opts.localBand, projects });
 
-    const pool = apme.store.listLocallyJudgedTasks({ sinceMs: Date.now() - windowMs, limit: 20_000 });
-    const already = apme.store.referenceVerdictTaskIds(judge, sample);
-    const picks = ref.pickReferenceCandidates(pool, {
-      limit, skip: already, seed: String(opts.seed), category: opts.category, localBand: opts.localBand, projects,
+    const plan = ref.planReferenceRun(apme.store, {
+      judge, sample, untilMs, windowMs, limit, seed: String(opts.seed),
+      category: opts.category, localBand: opts.localBand, projects, retryParked,
     });
+    const asOf = new Date(untilMs).toISOString();
+    log(`\n  Reference judge ${judge} · sample ${sample} · pool as of ${asOf}`);
+    log(`  ${plan.pool.length} locally judged task(s) closed in the ${opts.since} before then; ${plan.scored.size} already scored by this judge in this sample; ` +
+      `${plan.parked.size} parked after ${ref.REFERENCE_PARK_AFTER_FAILURES} failed attempts${plan.parked.size > 0 ? ' (--retry-parked sends them)' : ''}; ${plan.picks.length} picked.`);
+    if (opts.expect !== undefined && String(opts.expect) !== plan.digest) {
+      log(`  The picked list is ${plan.digest}, not ${opts.expect}: what the pool held at ${asOf} changed (a task re-categorized or removed). Nothing was sent; run the dry run again.\n`);
+      process.exit(1);
+    }
+    if (plan.picks.length === 0) { log(''); return; }
 
-    log(`\n  Reference judge ${judge} · sample ${sample}`);
-    log(`  ${pool.length} locally judged task(s) closed in the last ${opts.since}; ${already.size} already scored by this judge in this sample; ${picks.length} picked.`);
-    if (picks.length === 0) { log(''); return; }
-
-    const inputs = picks.map((pick) => ({ pick, input: buildTaskJudgeInput(apme.store, { runId: pick.runId, taskId: pick.taskId }) }));
+    const secrets = readKnownTokens();
     if (!opts.run) {
       log(`  ${'Task'.padEnd(9)} ${'Project'.padEnd(16)} ${'Category'.padEnd(12)} ${'Agent'.padEnd(12)} ${'Local'.padEnd(6)} ${'Local judge'.padEnd(30)} Prompt`);
       let tokens = 0;
-      for (const { pick, input } of inputs) {
-        const size = input.kind === 'ready' ? `${input.prompt.length} chars` : `skipped (${input.kind})`;
+      for (const pick of plan.picks) {
+        const input = ref.buildReferenceInput(apme.store, pick, secrets);
+        const size = input.kind === 'ready'
+          ? `${input.prompt.length} chars${input.redactions > 0 ? `, ${input.redactions} redacted` : ''}`
+          : `skipped (${input.kind === 'declined' ? `declined: ${input.reason}` : 'missing'})`;
         if (input.kind === 'ready') tokens += ref.estimateCodexInputTokens(input.prompt);
         log(`  ${pick.taskId.slice(0, 8).padEnd(9)} ${(pick.project ?? '?').slice(0, 16).padEnd(16)} ${(pick.category ?? 'unknown').padEnd(12)} ${(pick.agentType ?? '?').padEnd(12)} ${pick.localOverall.toFixed(2).padEnd(6)} ${shortJudgeLabel(pick.localJudge).padEnd(30)} ${size}`);
       }
       log(`\n  Estimated input: ~${Math.round(tokens / 1000)}k tokens (the prompts, plus ~${Math.round(ref.CODEX_FIXED_INPUT_TOKENS / 1000)}k of Codex's own instructions per call).`);
-      log('  --run sends each prompt above, credentials redacted, to the model behind your Codex login.');
+      log('  --run sends each prompt above to the model behind your Codex login. Credentials with a recognizable');
+      log('  shape are redacted (the count above); a credential with no such shape is sent as it is.');
+      log('  To send exactly this list:');
+      log(`    ${ref.referenceRunCommand({
+        untilMs, since: String(opts.since), limit, model, effort, seed: String(opts.seed),
+        category: opts.category, localBand: opts.localBand, projects,
+        timeoutSec: opts.timeout === '300' ? undefined : timeoutSec, retryParked, digest: plan.digest,
+      })}`);
       log('  This was a DRY RUN: nothing was sent.\n');
       return;
     }
 
-    const secrets = readKnownTokens();
+    // Picks scored or parked after --until (an earlier run of this command)
+    // are dropped, not replaced: a run never sends what its dry run did not list.
+    const handled = ref.handledSince(apme.store, plan, { judge, sample, retryParked });
+    const picks = plan.picks.filter((p) => !handled.has(p.taskId));
+    if (handled.size > 0) log(`  ${handled.size} of them scored or parked since ${asOf}: not sent again.`);
+
     const pairs: Array<{ local: number; reference: number }> = [];
-    let index = 0;
-    for (const { pick, input } of inputs) {
-      index++;
-      const tag = `  [${index}/${inputs.length}] ${pick.taskId.slice(0, 8)}`;
-      if (input.kind !== 'ready') { log(`${tag} skipped (${input.kind === 'declined' ? `declined: ${input.reason}` : 'missing'})`); continue; }
-      const redacted = ref.redactForEgress(input.prompt, secrets);
-      const schema = ref.verdictSchemaFromRubric(input.rubric.prompt);
-      const result = await ref.runCodexJudge(redacted.text, { model, effort, schema, timeoutMs: timeoutSec * 1000 });
-      const parsed = ref.parseReferenceVerdict(result.text);
-      const overall = parsed?.scores.overall ?? null;
-      apme.store.insertReferenceEval({
-        taskId: pick.taskId,
-        runId: pick.runId,
-        judge,
-        sample,
-        category: input.category ?? input.task.taskCategory ?? null,
-        rubricVer: input.rubric.version,
-        promptSha: ref.promptSha(input.prompt),
-        overall,
-        scoresJson: parsed ? JSON.stringify(parsed.scores) : null,
-        verdictJson: parsed ? JSON.stringify({ summary: parsed.summary, reasoning: parsed.reasoning, done: parsed.done, missed: parsed.missed }) : null,
-        error: parsed ? null : (result.error ?? 'unparseable verdict'),
-        localJudge: pick.localJudge,
-        localOverall: pick.localOverall,
-        localRubricVer: pick.localRubricVer,
-        localJudgedAt: pick.localJudgedAt,
-        inputTokens: result.usage?.inputTokens ?? null,
-        cachedInputTokens: result.usage?.cachedInputTokens ?? null,
-        outputTokens: result.usage?.outputTokens ?? null,
-        reasoningTokens: result.usage?.reasoningTokens ?? null,
-        latencyMs: result.latencyMs,
-        createdAt: Date.now(),
-      });
-      const secs = `${Math.round(result.latencyMs / 1000)} s`;
-      const redactNote = redacted.redactions > 0 ? `, ${redacted.redactions} redacted` : '';
-      if (overall == null) {
-        log(`${tag} ${(input.category ?? 'unknown').padEnd(12)} failed after ${secs}: ${(result.error ?? 'unparseable verdict').slice(0, 160)}${redactNote}`);
-        continue;
+    let stoppedBecause: string | null = null;
+    const { interrupted } = await ref.withInterruptAbort(async (signal) => {
+      let index = 0;
+      let failedInARow = 0;
+      for (const pick of picks) {
+        if (signal.aborted) break;
+        index++;
+        const tag = `  [${index}/${picks.length}] ${pick.taskId.slice(0, 8)}`;
+        const input = ref.buildReferenceInput(apme.store, pick, secrets);
+        if (input.kind !== 'ready') { log(`${tag} skipped (${input.kind === 'declined' ? `declined: ${input.reason}` : 'missing'})`); continue; }
+        const schema = ref.verdictSchemaFromRubric(input.local.rubric.prompt);
+        const result = await ref.runCodexJudge(input.prompt, { model, effort, schema, timeoutMs: timeoutSec * 1000, signal });
+        const row = ref.referenceEvalRow({ pick, input, result, judge, sample, createdAt: Date.now() });
+        if (!row) {
+          // Interrupted, or Codex could not be started: nothing about the task.
+          if (result.end === 'not_started') stoppedBecause = result.error;
+          log(`${tag} ${result.end === 'interrupted' ? 'interrupted' : result.error}; nothing recorded`);
+          break;
+        }
+        apme.store.insertReferenceEval(row);
+        const category = (input.local.category ?? 'unknown').padEnd(12);
+        const secs = `${Math.round(result.latencyMs / 1000)} s`;
+        const redactNote = input.redactions > 0 ? `, ${input.redactions} redacted` : '';
+        if (row.overall == null) {
+          log(`${tag} ${category} failed after ${secs}: ${(row.error ?? 'unparseable verdict').slice(0, 160)}${redactNote}`);
+          failedInARow++;
+          if (failedInARow >= ref.REFERENCE_STOP_AFTER_CONSECUTIVE_FAILURES) {
+            stoppedBecause = `${failedInARow} calls in a row failed, which is more likely Codex or the network than the tasks`;
+            break;
+          }
+          continue;
+        }
+        failedInARow = 0;
+        pairs.push({ local: pick.localOverall, reference: row.overall });
+        log(`${tag} ${category} local ${pick.localOverall.toFixed(2)}  ref ${row.overall.toFixed(2)}  Δ ${signed2(pick.localOverall - row.overall)}  ${secs}${result.usage ? `, ${Math.round(result.usage.inputTokens / 1000)}k in` : ''}${redactNote}`);
       }
-      pairs.push({ local: pick.localOverall, reference: overall });
-      log(`${tag} ${(input.category ?? 'unknown').padEnd(12)} local ${pick.localOverall.toFixed(2)}  ref ${overall.toFixed(2)}  Δ ${signed2(pick.localOverall - overall)}  ${secs}${result.usage ? `, ${Math.round(result.usage.inputTokens / 1000)}k in` : ''}${redactNote}`);
-    }
+    }, (signal) => log(`\n  ${signal}: stopping the call in flight and every process it started…`));
+
     const stats = ref.computeAgreement(pairs);
+    const parkedNow = ref.parkedReferenceTasks(apme.store.referenceFailureCounts(judge, sample), apme.store.referenceVerdictTaskIds(judge, sample));
     log(`\n  This run: n=${stats.n}, MAE ${score2(stats.mae)}, bias ${signed2(stats.bias)}, same outcome band ${stats.bucketAgreement == null ? '—' : `${Math.round(stats.bucketAgreement * 100)}%`}.`);
+    log(`  Parked in this sample: ${parkedNow.size} task(s) after ${ref.REFERENCE_PARK_AFTER_FAILURES} failed attempts${parkedNow.size > 0 ? '; --retry-parked sends them again' : ''}.`);
+    if (stoppedBecause) log(`  Stopped early: ${stoppedBecause}.`);
     log(`  Every reference verdict so far: agentdeck apme agreement${sample === 'uniform' ? '' : ` --sample ${sample}`}\n`);
+    if (interrupted) process.exit(128 + (osConstants.signals[interrupted] ?? 0));
+    if (stoppedBecause) process.exitCode = 1;
   });
 
 apme

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { ApmeStore, type ApmeLocalVerdictRow, type ApmeReferenceEvalRow } from '../apme/store.js';
 import { ApmeCollector } from '../apme/collector.js';
 import { ApmeRunner, buildTaskJudgeInput } from '../apme/runner.js';
@@ -9,19 +9,31 @@ import type { ApmeConfig } from '../apme/settings.js';
 import {
   CODEX_FIXED_INPUT_TOKENS,
   REFERENCE_DISABLED_FEATURES,
+  buildReferenceInput,
   buildReferenceReports,
   codexDefaultModel,
   codexJudgeArgs,
   computeAgreement,
   estimateCodexInputTokens,
+  handledSince,
   isolationBreach,
+  parkedReferenceTasks,
   parseCodexExecEvents,
+  parseReferenceUntil,
   pickReferenceCandidates,
+  planReferenceRun,
+  promptSha,
   redactForEgress,
+  referenceEvalRow,
+  referencePicksDigest,
+  referenceRunCommand,
   referenceSampleLabel,
   runCodexJudge,
   stderrReason,
   verdictSchemaFromRubric,
+  withInterruptAbort,
+  type CodexJudgeResult,
+  type ReferenceInput,
 } from '../apme/reference-judge.js';
 
 /**
@@ -110,6 +122,50 @@ describe('one prompt for both judges', () => {
     expect(input.kind).toBe('ready');
     expect(sent).toHaveLength(1);
     expect(input.kind === 'ready' && input.prompt).toBe(sent[0]);
+    // The reference path records the same local prompt, and with nothing to
+    // redact it sends that prompt unchanged.
+    const reference = buildReferenceInput(store, { runId, taskId });
+    expect(reference.kind === 'ready' && reference.local.prompt).toBe(sent[0]);
+    expect(reference.kind === 'ready' && reference.prompt).toBe(sent[0]);
+  });
+
+  it('redacts each field before it is clipped, and leaves the local prompt as the live judge sent it', async () => {
+    const collector = new ApmeCollector(store);
+    const runner = new ApmeRunner(store);
+    runner._setConfig(STUB_CONFIG);
+    const sent: string[] = [];
+    runner._setJudgeFn(async (p) => { sent.push(p); return JSON.stringify({ overall: 0.8, reasoning: 'r', summary: 'Deployed', done: [], missed: [] }); });
+    // A ~1,700-character key in a 1,500-character field: the clip cuts its END line.
+    const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const keyLines = Array.from({ length: 25 }, (_, line) => Array.from({ length: 64 }, (_, i) => B64[((line * 64 + i) * 37 + 11) % 64]).join(''));
+    const pem = `-----BEGIN RSA PRIVATE KEY-----\n${keyLines.join('\n')}\n-----END RSA PRIVATE KEY-----`;
+    expect(pem.length).toBeGreaterThan(1_650);
+
+    const runId = collector.openRun({ sessionId: 's3', agentType: 'claude-code', projectName: 'demo' })!;
+    collector.ingestHook('s3', 'UserPromptSubmit', { prompt: `Deploy with this key:\n${pem}\nThen restart the service.` });
+    collector.ingestHook('s3', 'PreToolUse', { tool_name: 'Bash', tool_input: { command: 'systemctl restart app' } });
+    collector.setTurnResponse('s3', 'Deployed with the key and restarted the service.');
+    const taskId = collector.getActiveTaskId('s3')!;
+    collector.noteTurnStop('s3');
+    collector.closeRun('s3');
+    store.updateRun(runId, { taskCategory: 'ops' });
+    runner.enqueueTask({ runId, taskId, boundarySignal: 'session_end' });
+    await runner.drain();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain(keyLines[20]);
+    expect(sent[0]).not.toContain('-----END RSA PRIVATE KEY-----');
+
+    const input = buildReferenceInput(store, { runId, taskId });
+    if (input.kind !== 'ready') throw new Error(`expected a ready input, got ${input.kind}`);
+    expect(input.local.prompt).toBe(sent[0]);
+    for (const line of keyLines) expect(input.prompt).not.toContain(line);
+    expect(input.prompt).not.toContain('PRIVATE KEY');
+    // Redacted inside its field, not by the cut-key fallback over the whole
+    // prompt, which would have taken the rest of the prompt with it.
+    expect(input.prompt).toContain('Deployed with the key and restarted the service.');
+    expect(input.prompt).toContain('Respond with strict JSON only.');
+    expect(input.redactions).toBe(1);
   });
 
   it('declines a task the live judge would decline, and writes nothing', async () => {
@@ -240,16 +296,57 @@ describe('codex exec', () => {
 describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in codex binary', () => {
   let dir!: string;
   beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'apme-fake-codex-')); });
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+  afterEach(() => {
+    // A grandchild a failing test left running.
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.pid')) continue;
+      const pid = Number(readFileSync(join(dir, entry), 'utf-8'));
+      if (Number.isInteger(pid) && pid > 0) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   // Each stand-in is a cold node start. Under swap pressure one took over the
   // 10 s default (2026-10-18), so these tests allow 30 s: runCodexJudge's own
   // 20 s bound is the one that should fire, and it says what went wrong.
-  function fakeCodex(body: string): string {
+  function fakeCodex(body: string, interpreter = '/usr/bin/env node'): string {
     const path = join(dir, 'codex');
-    writeFileSync(path, `#!/usr/bin/env node\n${body}\n`);
+    writeFileSync(path, `#!${interpreter}\n${body}\n`);
     chmodSync(path, 0o755);
     return path;
+  }
+
+  /** A stand-in shaped like the npm `codex` wrapper: it starts the real work
+   *  as a child with inherited stdio, forwards no signal, and waits. It
+   *  records the child's pid and the scratch cwd it was given. */
+  function wrapperCodex(opts: { ignoreTerm?: boolean } = {}): { binary: string; pidFile: string; cwdFile: string } {
+    const pidFile = join(dir, 'grandchild.pid');
+    const cwdFile = join(dir, 'cwd.txt');
+    const binary = fakeCodex([
+      // An ignored signal stays ignored in the child, so neither exits on TERM.
+      opts.ignoreTerm ? "trap '' TERM" : '',
+      'prev=',
+      `for a in "$@"; do if [ "$prev" = "-C" ]; then printf '%s' "$a" > '${cwdFile}'; fi; prev="$a"; done`,
+      'sleep 300 &',
+      `echo $! > '${pidFile}.tmp' && mv '${pidFile}.tmp' '${pidFile}'`,
+      'wait',
+    ].join('\n'), '/bin/sh');
+    return { binary, pidFile, cwdFile };
+  }
+
+  function grandchildOf(pidFile: string): number {
+    expect(existsSync(pidFile), 'the stand-in never started its child (machine overloaded?)').toBe(true);
+    return Number(readFileSync(pidFile, 'utf-8'));
+  }
+
+  /** Polls, because a killed process is reaped asynchronously. */
+  async function goneWithin(pid: number, ms: number): Promise<boolean> {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      try { process.kill(pid, 0); } catch (err) { if ((err as NodeJS.ErrnoException).code === 'ESRCH') return true; }
+      if (Date.now() > deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   it('sends the prompt on stdin, closes it, and parses the reply', async () => {
@@ -271,6 +368,7 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
     const result = await runCodexJudge('PROMPT ✓ 한글', { model: 'gpt-x', effort: 'high', schema, binary, timeoutMs: 20_000 });
 
     expect(result.error).toBeNull();
+    expect(result.end).toBe('exited');
     expect(JSON.parse(result.text!).overall).toBe(0.4);
     expect(result.usage).toEqual({ inputTokens: 20000, cachedInputTokens: 0, outputTokens: 300, reasoningTokens: 120 });
     const seen = JSON.parse(readFileSync(record, 'utf-8')) as { input: string; args: string[]; cwdEntries: string[]; schema: unknown };
@@ -287,7 +385,63 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
     const result = await runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary, timeoutMs: 400 });
     expect(result.text).toBeNull();
     expect(result.error).toMatch(/timed out/);
-  });
+    expect(result.end).toBe('timed_out');
+  }, 30_000);
+
+  it('a timeout stops the process tree, not only the process it spawned', async () => {
+    // The npm `codex` wrapper runs the native binary with inherited stdio and
+    // forwards only SIGINT/SIGTERM/SIGHUP: killing the wrapper alone left the
+    // real Codex running with the pipes open.
+    const { binary, pidFile, cwdFile } = wrapperCodex();
+    const result = await runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary, timeoutMs: 1_500 });
+    expect(result.end).toBe('timed_out');
+    expect(result.error).toMatch(/timed out/);
+    expect(await goneWithin(grandchildOf(pidFile), 3_000)).toBe(true);
+    // The scratch directory is removed once the tree is stopped.
+    expect(existsSync(dirname(readFileSync(cwdFile, 'utf-8')))).toBe(false);
+  }, 30_000);
+
+  it('a tree that ignores SIGTERM gets SIGKILL after the grace', async () => {
+    const { binary, pidFile } = wrapperCodex({ ignoreTerm: true });
+    const result = await runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary, timeoutMs: 1_500, killGraceMs: 300 });
+    expect(result.end).toBe('timed_out');
+    expect(await goneWithin(grandchildOf(pidFile), 3_000)).toBe(true);
+    // It waited out the grace: SIGTERM did not end it, SIGKILL did.
+    expect(result.latencyMs).toBeGreaterThanOrEqual(1_500 + 300);
+  }, 30_000);
+
+  it('an abort stops the tree, reports interrupted, and removes the scratch directory', async () => {
+    const { binary, pidFile, cwdFile } = wrapperCodex();
+    const controller = new AbortController();
+    const call = runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary, timeoutMs: 20_000, signal: controller.signal });
+    for (let waited = 0; !existsSync(pidFile) && waited < 20_000; waited += 50) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    controller.abort();
+    const result = await call;
+    expect(result.end).toBe('interrupted');
+    expect(result.error).toBe('interrupted');
+    expect(await goneWithin(grandchildOf(pidFile), 3_000)).toBe(true);
+    expect(existsSync(dirname(readFileSync(cwdFile, 'utf-8')))).toBe(false);
+  }, 30_000);
+
+  it('decodes a character split across two reads', async () => {
+    // 가 is EA B0 80; the stand-in writes it in two pieces with a pause between.
+    const binary = fakeCodex([
+      `printf '%s' '{"type":"item.completed","item":{"type":"agent_message","text":"'`,
+      `printf '\\352\\260'`,
+      'sleep 0.3',
+      `printf '\\200"}}\\n'`,
+    ].join('\n'), '/bin/sh');
+    const result = await runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary, timeoutMs: 20_000 });
+    expect(result.text).toBe('가');
+  }, 30_000);
+
+  it('a binary that cannot be spawned ends not_started', async () => {
+    const result = await runCodexJudge('p', { model: 'm', effort: 'low', schema: null, binary: join(dir, 'missing'), timeoutMs: 20_000 });
+    expect(result.end).toBe('not_started');
+    expect(result.error).toMatch(/could not start/);
+  }, 30_000);
 
   it('a non-zero exit with no verdict says why, from the error line on stderr', async () => {
     const binary = fakeCodex(`process.stdin.resume(); process.stdin.on('end', () => { console.error("error: unexpected argument '--disable' found"); console.error(''); console.error("For more information, try '--help'."); process.exit(2); });`);
@@ -307,6 +461,91 @@ describe.skipIf(process.platform === 'win32')('runCodexJudge against a stand-in 
   }, 30_000);
 });
 
+describe('binding a run to its dry run', () => {
+  const now = Date.parse('2026-10-18T12:00:00.000Z');
+
+  it('reads --until as epoch ms or an ISO time, and refuses seconds, garbage and the future', () => {
+    expect(parseReferenceUntil('2026-10-18T09:00:00.000Z', now)).toEqual({ untilMs: Date.parse('2026-10-18T09:00:00.000Z') });
+    expect(parseReferenceUntil(String(now - 5), now)).toEqual({ untilMs: now - 5 });
+    expect(parseReferenceUntil('1760000000', now)).toHaveProperty('error');
+    expect(parseReferenceUntil('last tuesday', now)).toHaveProperty('error');
+    expect(parseReferenceUntil(String(now + 1), now)).toHaveProperty('error');
+  });
+
+  it('fingerprints the ordered pick list', () => {
+    expect(referencePicksDigest(['a', 'b'])).toMatch(/^[0-9a-f]{12}$/);
+    expect(referencePicksDigest(['a', 'b'])).toBe(referencePicksDigest(['a', 'b']));
+    expect(referencePicksDigest(['a', 'b'])).not.toBe(referencePicksDigest(['b', 'a']));
+    expect(referencePicksDigest(['a', 'b'])).not.toBe(referencePicksDigest(['a']));
+  });
+
+  it('prints the --run command with the resolved time, the same arguments and the digest', () => {
+    const base = { untilMs: Date.parse('2026-10-18T09:00:00.000Z'), since: '7d', limit: 5, model: 'gpt-x', effort: 'high', seed: 'agentdeck', projects: [] as string[], digest: 'abc123def456' };
+    expect(referenceRunCommand(base, 'darwin')).toBe(
+      'agentdeck apme reference-judge --run --until 2026-10-18T09:00:00.000Z --since 7d -n 5 --model gpt-x --effort high --seed agentdeck --expect abc123def456');
+    const full = referenceRunCommand({ ...base, seed: "it's", category: 'ops', localBand: 'fail', projects: ['My App', 'AgentDeck'], timeoutSec: 600, retryParked: true }, 'darwin');
+    expect(full).toContain("--seed 'it'\\''s' --category ops --local-band fail --project 'My App,AgentDeck' --timeout 600 --retry-parked --expect abc123def456");
+    expect(referenceRunCommand({ ...base, projects: ['My App'] }, 'win32')).toContain('--project "My App"');
+  });
+});
+
+describe('what a reference call records', () => {
+  const pick: ApmeLocalVerdictRow = {
+    taskId: 't', runId: 'r', agentType: 'codex-cli', project: 'p', category: 'coding', endedAt: 1, summary: null,
+    localOverall: 1, localJudge: 'mlx:x', localRubricVer: 7, localJudgedAt: 5,
+  };
+  const input = {
+    kind: 'ready',
+    local: { kind: 'ready', task: { taskCategory: 'coding' }, category: 'coding', rubric: { version: 7, prompt: '' }, sample: null, prompt: 'LOCAL PROMPT' },
+    prompt: 'SENT PROMPT [REDACTED]',
+    redactions: 1,
+  } as unknown as Extract<ReferenceInput, { kind: 'ready' }>;
+  const call = (o: Partial<CodexJudgeResult>): CodexJudgeResult => ({ text: null, usage: null, error: null, toolItems: [], warnings: [], end: 'exited', latencyMs: 10, ...o });
+  const row = (result: CodexJudgeResult) => referenceEvalRow({ pick, input, result, judge: 'codex:m@high', sample: 'uniform', createdAt: 99 });
+
+  it('records nothing for a call that was interrupted or never started: neither is about the task', () => {
+    expect(row(call({ end: 'interrupted', error: 'interrupted' }))).toBeNull();
+    expect(row(call({ end: 'not_started', error: 'could not start codex: spawn codex ENOENT' }))).toBeNull();
+  });
+
+  it('records a timeout as a failed attempt, and a verdict under the local prompt\'s hash', () => {
+    expect(row(call({ end: 'timed_out', error: 'timed out after 300 s' }))).toMatchObject({ overall: null, error: 'timed out after 300 s', localOverall: 1, createdAt: 99 });
+    const verdict = row(call({ text: JSON.stringify({ overall: 0.4, reasoning: 'r', summary: 's', done: [], missed: ['tests'] }) }))!;
+    expect(verdict).toMatchObject({ overall: 0.4, error: null, rubricVer: 7, category: 'coding', promptSha: promptSha('LOCAL PROMPT') });
+  });
+});
+
+describe('interrupting a run', () => {
+  const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+  const counts = () => SIGNALS.map((s) => process.listenerCount(s));
+
+  it('turns a signal into an abort, once, and removes its handlers afterwards', async () => {
+    const baseline = counts();
+    const before = process.listeners('SIGTERM');
+    const seen: string[] = [];
+    const { value, interrupted } = await withInterruptAbort(async (signal) => {
+      expect(counts()).toEqual(baseline.map((n) => n + 1));
+      // Call the handler directly: emitting the signal would also run the
+      // test runner's own handlers.
+      const ours = process.listeners('SIGTERM').filter((l) => !before.includes(l)) as Array<(s: NodeJS.Signals) => void>;
+      expect(ours).toHaveLength(1);
+      ours[0]('SIGTERM');
+      ours[0]('SIGTERM');
+      return signal.aborted;
+    }, (s) => seen.push(s));
+    expect(value).toBe(true);
+    expect(interrupted).toBe('SIGTERM');
+    expect(seen).toEqual(['SIGTERM']);
+    expect(counts()).toEqual(baseline);
+  });
+
+  it('removes its handlers when the run throws', async () => {
+    const baseline = counts();
+    await expect(withInterruptAbort(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
+    expect(counts()).toEqual(baseline);
+  });
+});
+
 describe('dry-run cost estimate', () => {
   it('adds the fixed part to the prompt at the fitted per-script rates', () => {
     expect(estimateCodexInputTokens('')).toBe(CODEX_FIXED_INPUT_TOKENS);
@@ -324,6 +563,10 @@ describe('stderr reason', () => {
 });
 
 describe('redaction before egress', () => {
+  // Provider-shaped fixtures are assembled at runtime, so the source never
+  // holds a whole token for a secret scanner to match (GitHub push protection
+  // refused a literal Hugging Face shape here).
+  const join = (...parts: string[]): string => parts.join('');
   it('removes pairing tokens and credential shapes, keeps hashes and ids a judge reads as evidence', () => {
     const token = 'a'.repeat(32) + 'b'.repeat(32);
     const sha = '3c7c6aac0f1e2d3c4b5a69788796a5b4c3d2e1f0';
@@ -331,10 +574,10 @@ describe('redaction before egress', () => {
     const text = [
       `curl -H "Authorization: Bearer ${token}" http://127.0.0.1:9120/health`,
       `ws://host:9120/?token=${token}`,
-      'export ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnop',
-      'OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwx1234',
-      'git push https://ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@github.com/x/y',
-      'aws key AKIAABCDEFGHIJKLMNOP',
+      `export ANTHROPIC_API_KEY=${join('sk-ant-', 'api03-abcdefghijklmnop')}`,
+      `OPENAI_API_KEY=${join('sk-', 'abcdefghijklmnopqrstuvwx1234')}`,
+      `git push https://${join('ghp_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}@github.com/x/y`,
+      `aws key ${join('AKIA', 'ABCDEFGHIJKLMNOP')}`,
       '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----',
       `commit ${sha} in thread ${uuid}`,
     ].join('\n');
@@ -343,7 +586,7 @@ describe('redaction before egress', () => {
     expect(out).not.toContain('sk-ant-api03');
     expect(out).not.toContain('sk-abcdefghijklmnopqrstuvwx1234');
     expect(out).not.toContain('ghp_ABCDEF');
-    expect(out).not.toContain('AKIAABCDEFGHIJKLMNOP');
+    expect(out).not.toContain(join('AKIA', 'ABCDEFGHIJKLMNOP'));
     expect(out).not.toContain('b3BlbnNzaC1rZXktdjEAAAAA');
     expect(out).toContain(sha);
     expect(out).toContain(uuid);
@@ -352,6 +595,70 @@ describe('redaction before egress', () => {
 
   it('leaves clean text unchanged', () => {
     expect(redactForEgress('Fixed the race; 3 tests pass.', [])).toEqual({ text: 'Fixed the race; 3 tests pass.', redactions: 0 });
+  });
+
+  // [text, what must not survive, what must]
+  const SHAPES: Array<[string, string, string]> = [
+    [`git clone https://${join('gho_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab')}@github.com/x/y`, 'gho_ABCDEF', 'github.com/x/y'],
+    [`GH_TOKEN=${join('ghs_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`, 'ghs_ABCDEF', 'GH_TOKEN='],
+    [`token ${join('github_pat_', '11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGH')}`, 'github_pat_11ABC', 'token '],
+    [`session=${join('eyJhbGciOiJIUzI1NiJ9', '.eyJzdWIiOiIxMjM0NTY3ODkwIn0', '.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U')}`, 'dozjgNryP4J3', 'session='],
+    ['curl -H "authorization: bearer abcDEF123456ghiJKL789" https://x', 'abcDEF123456', 'authorization: bearer '],
+    ['BEARER abcdefghijklmnop1234', 'abcdefghijklmnop1234', 'BEARER '],
+    ["curl -H 'Authorization: token 0123456789abcdef0123456789abcdef01234567' api", '0123456789abcdef', 'Authorization: token '],
+    ['Authorization: Basic dXNlcjpwYXNzd29yZA==', 'dXNlcjpwYXNzd29yZA', 'Authorization: Basic '],
+    ['psql postgres://admin:s3cr3t@db.internal:5432/app', 'admin:s3cr3t', 'postgres://[REDACTED]@db.internal:5432/app'],
+    ['redis://:hunter2@cache:6379', 'hunter2', 'redis://[REDACTED]@cache:6379'],
+    [`HF_TOKEN=${join('hf_', 'abcdefghijklmnopqrstuvwxyzABCDEFGH')}`, 'hf_abcdefghij', 'HF_TOKEN='],
+    ['export ANTHROPIC_AUTH_TOKEN=a4f3c2b1a9e8d7c6b5a4f3c2b1a9e8d7c.AbCdEfGhIjKlMnOp', 'a4f3c2b1a9e8', 'ANTHROPIC_AUTH_TOKEN='],
+    ['DB_PASSWORD=supersecret', 'supersecret', 'DB_PASSWORD='],
+    ['PGPASSWORD=correcthorse', 'correcthorse', 'PGPASSWORD='],
+    ['{"password": "hunter2", "user": "bob"}', 'hunter2', '"user": "bob"'],
+    ["password: 'p@ss w0rd'", 'p@ss w0rd', 'password: '],
+    ['client_secret=Zx8kQ2mN5pR7tV9w', 'Zx8kQ2mN5pR7tV9w', 'client_secret='],
+    ['api_key: abc123def456ghi', 'abc123def456ghi', 'api_key: '],
+    ['headers: {"X-Api-Key": "abc123def456ghi789"}', 'abc123def456ghi789', '"X-Api-Key": '],
+    ['mysql --password hunter2 -u root', 'hunter2', '-u root'],
+    ['--api-key=abc123def456ghi789', 'abc123def456ghi789', '--api-key='],
+    // A JSON string inside a JSON-encoded tool input.
+    ['{"command":"curl -d \'{\\"password\\":\\"hunter2\\"}\' https://x"}', 'hunter2', 'https://x'],
+    // An assignment inside a non-secret key's value.
+    ['{"command":"export SECRET_TOKEN=abc123def456 && run"}', 'abc123def456', '&& run'],
+    // A key cut before its END line takes the rest of the field.
+    ['before\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\nabcdef', 'MIIEowIBAAKCAQEA', 'before'],
+  ];
+
+  it.each(SHAPES)('redacts %s', (text, secret, kept) => {
+    const out = redactForEgress(text);
+    expect(out.text).not.toContain(secret);
+    expect(out.text).toContain(kept);
+    expect(out.redactions).toBeGreaterThan(0);
+  });
+
+  // Code and prose a judge needs, which name a secret without holding one.
+  const LOOKALIKES = [
+    'The token expired, so pass the API key again; use bearer authentication.',
+    'const token = getToken();',
+    'const apiKey = process.env.OPENAI_API_KEY;',
+    'password: string;',
+    'interface User { password?: string }',
+    'max_tokens=4096 and tokens: 1500',
+    'TOKEN_TYPE=bearer',
+    'SORT_KEY=createdAt',
+    'primaryKey: "id"',
+    "fetch(url, { credentials: 'include' })",
+    'ssh://git@github.com/x/y.git',
+    'git@github.com:x/y.git',
+    'https://example.com/a/b?x=1',
+    'bypass=true; compass: north',
+    'if (password == null) return;',
+    'token = this.token',
+    'PASSWORD_MIN_LENGTH=8',
+    '--token-file ~/.tok --max-tokens 4096',
+  ];
+
+  it.each(LOOKALIKES)('leaves %s alone', (text) => {
+    expect(redactForEgress(text)).toEqual({ text, redactions: 0 });
   });
 });
 
@@ -549,6 +856,75 @@ describe('reference verdicts in the store', () => {
     const reports = buildReferenceReports(rows, { top: 0 });
     expect(reports.map((r) => [r.sample, r.stats.n])).toEqual([['uniform', 1], ['local_band=fail', 2]]);
     expect(reports[1].stats.confusion.fail).toEqual({ success: 1, partial: 0, fail: 1 });
+  });
+
+  it('reads the pool as it stood at untilMs: a task judged after it cannot enter', () => {
+    const until = Date.now() - 60_000;
+    store.insertRun({ id: 'r', sessionId: 's', agentType: 'codex-cli', projectName: 'AgentDeck', startedAt: until - 100_000 });
+    seedTask('before', until - 5000, [{ score: 0.4, createdAt: until - 4000 }]);
+    seedTask('judged-after', until - 3000, [{ score: 1, createdAt: until + 1000 }]);
+    seedTask('rejudged', until - 2000, [{ score: 0.1, createdAt: until - 1500 }, { score: 0.9, createdAt: until + 2000, judge: 'mlx:new' }]);
+    seedTask('closed-after', until + 500, [{ score: 1, createdAt: until + 600 }]);
+
+    const asOf = store.listLocallyJudgedTasks({ sinceMs: until - 86_400_000, untilMs: until, limit: 10 });
+    expect(asOf.map((r) => r.taskId)).toEqual(['rejudged', 'before']);
+    // A task re-judged since carries the verdict it had then.
+    expect(asOf[0]).toMatchObject({ localOverall: 0.1, localJudge: 'mlx:old' });
+    expect(store.listLocallyJudgedTasks({ sinceMs: until - 86_400_000, limit: 10 }).map((r) => r.taskId))
+      .toEqual(['closed-after', 'rejudged', 'judged-after', 'before']);
+  });
+
+  it('a plan made at untilMs picks the same list after later activity, and names what to drop', () => {
+    const until = Date.now() - 60_000;
+    store.insertRun({ id: 'r', sessionId: 's', agentType: 'codex-cli', projectName: 'AgentDeck', startedAt: until - 100_000 });
+    for (let i = 0; i < 6; i++) seedTask(`t${i}`, until - 10_000 + i * 100, [{ score: i % 2, createdAt: until - 5000 + i * 100 }]);
+    const opts = { judge: 'codex:m@high', sample: 'uniform', untilMs: until, windowMs: 86_400_000, limit: 3, seed: 's', projects: [] };
+    const dry = planReferenceRun(store, opts);
+    expect(dry.picks).toHaveLength(3);
+
+    // Between the dry run and the run: a task closes and is judged, a pick is
+    // re-judged, and an earlier run of the same command scores another.
+    seedTask('late', until + 100, [{ score: 1, createdAt: until + 200 }]);
+    store.insertEvalForTask({ id: 0, runId: 'r', taskId: dry.picks[0].taskId, layer: 'task_judge', metric: 'overall', score: 0.5, raw: null, rubricVer: 8, judgeModel: 'mlx:new', createdAt: until + 300 });
+    store.insertReferenceEval(refRow({ taskId: dry.picks[1].taskId, createdAt: until + 400 }));
+
+    const run = planReferenceRun(store, opts);
+    expect(run.picks.map((p) => p.taskId)).toEqual(dry.picks.map((p) => p.taskId));
+    expect(run.digest).toBe(dry.digest);
+    expect(run.picks[0].localOverall).toBe(dry.picks[0].localOverall);
+    expect([...handledSince(store, run, opts)]).toEqual([dry.picks[1].taskId]);
+    // Read as of now, the scored pick is gone and the list changes.
+    expect(planReferenceRun(store, { ...opts, untilMs: Date.now() }).digest).not.toBe(dry.digest);
+  });
+
+  it('parks a task after two failed attempts in one design, and --retry-parked sends it again', () => {
+    const t0 = Date.now() - 60_000;
+    store.insertRun({ id: 'r', sessionId: 's', agentType: 'codex-cli', projectName: 'AgentDeck', startedAt: t0 - 100_000 });
+    for (const id of ['a', 'b', 'c']) seedTask(id, t0 - 10_000, [{ score: 1, createdAt: t0 - 9000 }]);
+    const failed = (taskId: string, createdAt: number, sample = 'uniform') => refRow({ taskId, sample, overall: null, scoresJson: null, verdictJson: null, error: 'timed out after 300 s', createdAt });
+    store.insertReferenceEval(failed('a', t0));
+    store.insertReferenceEval(failed('a', t0 + 1000));
+    store.insertReferenceEval(failed('b', t0));
+    store.insertReferenceEval(failed('b', t0, 'local_band=success'));
+    store.insertReferenceEval(failed('c', t0));
+    store.insertReferenceEval(failed('c', t0 + 1000));
+    store.insertReferenceEval(refRow({ taskId: 'c', createdAt: t0 + 2000 }));
+
+    expect(store.referenceFailureCounts('codex:m@high', 'uniform')).toEqual(new Map([['a', 2], ['b', 1], ['c', 2]]));
+    expect(store.referenceFailureCounts('codex:m@high', 'uniform', t0 + 500).get('a')).toBe(1);
+    expect(store.referenceFailureCounts('codex:other@high', 'uniform').size).toBe(0);
+    // A task that failed twice and then got a verdict is scored, not parked.
+    expect([...parkedReferenceTasks(store.referenceFailureCounts('codex:m@high', 'uniform'), store.referenceVerdictTaskIds('codex:m@high', 'uniform'))]).toEqual(['a']);
+
+    const opts = { judge: 'codex:m@high', sample: 'uniform', untilMs: Date.now(), windowMs: 86_400_000, limit: 10, seed: 's', projects: [] };
+    const plan = planReferenceRun(store, opts);
+    expect([...plan.parked]).toEqual(['a']);
+    expect(plan.picks.map((p) => p.taskId)).toEqual(['b']);
+    expect(planReferenceRun(store, { ...opts, retryParked: true }).picks.map((p) => p.taskId).sort()).toEqual(['a', 'b']);
+    // Parked as of the dry run's time only: a second failure since is dropped by the run.
+    const early = planReferenceRun(store, { ...opts, untilMs: t0 + 500 });
+    expect(early.picks.map((p) => p.taskId).sort()).toEqual(['a', 'b', 'c']);
+    expect([...handledSince(store, early, opts)].sort()).toEqual(['a', 'c']);
   });
 
   it('labels the design from the filters it was drawn under', () => {

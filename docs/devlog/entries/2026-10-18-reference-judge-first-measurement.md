@@ -100,8 +100,11 @@ hardening bring that sample to n=16: MAE 0.23 (CI 0.12–0.36), bias +0.11.
 - **Sampling.** The sample is uniform, ordered by a hash of (seed, task id),
   rather than newest-first or stratified by category. Uniform is the only
   design whose agreement estimates the pool's. The hash keeps a task in place
-  however the pool grows, so the dry run shows what `--run` sends, and a rerun
-  continues with the next tasks instead of reshuffling.
+  however the pool grows, so a rerun continues with the next tasks instead of
+  reshuffling. That alone did not make the dry run's list the run's: tasks
+  closed or judged in between changed the pool, so the dry run now prints the
+  `--run` command pinned to its time (`--until`) and its list's digest
+  (`--expect`).
 - **Sampling design is stored and reported apart.** The first draft pooled all
   of a judge's rows. Once the fail-band run landed, the pooled MAE (0.46) was
   neither the population figure (0.24) nor the fail-band precision (25%). Each
