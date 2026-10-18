@@ -2738,7 +2738,7 @@ final class DaemonServer {
                 let since = msg["since"] as? Double
                 Task { @DaemonActor [weak self] in
                     guard let self else { return }
-                    let reply = SendableDict(await self.sessionTimelineReply(rawSid, since: since))
+                    let reply = SendableDict(await self.sessionTimelineReply(rawSid, since: since, board: true))
                     await self.serialModule?.serial.sendEvent(reply.value, toPort: portPath)
                 }
                 return
@@ -4482,7 +4482,7 @@ final class DaemonServer {
             let since = cmd["since"] as? Double
             Task { @DaemonActor [weak self] in
                 guard let self else { return }
-                let reply = await self.sessionTimelineReply(rawSid, since: since)
+                let reply = await self.sessionTimelineReply(rawSid, since: since, board: self.isBoardClient(conn))
                 // A board gets the frame size it can take, as in its connect
                 // burst; a full 16-row reply could overrun its 4 KB buffer.
                 if let data = self.frameForClient(reply, conn)?.jsonData { conn.send(data) }
@@ -4948,10 +4948,26 @@ final class DaemonServer {
 
     /// The reply to a `query_session_timeline`, for whichever transport asked:
     /// a WebSocket client, or a board on USB through the serial handler.
-    private func sessionTimelineReply(_ rawSid: String, since: Double?) async -> [String: Any] {
+    private func sessionTimelineReply(_ rawSid: String, since: Double?, board: Bool) async -> [String: Any] {
         let sid = resolveDeviceSessionId(rawSid)
         let entries = await timelineStore.historyForSession(sid, since: since)
-        return ["type": "timeline_history", "sessionId": sid, "entries": entries.map { claudeCodeEntryDict($0) }]
+        return Self.sessionTimelineReplyFrame(requested: rawSid, resolved: sid, board: board,
+                                              entries: entries.map { claudeCodeEntryDict($0) })
+    }
+
+    /// A board gets back the id it SENT. It matches the reply against that id
+    /// (the T-Embed knob `strcmp`s its `scrubSessionId[32]`), and board ids
+    /// arrive cut to 31 bytes, so echoing the resolved 36-char UUID or 52-char
+    /// observed id made it discard every reply. Board shaping trims the rows
+    /// before its byte budget. Node parity: `buildSessionTimelineReply`.
+    nonisolated static func sessionTimelineReplyFrame(
+        requested: String, resolved: String, board: Bool, entries: [[String: Any]]
+    ) -> [String: Any] {
+        ["type": "timeline_history", "sessionId": board ? requested : resolved, "entries": entries]
+    }
+
+    private func isBoardClient(_ conn: WebSocketConnection) -> Bool {
+        cachedWifiEsp32[conn.id] != nil || conn.isEsp32
     }
 
     /// A frame addressed to one WebSocket client: a board gets the serial-size
