@@ -9,7 +9,7 @@ import { isLocalConnection, validateToken } from './auth.js';
 import type { BridgeEvent } from './types.js';
 import type { VoiceManager } from './voice.js';
 import { onFrameRendered, offFrameRendered, setPreviewFps, getPreviewFps } from './pixoo/pixoo-bridge.js';
-import { STATE_COLORS } from '@agentdeck/shared';
+import { CODEX_APPROVAL_HOLD_HEADER, STATE_COLORS } from '@agentdeck/shared';
 import { ManagedHookGate, neutralHookReply, type ForeignHookForwarder, type ManagedHarness } from './managed-hook-harness.js';
 import { rgbToBmp, pixooLiveHtml } from './pixoo/pixoo-preview.js';
 
@@ -136,8 +136,15 @@ export class HookServer extends EventEmitter {
   /** Hand another harness's hook to the daemon and relay its answer, so a
    *  held decision still reaches the hook script; without a daemon the script
    *  gets the neutral reply and its agent continues on its own. */
-  private async forwardForeignHook(eventName: string, body: string, pid: string | undefined, res: express.Response): Promise<void> {
-    const reply = await this.foreignHookForwarder?.(eventName, body, pid ? { 'X-AgentDeck-Pid': pid } : {}) ?? null;
+  private async forwardForeignHook(eventName: string, body: string, req: express.Request, res: express.Response): Promise<void> {
+    const headers: Record<string, string> = {};
+    const pid = req.get('X-AgentDeck-Pid');
+    if (pid) headers['X-AgentDeck-Pid'] = pid;
+    // A Codex hold request must reach the daemon as one (the forwarder
+    // restates its budget), or the daemon ingests it as a second notification.
+    const hold = req.get(CODEX_APPROVAL_HOLD_HEADER);
+    if (hold !== undefined) headers[CODEX_APPROVAL_HOLD_HEADER] = hold;
+    const reply = await this.foreignHookForwarder?.(eventName, body, headers) ?? null;
     if (res.headersSent) return;
     if (reply) res.status(reply.status).type(reply.contentType).send(reply.body);
     else res.type('application/json').send(neutralHookReply(eventName));
@@ -281,7 +288,14 @@ export class HookServer extends EventEmitter {
         return;
       }
       if (verdict.kind === 'foreign') {
-        void this.forwardForeignHook(eventName, original, req.get('X-AgentDeck-Pid'), res);
+        void this.forwardForeignHook(eventName, original, req, res);
+        return;
+      }
+      // A Codex hold request is the notification's twin, which already drove
+      // this session (shared/src/codex-approval-hold.ts), and the PTY answers
+      // the prompt itself: answered at once, never emitted.
+      if (verdict.eventName === 'codex_permission_request' && req.get(CODEX_APPROVAL_HOLD_HEADER) !== undefined) {
+        res.type('application/json').send(neutralHookReply(verdict.eventName));
         return;
       }
 
