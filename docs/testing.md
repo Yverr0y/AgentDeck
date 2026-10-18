@@ -54,7 +54,7 @@ The tiers do not replace CI. The hosted jobs still run on every PR, including th
 
 `tests/e2e/daemon-hub.e2e.test.ts` (`pnpm test:e2e`, own config `vitest.e2e.config.ts`) starts `bridge/dist/cli.js daemon start --foreground --local --loopback` as a child process in a fresh temp `HOME`, on a free port inside a private `--port-window`, and drives it only from outside: `/health`, `POST /hooks/*`, a WebSocket dashboard client, the exact hook shell snippet the installer writes, SIGTERM and a restart. It needs `pnpm build` first and takes a few seconds.
 
-It is safe beside a live daemon (outside 9120–9139, so the singleton guard never asks the real one to stand down) and raises no OS prompts on Linux: loopback bind, every device module off, no LAN emission. On macOS it is opt-in (`AGENTDECK_E2E_ALLOW_DARWIN=1`) because the darwin usage poller reads the login Keychain. CI runs it on every PR (`ci.yml`) and the Pages report re-runs it on master.
+It is safe beside a live daemon (outside 9120–9139, so the singleton guard never asks the real one to stand down) and raises no OS prompts on Linux: loopback bind, every device module off, no LAN emission. It also leaves the developer's own agent tools alone: `AGENTDECK_DAEMON_NO_GATEWAY=1` keeps the daemon off a local OpenClaw Gateway (no probe, no adapter, no `openclaw doctor`), and `AGENTDECK_CODEX_LIVE_USAGE=0` keeps the Codex usage probe from spawning `codex`. On macOS it is opt-in (`AGENTDECK_E2E_ALLOW_DARWIN=1`) because the darwin usage poller reads the login Keychain. CI runs it on every PR (`ci.yml`) and the Pages report re-runs it on master.
 
 ## Swift Codex live acceptance on a Mac
 
