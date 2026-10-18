@@ -16,6 +16,11 @@
  *   device module and every LAN emission (mDNS, UDP beacon, sweep, BLE, ADB,
  *   serial) and bind 127.0.0.1 only — no firewall, Local Network or Bluetooth
  *   prompt can fire, and nothing reaches real hardware.
+ * - `AGENTDECK_DAEMON_NO_GATEWAY=1` and `AGENTDECK_CODEX_LIVE_USAGE=0` keep it
+ *   off the developer's own agent tools: no OpenClaw Gateway probe or
+ *   `openclaw doctor`, and no `codex app-server` spawn. Both CLIs would run
+ *   with `HOME` pointing here, and OpenClaw's installs kept writing into it
+ *   after the daemon was gone, failing the cleanup with ENOTEMPTY.
  * - `--port-window` puts it outside 9120-9139, so the singleton guard never
  *   asks a live daemon on this machine to stand down.
  *
@@ -96,6 +101,8 @@ async function startDaemon(port: number): Promise<Daemon> {
       AGENTDECK_DATA_DIR: dataDir,
       AGENTDECK_DAEMON_NO_SERIAL: '1',
       AGENTDECK_LOOPBACK_ONLY: '1',
+      AGENTDECK_DAEMON_NO_GATEWAY: '1',
+      AGENTDECK_CODEX_LIVE_USAGE: '0',
       // Never inherit a real credential or port from the developer's shell.
       CLAUDE_CODE_OAUTH_TOKEN: '',
       AGENTDECK_PORT: '',
@@ -857,6 +864,18 @@ exec "$AGENTDECK_TEST_CURL" "$@"
     } finally {
       client.close();
     }
+  });
+
+  it('never reaches for an OpenClaw Gateway on this machine', async () => {
+    // The startup line is written after the probes start, so even a filtered
+    // run reads it only once the gate has been decided.
+    const probe = await waitFor('the startup line',
+      () => /Daemon running \(build [^)]*\)\. Gateway probe (\w+)/.exec(daemon.log())?.[1]);
+    expect(probe).toBe('off');
+    // Where a Gateway does run (a developer's machine), every test above ran
+    // well past the first tick at which the probe would have found it.
+    expect(daemon.log()).not.toMatch(/OpenClaw Gateway detected/);
+    expect(existsSync(join(home, '.openclaw'))).toBe(false);
   });
 
   it('shuts down cleanly and replays the persisted timeline after a restart', async () => {

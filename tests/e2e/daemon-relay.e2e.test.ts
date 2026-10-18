@@ -87,6 +87,8 @@ async function startDaemon(port: number, home: string): Promise<Daemon> {
       AGENTDECK_DATA_DIR: join(home, '.agentdeck'),
       AGENTDECK_DAEMON_NO_SERIAL: '1',
       AGENTDECK_LOOPBACK_ONLY: '1',
+      AGENTDECK_DAEMON_NO_GATEWAY: '1',
+      AGENTDECK_CODEX_LIVE_USAGE: '0',
       CLAUDE_CODE_OAUTH_TOKEN: '',
       AGENTDECK_PORT: '',
       AGENTDECK_DAEMON_PORT: '',
