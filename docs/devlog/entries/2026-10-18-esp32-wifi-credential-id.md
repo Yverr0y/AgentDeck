@@ -40,26 +40,44 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
 - **The firmware forgets the old id before writing different credentials, and records the new
   one after.** The failure that matters is asymmetric. A missing id costs one redundant
   provision. A stale id that names credentials the board no longer holds means the daemon never
-  sends the ones it needs. So a reset between the two NVS writes must leave no id. The same rule
-  clears the id when the captive portal opens, not only when it connects: an open portal can
-  replace the stored credentials at any moment, including with a wrong password that never joins.
-  The cost is one extra provision when a board boots out of range of its AP. The write order lives
-  in a header-only store (`esp32/src/net/wifi_cred_id_store.h`) so that it runs in the host tests;
-  `wifi_manager.cpp` only supplies the NVS backend.
+  sends the ones it needs. So a reset between the two NVS writes must leave no id, and when the
+  old id cannot be cleared the credentials are not written at all (`beforeWrite` returns false;
+  the ack says `credentials not saved` on the deferred-save boards). A board whose NVS refuses
+  that write cannot keep its pairing token across a reboot either, so the refusal costs nothing
+  that worked. Forgetting does not trust a failed read: an unreadable record is cleared, not
+  taken for an absent one. The write order lives in a header-only store
+  (`esp32/src/net/wifi_cred_id_store.h`) so that it runs in the host tests; `wifi_manager.cpp`
+  only supplies the NVS backend.
+- **The captive portal clears the id from WiFiManager's own save hook.**
+  `setPreSaveConfigCallback` fires in `handleWifiSave` before WiFiManager writes what was typed,
+  which covers a wrong password that never joins. The first version cleared the id whenever the
+  portal opened and again when it connected. Opening also happens when a board boots out of range
+  of its saved AP, with the credentials (and so the id) unchanged; connecting also happens when
+  the driver later joins with a provision's own credentials. Both cost a redundant provision. At
+  boot the id is now cleared only when nothing is saved (`getWiFiIsSaved()`). The portal's
+  erase button reboots the board, which then boots with nothing saved.
 - **The store keeps no copy of the id; every call reads NVS.** The first version cached it in a
   17-byte static and `ttgo` stopped linking: `dram0_0_seg` overflowed by 32 bytes, and `nm` found
   the store (24 bytes) and its backend (1 byte) to be the only new static data. Stateless, the
   change adds 0 bytes of static data across all 817 ttgo objects (`nm`, per object, against a build
-  of the parent commit). That parent — master plus the #565 and #566 branches — already overflows
-  `dram0_0_seg` by 8 bytes, so ttgo still does not link, and not because of this change. The read
+  of the parent commit). That parent — master plus the #565 and #566 branches — overflowed
+  `dram0_0_seg` by 8 bytes on its own. With #579 merged, ttgo links on this branch with 1,016 B of
+  static DRAM left, the same as master. The read
   now runs on every `device_info`, so it uses plain `nvs_open`/`nvs_get_str`: `Preferences::begin`
   logs an error for a missing namespace, which is what a board that was never provisioned has.
-- **Generic boards record the id after the `WiFi.begin` call, using its return value, whether or
-  not the join succeeds.** `WiFi.persistent(true)` writes the driver config before connecting, and
-  that config is what these boards rejoin. A `WL_CONNECT_FAILED` return records no id. That
-  return also covers failures after the config was written, which errs in the safe direction.
-  Persisted boards record it only once the `adwifi` credentials are saved, because that store is
-  what they join first.
+- **Generic boards record the id after the `WiFi.begin` call, whether or not the join
+  succeeds, and only when the driver stores to flash.** `WiFi.begin` writes the driver config
+  before connecting, and that config is what these boards rejoin. In Arduino-ESP32 3.3.11,
+  though, `WiFi.persistent()` only sets a flag that `wifiLowLevelInit` reads when the driver
+  starts, and with it false the driver runs on `WIFI_STORAGE_RAM`. WiFiManager's portal save
+  (`wifiConnectNew`) leaves it false until the portal closes. A board that saved a wrong password
+  in the portal and was then parked would restart its radio on RAM storage, and the next
+  provision would land in RAM only: gone at reboot, while the id named it. The firmware now calls
+  `esp_wifi_set_storage(WIFI_STORAGE_FLASH)` on the running driver before `WiFi.begin`, which
+  also makes that provision survive a reboot at all, and records the id only when both calls
+  succeeded. A `WL_CONNECT_FAILED` return also covers failures after the config was written,
+  which errs in the safe direction. Persisted boards record it only once the `adwifi` credentials
+  are saved, because that store is what they join first.
 - **Each daemon keeps its own rule where the id cannot decide** (old firmware, or a daemon with no
   id to offer). Node keeps "skip a board reporting `wifiConfigured`". Swift keeps "once per port
   per credential set per app lifetime" (`provisionFingerprintsByPort`, now consulted only on that
@@ -73,7 +91,16 @@ The decision is `shared/src/esp32-wifi-provision.ts`; the rule is described in
   The Swift daemon previously provisioned unidentified ports. The Node daemon accepted a
   `device_info` seeded from `esp32-device-cache.json`, which may describe a board since wiped or
   replaced. The board's own `device_info` re-runs the fan-out, since the handler runs after the
-  record is set.
+  record is set. The pairing-token re-arm (`auth_provision`) waits for the same identify.
+- **The full-provision fallback for an unacknowledged token re-arm goes only to firmware that
+  reports no credential id.** Both daemons resend a `wifi_provision` when `auth_provision` is not
+  acknowledged, for firmware too old to know that message. Firmware that reports `wifiCredId`
+  knows it, so its silence is a lost frame, and a full provision would wake a parked radio.
+- **A Swift-provisioned TC001 loses a provision it used to get by accident.** The Swift daemon
+  provisioned every port, identified or not, and TC001's CH340 TX is broken in hardware, so its
+  `device_info` never arrives. It now stays unprovisioned by the Swift daemon, the same as under
+  the Node daemon. Its manual path, `ESP32ProvisionSheet`, sends `type: "wifi.config"`, which no
+  firmware handles; that sheet was already broken and is left for a follow-up.
 - **The serial `device_info` builder in `serial_client.cpp` gained the measured-buffer growth
   path from `protocol.cpp`.** The id adds 32 bytes, and a fully loaded t_display_pro frame then
   comes within a few bytes of the 896-byte stack buffer. `serializeJson` truncates silently, which

@@ -10,22 +10,26 @@ namespace {
 struct FakeNvs {
     bool present = false;
     std::string value;
-    bool saveOk = true;
-    int saves = 0;
+    bool loadOk = true;  // false: a record may be there, but it cannot be read
+    bool saveOk = true;  // false: storage cannot be opened for writing
+    int saves = 0;       // writes that reached storage
 };
 
-// The store holds its backend by value, so the backend is a handle.
+// The store holds its backend by value, so the backend is a handle. Mirrors
+// PrefsCredIdBackend (wifi_manager.cpp): removing an absent record writes
+// nothing, but still needs the storage open.
 struct FakeBackend {
     FakeNvs* nvs;
     bool load(char* out, size_t outLen) {
-        if (!nvs->present) return false;
+        if (!nvs->present || !nvs->loadOk) return false;
         strncpy(out, nvs->value.c_str(), outLen - 1);
         out[outLen - 1] = '\0';
         return true;
     }
     bool save(const char* id) {
-        ++nvs->saves;
         if (!nvs->saveOk) return false;
+        if (id[0] == '\0' && !nvs->present) return true;
+        ++nvs->saves;
         nvs->present = id[0] != '\0';
         nvs->value = id;
         return true;
@@ -65,18 +69,19 @@ int main() {
     {  // A provision records its id once its credentials are written.
         FakeNvs nvs;
         assert(recorded(nvs).empty());
-        over(nvs).beforeWrite(kId);
+        assert(over(nvs).beforeWrite(kId));
         assert(nvs.saves == 0);  // nothing to forget
         over(nvs).afterWrite(kId, true);
         assert(nvs.present && nvs.value == kId && recorded(nvs) == kId);
-        over(nvs).beforeWrite(kId);  // the same provision again (IPS10 endpoint refresh)
+        // The same provision again (IPS10 endpoint refresh).
+        assert(over(nvs).beforeWrite(kId));
         over(nvs).afterWrite(kId, true);
         assert(nvs.saves == 1);  // storage is written only when the record changes
     }
     {  // A different provision forgets the old id BEFORE its credentials land,
        // so a reset between the two writes leaves none, never a stale id.
         FakeNvs nvs = holding(kOther);
-        over(nvs).beforeWrite(kId);
+        assert(over(nvs).beforeWrite(kId));
         assert(!nvs.present);
         over(nvs).afterWrite(kId, true);
         assert(nvs.value == kId && recorded(nvs) == kId);
@@ -103,10 +108,25 @@ int main() {
     }
     {  // Portal or reset: forgotten, and forgetting twice writes once.
         FakeNvs nvs = holding(kId);
-        over(nvs).forget();
+        assert(over(nvs).forget());
         assert(!nvs.present && recorded(nvs).empty());
-        over(nvs).forget();
+        assert(over(nvs).forget());
         assert(nvs.saves == 1);
+    }
+    {  // A record that cannot be read is still cleared: an unreadable record
+       // is not proof that none is stored.
+        FakeNvs nvs = holding(kId);
+        nvs.loadOk = false;
+        assert(recorded(nvs).empty());
+        assert(over(nvs).forget());
+        nvs.loadOk = true;
+        assert(!nvs.present && recorded(nvs).empty());
+
+        FakeNvs same = holding(kId);  // nor can it vouch for a matching id
+        same.loadOk = false;
+        assert(over(same).beforeWrite(kId));
+        same.loadOk = true;
+        assert(!same.present);
     }
     {  // Nothing is cached: device_info reports what storage holds now.
         FakeNvs nvs = holding(kId);
@@ -132,15 +152,22 @@ int main() {
     {  // A failed id write is not papered over: the record is what storage holds.
         FakeNvs nvs = holding(kOther);
         nvs.saveOk = false;
-        over(nvs).forget();
+        assert(!over(nvs).forget());
         assert(recorded(nvs) == kOther);
+        // A provision that cannot clear the old id must not write its
+        // credentials, or the old id would name credentials no longer held.
+        assert(!over(nvs).beforeWrite(kId));
+        assert(recorded(nvs) == kOther);
+        // The same id needs no write, so it is not refused.
+        assert(over(nvs).beforeWrite(kOther));
         nvs.saveOk = true;
-        over(nvs).forget();
+        assert(over(nvs).forget());
         assert(!nvs.present && recorded(nvs).empty());
 
+        // Storage that cannot be opened cannot prove it holds no id either.
         FakeNvs empty;
         empty.saveOk = false;
-        over(empty).beforeWrite(kId);
+        assert(!over(empty).beforeWrite(kId));
         over(empty).afterWrite(kId, true);
         assert(recorded(empty).empty());
     }

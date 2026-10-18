@@ -18,13 +18,16 @@
 //  - a provision forgets the old id BEFORE its credentials are written (unless
 //    it carries that same id) and records its own only once they were, so a
 //    reset between the two writes leaves "none", never a stale id;
+//  - when the old id cannot be forgotten, the credentials are not written;
+//  - forgetting does not trust a failed read: it clears whatever is stored;
 //  - anything that is not a valid id is recorded as none;
 //  - a re-join of credentials already stored (credId == nullptr) leaves it alone;
 //  - storage is written only when the record changes.
 //
 // Backend, held by value (a handle, not the storage itself):
 // bool load(char* out, size_t outLen) — false when nothing is stored or it
-// cannot be read; bool save(const char* id) — "" removes the record.
+// cannot be read; bool save(const char* id) — "" removes the record (true when
+// none was stored), false when the storage could not be written.
 namespace WifiCredId {
 
 template <typename Backend>
@@ -41,12 +44,13 @@ public:
     }
 
     // A provision carrying `credId` ("" when it carried none) is about to write
-    // credentials.
-    void beforeWrite(const char* credId) {
-        if (credId == nullptr) return;
+    // credentials. False when the old id could not be forgotten: the caller
+    // must not write them then.
+    bool beforeWrite(const char* credId) {
+        if (credId == nullptr) return true;
         char stored[HEX_LENGTH + 2];
-        if (valid(credId) && read(stored) && strcmp(stored, credId) == 0) return;
-        forget();
+        if (valid(credId) && read(stored) && strcmp(stored, credId) == 0) return true;
+        return forget();
     }
 
     // ...and wrote them, or failed to (`written`).
@@ -62,11 +66,10 @@ public:
     }
 
     // The stored credentials may change without a provision (captive portal,
-    // reset): the record can no longer vouch for them.
-    void forget() {
-        char stored[HEX_LENGTH + 2];
-        if (backend_.load(stored, sizeof(stored))) backend_.save("");
-    }
+    // reset): the record can no longer vouch for them. A load that fails may
+    // be an unreadable record rather than an absent one, so this does not ask
+    // first. False when the record could not be cleared.
+    bool forget() { return backend_.save(""); }
 
 private:
     // One spare byte, so an over-long stored value reads as invalid rather

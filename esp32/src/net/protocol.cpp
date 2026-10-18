@@ -1031,6 +1031,7 @@ static void handleWifiProvision(JsonObject& obj) {
     Net::wifiSaveAuthToken(authToken);
 
     bool ok = false;
+    const char* failure = "connection failed";
 #if defined(BOARD_T_DISPLAY_PRO) || defined(AGENTDECK_DEFER_BOOT_WIFI_JOIN) || \
     (defined(BOARD_IPS10) && !defined(BOARD_HAS_VOICE_CAPTURE))
     if (Net::serialConnected()) {
@@ -1041,9 +1042,9 @@ static void handleWifiProvision(JsonObject& obj) {
         // on the e-ink panels a join here was the radio that never parked
         // again (net/radio_park_policy.h).
         // WiFi comes up from the serial-death path when USB actually goes away.
-        Net::wifiSaveProvisionedCredentials(ssid, password, credId);
+        ok = Net::wifiSaveProvisionedCredentials(ssid, password, credId);
+        if (!ok) failure = "credentials not saved";
         Net::wifiSaveProvisionedBridge(bridgeIp, bridgePort, authToken);
-        ok = true;
     } else
 #endif
     {
@@ -1076,7 +1077,7 @@ static void handleWifiProvision(JsonObject& obj) {
     if (ok) {
         resp["ip"] = Net::wifiLocalIP();
     } else {
-        resp["error"] = "connection failed";
+        resp["error"] = failure;
     }
     char buf[256];
     serializeJson(resp, buf, sizeof(buf));

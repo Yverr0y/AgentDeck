@@ -44,7 +44,9 @@ bool wifiConfigured();
  *
  * `credId` is the provision's credential id ("" when it carried none), recorded
  * with the credentials it came with (see wifiLoadCredId). nullptr — a re-join of
- * credentials already stored — leaves the record alone.
+ * credentials already stored — leaves the record alone. When the old id cannot
+ * be cleared the credentials are not written: false, and on boards that rejoin
+ * the driver's config, the radio is not touched.
  */
 bool wifiConnectWith(const char* ssid, const char* password, const char* credId = nullptr);
 
@@ -62,9 +64,10 @@ bool wifiTryDeferredJoin();
  * Persist daemon-provisioned WiFi credentials without changing radio state.
  * Used when USB serial is primary and the radio is parked (IPS10, the
  * T-Display-S3-Pro and the AGENTDECK_DEFER_BOOT_WIFI_JOIN e-ink panels); the
- * credentials are joined when the radio is restored.
+ * credentials are joined when the radio is restored. False when nothing was
+ * saved, including when the old credential id could not be cleared first.
  */
-void wifiSaveProvisionedCredentials(const char* ssid, const char* password, const char* credId);
+bool wifiSaveProvisionedCredentials(const char* ssid, const char* password, const char* credId);
 
 /**
  * Which `wifi_provision` the stored WiFi credentials came from ("" = none), for

@@ -513,15 +513,14 @@ actor ESP32Serial {
               let json = String(data: data, encoding: .utf8) else { return 0 }
         var count = 0
         let fingerprint = Self.provisionFingerprint(for: msg)
-        let expectedCredId = msg["credId"] as? String
-        for i in connections.indices {
-            let decision = ESP32WifiProvisionRules.decision(Self.wifiProvisionInput(
-                connected: connections[i].connected,
-                provisionSent: connections[i].provisionSent,
-                deviceInfo: connections[i].deviceInfo,
-                expectedCredId: expectedCredId))
-            let legacySent = provisionFingerprintsByPort[connections[i].port] == fingerprint
-            guard Self.shouldSendWifiProvision(decision, legacyFingerprintSent: legacySent) else { continue }
+        let targets = Self.wifiProvisionTargets(
+            connections.map {
+                ProvisionView(port: $0.port, connected: $0.connected,
+                              provisionSent: $0.provisionSent, deviceInfo: $0.deviceInfo)
+            },
+            msg: msg,
+            fingerprintsByPort: provisionFingerprintsByPort)
+        for i in targets {
             sendToConnection(&connections[i], json: json)
             guard connections[i].connected else { continue }
             connections[i].provisionSent = true
@@ -530,6 +529,34 @@ actor ESP32Serial {
         }
         publishStatusShadow()
         return count
+    }
+
+    /// What the fan-out reads from one connection.
+    struct ProvisionView {
+        let port: String
+        let connected: Bool
+        let provisionSent: Bool
+        let deviceInfo: DeviceInfo?
+    }
+
+    /// Which connections (indices) a `wifi_provision` goes to, each compared
+    /// against the credential id this very message carries.
+    static func wifiProvisionTargets(
+        _ views: [ProvisionView], msg: [String: Any], fingerprintsByPort: [String: String]
+    ) -> [Int] {
+        let fingerprint = provisionFingerprint(for: msg)
+        let expectedCredId = msg["credId"] as? String
+        var targets: [Int] = []
+        for (i, view) in views.enumerated() {
+            let decision = ESP32WifiProvisionRules.decision(wifiProvisionInput(
+                connected: view.connected,
+                provisionSent: view.provisionSent,
+                deviceInfo: view.deviceInfo,
+                expectedCredId: expectedCredId))
+            let legacySent = fingerprintsByPort[view.port] == fingerprint
+            if shouldSendWifiProvision(decision, legacyFingerprintSent: legacySent) { targets.append(i) }
+        }
+        return targets
     }
 
     /// A `wifi_provision` for one send. The credential id comes from the token
@@ -636,13 +663,24 @@ actor ESP32Serial {
     /// only reaches here after the board stayed silent.
     func sendLegacyProvisionIfUnacked(port: String, _ msg: [String: Any]) -> Bool {
         guard let i = connections.firstIndex(where: { $0.port == port && $0.connected }),
-              !connections[i].authProvisionAcked,
+              Self.shouldSendLegacyRearm(acked: connections[i].authProvisionAcked,
+                                         deviceInfo: connections[i].deviceInfo),
               let data = try? JSONSerialization.data(withJSONObject: msg),
               let json = String(data: data, encoding: .utf8) else { return false }
         sendToConnection(&connections[i], json: json)
         guard connections[i].connected else { return false }
         connections[i].provisionSent = true
         return true
+    }
+
+    /// The legacy re-arm skips the credential-id decision, so it goes only to
+    /// firmware that reports no id. Firmware that knows `wifiCredId` also knows
+    /// `auth_provision`: its silence is a lost frame, not old firmware, and a
+    /// full provision would wake a parked radio for credentials it already
+    /// holds (Node parity: `shouldSendLegacyRearm`).
+    static func shouldSendLegacyRearm(acked: Bool, deviceInfo: DeviceInfo?) -> Bool {
+        guard !acked, deviceInfo?.board != nil else { return false }
+        return deviceInfo?.wifiCredId == nil
     }
 
     /// Send display state (on/off) to all connected ESP32 devices.
@@ -1314,7 +1352,7 @@ actor ESP32Serial {
         return .success
     }
 
-    private static func provisionFingerprint(for msg: [String: Any]) -> String {
+    static func provisionFingerprint(for msg: [String: Any]) -> String {
         let ssid = msg["ssid"] as? String ?? ""
         let password = msg["password"] as? String ?? ""
         let bridgeIp = msg["bridgeIp"] as? String ?? ""

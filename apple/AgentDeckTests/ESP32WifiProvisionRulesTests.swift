@@ -106,5 +106,42 @@ final class ESP32WifiProvisionRulesTests: XCTestCase {
         let differ = Decision(send: true, reason: "credentials-differ", legacy: false)
         XCTAssertTrue(ESP32Serial.shouldSendWifiProvision(differ, legacyFingerprintSent: true))
     }
+
+    func testFanOutComparesEachBoardAgainstTheMessagesOwnId() throws {
+        let msg = ESP32Serial.wifiProvisionMessage(
+            ssid: "DeskNet", password: "fanout-pw", bridgeIP: "192.168.1.50", bridgePort: 9120,
+            authToken: "fanout-token")
+        let credId = try XCTUnwrap(msg["credId"] as? String)
+        func view(_ port: String, _ info: ESP32Serial.DeviceInfo?) -> ESP32Serial.ProvisionView {
+            ESP32Serial.ProvisionView(port: port, connected: true, provisionSent: false, deviceInfo: info)
+        }
+        func parked(credId: String?) -> ESP32Serial.DeviceInfo {
+            ESP32Serial.DeviceInfo(
+                board: "t_embed", wifiConfigured: false, wifiConnected: false,
+                wifiRadioParked: true, wifiCredId: credId)
+        }
+        let views = [
+            view("/dev/cu.holds", parked(credId: credId)),
+            view("/dev/cu.differs", parked(credId: "0000000000000000")),
+            view("/dev/cu.unidentified", nil),
+            view("/dev/cu.old-firmware", parked(credId: nil)),
+        ]
+        XCTAssertEqual(ESP32Serial.wifiProvisionTargets(views, msg: msg, fingerprintsByPort: [:]), [1, 3])
+        // Old firmware keeps this daemon's rule: once per port per credential set.
+        let sent = ["/dev/cu.old-firmware": ESP32Serial.provisionFingerprint(for: msg)]
+        XCTAssertEqual(ESP32Serial.wifiProvisionTargets(views, msg: msg, fingerprintsByPort: sent), [1])
+    }
+
+    func testLegacyRearmSkipsFirmwareThatReportsACredentialId() {
+        let old = ESP32Serial.DeviceInfo(board: "86box", wifiConfigured: true, wifiConnected: false)
+        XCTAssertTrue(ESP32Serial.shouldSendLegacyRearm(acked: false, deviceInfo: old))
+        XCTAssertFalse(ESP32Serial.shouldSendLegacyRearm(acked: true, deviceInfo: old))
+        // Firmware that reports the id understands auth_provision; its silence
+        // is a lost frame, and a full provision would wake its parked radio.
+        let knowsId = ESP32Serial.DeviceInfo(
+            board: "86box", wifiConfigured: false, wifiConnected: false, wifiRadioParked: true, wifiCredId: "")
+        XCTAssertFalse(ESP32Serial.shouldSendLegacyRearm(acked: false, deviceInfo: knowsId))
+        XCTAssertFalse(ESP32Serial.shouldSendLegacyRearm(acked: false, deviceInfo: nil))
+    }
 }
 #endif

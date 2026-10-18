@@ -1577,6 +1577,16 @@ export function isForeignPortDenylisted(port: string, now = Date.now()): boolean
   return until != null && until > now;
 }
 
+/**
+ * @internal Exported for testing only. Put fake connections in front of the
+ * fan-outs; returns a function that restores the real list.
+ */
+export function __setConnectionsForTest(next: SerialConnection[]): () => void {
+  const previous = connections;
+  connections = next;
+  return () => { connections = previous; };
+}
+
 /** @internal Exported for testing only. Clear all foreign-port tracking state. */
 export function __resetForeignPortState(): void {
   foreignProbeFailures.clear();
@@ -1908,16 +1918,45 @@ export function sendAuthProvisionToAll(msg: AuthProvisionMessage): string[] {
 
 /** @internal Exported for testing only */
 export function shouldSendAuthProvision(
-  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'authTokenSent'>,
+  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh' | 'authTokenSent'>,
   token: string,
 ): boolean {
   if (!conn.connected) return false;
-  // No device_info yet means we have not confirmed an AgentDeck board on this
-  // tty; writing a credential to an unknown serial peer is not something to do
-  // speculatively.
-  if (!conn.deviceInfo?.board) return false;
+  // Only a board that identified on THIS connection. No device_info means no
+  // AgentDeck board is confirmed on this tty, and a cache-seeded record
+  // describes an earlier connection: the path may now belong to another
+  // device, or to a board still booting after the open reset it, which loses
+  // the frame while `authTokenSent` stops the retry. The board's own
+  // device_info runs this fan-out again.
+  if (!conn.deviceInfoFresh || !conn.deviceInfo?.board) return false;
   if (!token) return false;
   return conn.authTokenSent !== token;
+}
+
+/**
+ * The legacy re-arm (daemon-server.ts): a full `wifi_provision` to a board that
+ * stayed silent after `auth_provision`. Unlike the fan-out it skips the
+ * credential-id decision, because old firmware can take a token no other way.
+ * So it goes only to a board that identified on this connection and reports no
+ * credential id. Firmware that knows `wifiCredId` also knows `auth_provision`:
+ * its silence is a lost frame, not old firmware, and a full provision would
+ * wake a parked radio for credentials it already holds.
+ */
+export function sendLegacyRearmProvision(port: string, msg: WifiProvisionMessage): boolean {
+  const conn = connections.find(c => c.port === port && c.connected);
+  if (!conn || !shouldSendLegacyRearm(conn)) return false;
+  sendToConnection(conn, JSON.stringify(msg), true);
+  conn.provisionSent = true;
+  debug('ESP32', `→ ${port}: wifi_provision (legacy re-arm, SSID: ${msg.ssid})`);
+  return true;
+}
+
+/** @internal Exported for testing only */
+export function shouldSendLegacyRearm(
+  conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh'>,
+): boolean {
+  if (!conn.connected || !conn.deviceInfoFresh || !conn.deviceInfo?.board) return false;
+  return typeof conn.deviceInfo.wifiCredId !== 'string';
 }
 
 /**

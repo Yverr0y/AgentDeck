@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <Preferences.h>
+#include <esp_wifi.h>
 #include <nvs.h>
 #include "config.h"
 
@@ -107,9 +108,16 @@ bool saveIps10ProvisionedWifi(const char* ssid, const char* password) {
 
 // The adwifi store is what these boards join first, so it is what the
 // credential id describes. `credId` == nullptr: a re-join, id left alone.
-void saveProvisionedWifi(const char* ssid, const char* password, const char* credId) {
-    CredIdStore().beforeWrite(credId);
-    CredIdStore().afterWrite(credId, saveIps10ProvisionedWifi(ssid, password));
+// False when nothing was saved, including when the old id could not be
+// cleared first.
+bool saveProvisionedWifi(const char* ssid, const char* password, const char* credId) {
+    if (!CredIdStore().beforeWrite(credId)) {
+        Serial.println("[WiFi] Credential id not cleared — credentials not saved");
+        return false;
+    }
+    const bool saved = saveIps10ProvisionedWifi(ssid, password);
+    CredIdStore().afterWrite(credId, saved);
+    return saved;
 }
 }  // namespace
 #endif
@@ -136,6 +144,9 @@ void wifiInit() {
     wm.setConnectTimeout(8);
     wm.setConfigPortalTimeout(0);  // Portal stays open until configured
     wm.setTitle("AgentDeck");
+    // Credentials typed into the portal do not come from a provision. Fires
+    // on the portal's save, before WiFiManager writes them.
+    wm.setPreSaveConfigCallback([]() { CredIdStore().forget(); });
 
 #if defined(AGENTDECK_USB_PROVISIONED_WIFI_BOOT)
     // USB-provisioned boards do not broadcast a captive portal. On IPS10 that
@@ -214,11 +225,16 @@ void wifiInit() {
         wifiWasConnected = true;
         portalActive = false;
     } else {
-        Serial.printf("[WiFi] No saved credentials — AP portal active: %s\n", AP_SSID);
+        if (wm.getWiFiIsSaved()) {
+            // Saved credentials that did not join now (AP down, out of range)
+            // are still the ones the id describes.
+            Serial.printf("[WiFi] Saved network unreachable — AP portal active: %s\n", AP_SSID);
+        } else {
+            Serial.printf("[WiFi] No saved credentials — AP portal active: %s\n", AP_SSID);
+            CredIdStore().forget();  // nothing stored for an id to describe
+        }
         Serial.println("[WiFi] Connect to AP and visit 192.168.4.1 to configure");
         portalActive = true;
-        // Whatever the portal saves does not come from a provision.
-        CredIdStore().forget();
     }
 }
 
@@ -235,9 +251,6 @@ void wifiLoop() {
             Serial.println("[WiFi] NTP sync started (UTC)");
             wifiWasConnected = true;
             portalActive = false;
-            // A provision that landed while the portal was open recorded its
-            // id; what joined now may be what the user typed instead.
-            CredIdStore().forget();
         }
     }
 }
@@ -341,6 +354,15 @@ bool wifiRadioParked() {
 }
 
 bool wifiConnectWith(const char* ssid, const char* password, const char* credId) {
+#if !defined(AGENTDECK_PERSISTED_WIFI)
+    // The driver's own NVS config is what this board rejoins, so it is what
+    // the credential id describes (net/wifi_cred_id_store.h has the order).
+    // Refused before the radio is touched: a parked radio stays parked.
+    if (!CredIdStore().beforeWrite(credId)) {
+        Serial.println("[WiFi] Credential id not cleared — credentials not written");
+        return false;
+    }
+#endif
     Serial.printf("[WiFi] Connecting to %s...\n", ssid);
 
     // IPS10 may have turned the hosted C6 radio fully off when no saved creds
@@ -353,19 +375,19 @@ bool wifiConnectWith(const char* ssid, const char* password, const char* credId)
     WiFi.disconnect(false);
     delay(100);
 
-#if !defined(AGENTDECK_PERSISTED_WIFI)
-    // The driver's own NVS config is what this board rejoins, so it is what
-    // the credential id describes (net/wifi_cred_id_store.h has the order).
-    CredIdStore().beforeWrite(credId);
-#endif
     // Daemon provisioning must survive restart/OTA; WiFi.begin only writes
     // credentials to flash when persistent mode is enabled.
     WiFi.persistent(true);
 #if defined(AGENTDECK_PERSISTED_WIFI)
     WiFi.begin(ssid, password);
 #else
+    // persistent() is read only when the driver starts, and WiFiManager
+    // leaves it false: a radio restarted after a portal join (park, unpark)
+    // keeps its config in RAM. Set the storage on the running driver.
+    const bool flashStorage = esp_wifi_set_storage(WIFI_STORAGE_FLASH) == ESP_OK;
+    const bool begun = WiFi.begin(ssid, password) != WL_CONNECT_FAILED;
     // Written now, whether or not the join below succeeds.
-    CredIdStore().afterWrite(credId, WiFi.begin(ssid, password) != WL_CONNECT_FAILED);
+    CredIdStore().afterWrite(credId, flashStorage && begun);
 #endif
 
     // Wait up to 10 seconds for connection
@@ -393,13 +415,14 @@ bool wifiConnectWith(const char* ssid, const char* password, const char* credId)
     return false;
 }
 
-void wifiSaveProvisionedCredentials(const char* ssid, const char* password, const char* credId) {
+bool wifiSaveProvisionedCredentials(const char* ssid, const char* password, const char* credId) {
 #if defined(AGENTDECK_PERSISTED_WIFI)
-    saveProvisionedWifi(ssid, password, credId);
+    return saveProvisionedWifi(ssid, password, credId);
 #else
     (void)ssid;
     (void)password;
     (void)credId;
+    return false;
 #endif
 }
 

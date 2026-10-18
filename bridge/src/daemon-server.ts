@@ -279,7 +279,7 @@ import {
   describeDaemonPosture,
   resolveDaemonPosture,
 } from './network-posture.js';
-import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendAuthProvisionToAll, sendWifiProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm } from './esp32-serial.js';
+import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendAuthProvisionToAll, sendLegacyRearmProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm } from './esp32-serial.js';
 import { buildWifiProvision } from './esp32-wifi-cred.js';
 import { clampLeaseSeconds, clearLease, readLease, writeLease } from './esp32-flash-lease.js';
 import { loadWifiConfig } from './wifi-config.js';
@@ -5171,7 +5171,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // that stays quiet falls back to the one message its firmware does
     // understand. It is a FALLBACK because it costs a WiFi re-associate: it
     // fires once per board per token, only after the silence, and only when the
-    // user has auto-provisioning on (it carries their WiFi credentials).
+    // user has auto-provisioning on (it carries their WiFi credentials). A board
+    // reporting `wifiCredId` is never sent it (`sendLegacyRearmProvision`).
     const legacyRearmTimers = new Map<string, NodeJS.Timeout>();
     // Bounds the fallback to once per board per token. The rule and the
     // measurement that forced it live in the module.
@@ -5211,7 +5212,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
               // re-armed again when the token next changes, or when the daemon
               // restarts — both of which are real events, unlike a 30s poll.
               legacyRearm.markRearmed(armedPort, currentToken);
-              const sent = sendWifiProvision(armedPort, buildWifiProvision({
+              const sent = sendLegacyRearmProvision(armedPort, buildWifiProvision({
                 ssid: wifiConfig.ssid,
                 password: wifiConfig.password,
                 bridgeIp: lanIp,
