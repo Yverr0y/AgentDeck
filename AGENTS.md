@@ -18,7 +18,7 @@ links; incidents are in `docs/devlog/entries/` (grep them; see `DEVELOPMENT_LOG.
 
 | Rule file | Loads when touching | Covers |
 |---|---|---|
-| [apme-eval](.claude/rules/apme-eval.md) | `bridge/src/apme/**`, `shared/src/sample.ts`, Swift `Daemon/Apme/**` | SessionSample SSOT, task/turn segmentation, `end_source`, judge chain `mlx → foundationModels`, transport gate, JSON parser, backlog drain, task titles, per-turn cost |
+| [apme-eval](.claude/rules/apme-eval.md) | `bridge/src/apme/**`, `shared/src/sample.ts`, Swift `Daemon/Apme/**` | SessionSample SSOT, task/turn segmentation, `end_source`, judge chain `mlx → foundationModels`, transport gate, JSON parser, backlog drain, task titles, per-turn cost, reference judge |
 | [openclaw-gateway](.claude/rules/openclaw-gateway.md) | `bridge/src/openclaw*`, `shared/src/gateway-*`, Swift `Daemon/Gateway/**` | `sessions.subscribe`, per-key runs, transcript feed, link instability, three-answer health frames |
 | [observed-sessions](.claude/rules/observed-sessions.md) | `bridge/src/hook-*`, `kiro-*`, `codex-*`, `claude-*`, `hooks/**`, Swift `Daemon/Session/**` | Hook format + installers, per-agent observation, PERM sources and the Claude hold predictor, subagent census, three identity axes, two id forms |
 | [usage-quota](.claude/rules/usage-quota.md) | `bridge/src/usage-*`, `codex-rate-limits*`, Swift `UsageAPIClient`/`UsageRelayFreshness` | Codex window axes (stale / aged / plan / limit family), cache TTL vs poll, Claude quota recovery |
