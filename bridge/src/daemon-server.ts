@@ -34,6 +34,7 @@ import { BridgeCore, buildCappedTimelineHistory, ESP32_INITIAL_TIMELINE_HISTORY_
 import { buildDisplayStateEvent } from './display-dim.js';
 import { SERIAL_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import { prepareForSerial } from './esp32-serial.js';
+import { boardTimelineSeed } from './board-timeline-entry.js';
 import { deliverOrientation, OrientationRequestError, parseEsp32Layout } from './esp32-orientation.js';
 import { OpenClawAdapter } from './adapters/openclaw.js';
 import { BridgeLogStream } from './log-stream.js';
@@ -5037,8 +5038,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // ticker shows the real latest event instead of whatever its ring last
       // held. Kept to 6 entries — the whole line must stay well under the
       // small (4KB) serial RX buffers on non-TRMNL 7.5" boards; prepareForSerial
-      // byte-caps each entry's raw/detail at send time.
-      const recent = core.bridgeTimeline.getHistory().slice(-6);
+      // byte-caps each entry's raw/detail at send time. Claude's tool rows are
+      // left out before the six are counted, since boards never receive them.
+      const recent = boardTimelineSeed(core.bridgeTimeline.getHistory(), 6);
       if (recent.length > 0) {
         events.push({ type: 'timeline_history', entries: recent } as BridgeEvent);
       }

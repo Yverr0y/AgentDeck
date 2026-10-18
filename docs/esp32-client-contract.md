@@ -74,7 +74,7 @@ Dispatch on the top-level `"type"`. The forwarded sets are defined in `protocol.
 
 | `type` | Purpose |
 |---|---|
-| `timeline_event` | Incremental activity-log row. `ts` is epoch-ms; entries also carry `localHm` = daemon host-local "HH:MM" (both daemons stamp it now) — RTC-less clients render `localHm` for the wall time rather than deriving from `ts` in UTC. |
+| `timeline_event` | Incremental activity-log row. `ts` is epoch-ms; entries also carry `localHm` = daemon host-local "HH:MM" (both daemons stamp it now) — RTC-less clients render `localHm` for the wall time rather than deriving from `ts` in UTC. Rows flagged `toolEvent` (Claude Code's per-tool hook rows) are opt-in through `timeline.tool-events.read` and are never sent to a board, over serial or WiFi. |
 | `timeline_history` | Backfill of recent timeline rows on (re)connect. A reply to `query_session_timeline` includes top-level `sessionId`; constrained clients may replace their mixed live ring with that session-specific batch so unrelated busy sessions cannot evict the requested Detail rows. |
 | `display_state` | Host display on/off + optional `dim {enabled, mode, level}`. Absent `dim` ⇒ legacy full-off. Level is percent 1–100 → scale to the board's backlight domain, floored at 1. Optional `hostHm`: the daemon's host-local `"HH:MM"` at send time — re-sent with every re-sync (5 s serial, 15 s WebSocket), it is the wall clock for a board without NTP or timezone. Absent ⇒ keep the last estimate. AgentDeck e-ink firmware prints it as the "as of" band (`esp32/src/util/host_clock.h`). |
 | `wifi_provision` | Credentials pushed over serial (USB provisioning flow). |

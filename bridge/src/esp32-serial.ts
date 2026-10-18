@@ -37,7 +37,7 @@ import { SERIAL_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import type { AuthProvisionMessage, ESP32ToHostMessage, WifiProvisionMessage } from '@agentdeck/shared/protocol';
 import { formatResetTime, truncateUtf8Bytes } from '@agentdeck/shared';
 import { readLease } from './esp32-flash-lease.js';
-import { BOARD_TIMELINE_ROWS, shrinkTimelineEntryForBoard } from './board-timeline-entry.js';
+import { BOARD_TIMELINE_ROWS, isToolEventRow, shrinkTimelineEntryForBoard } from './board-timeline-entry.js';
 import { debug, log, logTagged } from './logger.js';
 
 /** @internal Exported for testing only */
@@ -512,10 +512,13 @@ export function prepareForSerial(event: BridgeEvent, _conn?: Pick<SerialConnecti
     // 64-row frame ~37KB — far past the boards' 4KB line buffer, so serial
     // firmware discarded it whole and heap-tight WiFi boards dropped the
     // socket on it (chronic reconnect flap). Budget by BYTES, newest first.
+    // Tool rows go before both caps, so the rows and bytes buy rows a board
+    // may show.
     return {
       ...e,
       entries: Array.isArray(e.entries)
-        ? budgetTimelineEntries(e.entries.slice(-BOARD_TIMELINE_ROWS).map(stamp))
+        ? budgetTimelineEntries(e.entries.filter((entry: unknown) => !isToolEventRow(entry))
+          .slice(-BOARD_TIMELINE_ROWS).map(stamp))
         : e.entries,
     };
   }
@@ -1198,7 +1201,7 @@ async function openPort(port: string): Promise<SerialConnection | null> {
       for (const event of events) {
         if (!FORWARDED_EVENTS.has(event.type)) continue;
         if ((event.type === 'usage_update' || event.type === 'sessions_list') && !hasLiveDeviceInfo(conn)) continue;
-        sendToConnection(conn, JSON.stringify(prepareForSerial(event, conn)));
+        sendEventToBoard(conn, event);
       }
     } else if (stateProvider) {
       const event = stateProvider();
@@ -1793,9 +1796,21 @@ export function broadcastESP32(event: BridgeEvent): void {
 
   for (const conn of connections) {
     if (event.type === 'sessions_list' && !hasLiveDeviceInfo(conn)) continue;
-    const prepared = prepareForSerial(event, conn);
-    sendToConnection(conn, JSON.stringify(prepared));
+    sendEventToBoard(conn, event);
   }
+}
+
+/**
+ * Queue one forwarded event for one board, shaped by prepareForSerial. A live
+ * Claude tool row is dropped here (a history frame loses its tool rows inside
+ * prepareForSerial): boards never opt in to them, and over WiFi the daemon's
+ * event transformer drops them, so without this the same board showed a
+ * different timeline on USB.
+ * @internal Exported for testing only
+ */
+export function sendEventToBoard(conn: SerialConnection, event: BridgeEvent): void {
+  if (event.type === 'timeline_event' && isToolEventRow((event as { entry?: unknown }).entry)) return;
+  sendToConnection(conn, JSON.stringify(prepareForSerial(event, conn)));
 }
 
 /**

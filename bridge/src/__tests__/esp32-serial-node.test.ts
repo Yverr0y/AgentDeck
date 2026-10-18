@@ -40,8 +40,10 @@ import {
   recordForeignProbeFailure,
   isForeignPortDenylisted,
   __resetForeignPortState,
+  sendEventToBoard,
   type SerialConnection,
 } from '../esp32-serial.js';
+import { boardTimelineSeed } from '../board-timeline-entry.js';
 
 describe('CI waiting evidence projection', () => {
   it('serializes the same pending/terminal evidence as the full waitingOn policy', () => {
@@ -716,6 +718,50 @@ describe('prepareForSerial (source)', () => {
     // Newest survive, chronological order preserved
     expect(prepared.entries[prepared.entries.length - 1].raw).toBe('row 99');
     expect(prepared.entries[0].ts).toBeLessThan(prepared.entries[1].ts);
+  });
+});
+
+// ─── Claude tool rows ───────────────────────────────────────────────
+// Per-tool hook rows (`toolEvent`) go only to clients that offer
+// `timeline.tool-events.read`, and a board offers nothing. The WiFi transformer
+// always dropped them; serial sent every one, so a board's 64-row ring filled
+// with them on USB and not on WiFi.
+
+describe('Claude tool rows on the serial path', () => {
+  const chat = (i: number) => ({ ts: 1752700000000 + i, type: 'chat_start', raw: `row ${i}` });
+  const tool = (i: number) => ({ ts: 1752700000000 + i, type: 'tool_request', raw: 'Read requested', toolEvent: true });
+  // A pending flush timer keeps sendToConnection from scheduling a real write,
+  // so the queue is what the board would be sent.
+  const queueConn = () => ({
+    port: '/dev/cu.usbmodem-test', connected: true, deviceInfo: { board: 't_embed' },
+    writeQueue: [] as string[], writeTimer: {} as ReturnType<typeof setTimeout>,
+  }) as unknown as SerialConnection;
+
+  it('drops a live tool row and still sends every other timeline row', () => {
+    const conn = queueConn();
+    sendEventToBoard(conn, { type: 'timeline_event', entry: tool(1) } as any);
+    expect(conn.writeQueue).toEqual([]);
+    sendEventToBoard(conn, { type: 'timeline_event', entry: chat(2) } as any);
+    // The flag decides, not the type: a tool_request without it (an approval
+    // row) is a turn-level row every client reads.
+    sendEventToBoard(conn, { type: 'timeline_event', entry: { ...chat(3), type: 'tool_request', raw: 'Bash' } } as any);
+    expect(conn.writeQueue.map((line) => JSON.parse(line).entry.raw)).toEqual(['row 2', 'Bash']);
+  });
+
+  it('ships a history frame with tool rows exactly as it ships one without them', () => {
+    // Cut to the 64-row ring first, these 104 rows would keep only rows
+    // 40–63 and lose the rest to tool rows the board must not get anyway.
+    const chats = Array.from({ length: 64 }, (_, i) => chat(i));
+    const entries = [...chats, ...Array.from({ length: 40 }, (_, i) => tool(100 + i))];
+    const prepared = prepareForSerial({ type: 'timeline_history', entries } as any) as any;
+    expect(prepared).toEqual(prepareForSerial({ type: 'timeline_history', entries: chats } as any));
+    expect(prepared.entries.length).toBeGreaterThan(24);
+    expect(prepared.entries[prepared.entries.length - 1].raw).toBe('row 63');
+  });
+
+  it('seeds a connecting board with the newest rows it may show', () => {
+    const history = [chat(1), chat(2), tool(3), chat(4), tool(5), tool(6), tool(7), tool(8), tool(9), tool(10)];
+    expect(boardTimelineSeed(history, 3).map((entry) => entry.raw)).toEqual(['row 1', 'row 2', 'row 4']);
   });
 });
 
