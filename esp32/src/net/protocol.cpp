@@ -13,6 +13,7 @@
 #include "../util/utf8.h"
 #include "../util/memory.h"
 #include "../util/heap_telemetry.h"
+#include "../util/internal_reserve.h"
 #include "config.h"
 #include <ArduinoJson.h>
 #include <cmath>
@@ -1405,6 +1406,14 @@ static void sendDeviceInfo() {
             resp["allocFailLastBytes"] = HeapTelemetry::lastFailedBytes();
             resp["allocFailLastCaps"] = HeapTelemetry::lastFailedCaps();
         }
+    }
+    // The internal pool malloc() cannot take (util/internal_reserve.h). 0 means
+    // this firmware reserved none (no PSRAM, or IPS10); the low-water mark says
+    // how far the WiFi driver and friends have had to fall back on it, and is
+    // left out when the board could not track it rather than sent as 0.
+    resp["internalReserveKb"] = InternalReserve::capacityBytes() / 1024;
+    if (InternalReserve::capacityBytes() > 0 && InternalReserve::minFreeKnown()) {
+        resp["internalReserveMinKb"] = InternalReserve::minFreeBytes() / 1024;
     }
     // Debug aid: what this board actually holds — lets a host-side probe
     // (daemon /devices) distinguish "data never parsed" from "render gating"

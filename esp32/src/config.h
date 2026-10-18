@@ -163,6 +163,19 @@ constexpr uint32_t STACK_UI            = 32768;
 constexpr uint32_t STACK_UI            = 16384;
 #endif
 
+// ===== Internal RAM reserve (util/internal_reserve.h) =====
+// Internal RAM kept out of malloc()'s reach for the allocations that can only
+// be internal: the WiFi driver, lwIP, task stacks, DMA buffers. PSRAM boards
+// only; IPS10 is left out until its hosted-WiFi path is measured with it.
+// 16 KB covers the WiFi driver's working set under an OTA stream (the 2026-10-18
+// t_embed failure was a 914-byte request) while leaving the busiest board
+// (ips_35, ~40 KB internal free once its UI is up) room for small mallocs.
+#if defined(BOARD_IPS10)
+constexpr uint32_t INTERNAL_RESERVE_BYTES = 0;
+#else
+constexpr uint32_t INTERNAL_RESERVE_BYTES = 16 * 1024;
+#endif
+
 // ===== HUD =====
 #ifndef BOARD_LED8X32
 constexpr uint8_t  HUD_BAR_HEIGHT      = 24;

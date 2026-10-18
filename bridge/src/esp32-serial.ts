@@ -174,6 +174,9 @@ export interface SerialConnection {
     allocFailures?: number;
     allocFailLastBytes?: number;
     allocFailLastCaps?: number;
+    /** The internal pool malloc() cannot take, and its low-water mark (protocol.ts DeviceInfoMessage). */
+    internalReserveKb?: number;
+    internalReserveMinKb?: number;
     otaSupported?: boolean;
     otaSlotCount?: number;
     otaSlotSize?: number;
@@ -1002,8 +1005,9 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
       logTagged('esp32-eink', `${conn.port}: ${line}`);
     } else if (/^\[HeapFail\] count=\d{1,10} lastBytes=\d{1,10} lastCaps=0x[0-9a-f]{1,8} internalFree=\d{1,10} internalMin=\d{1,10} internalLargest=\d{1,10}$/.test(line)) {
       // An allocation came back NULL (firmware util/heap_telemetry.h). The
-      // device_info counter is a connect-time snapshot on a serial board, so
-      // this line is where a failure shows up as it happens.
+      // device_info counter on a serial board is only as fresh as the last
+      // once-a-minute re-request (sendHeartbeat), so this line is where a
+      // failure shows up as it happens.
       logTagged('esp32-heap', `${conn.port}: ${line}`);
     }
     return;
@@ -1034,6 +1038,8 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
           allocFailures: msg.allocFailures,
           allocFailLastBytes: msg.allocFailLastBytes,
           allocFailLastCaps: msg.allocFailLastCaps,
+          internalReserveKb: msg.internalReserveKb,
+          internalReserveMinKb: msg.internalReserveMinKb,
           otaSupported: msg.otaSupported,
           otaSlotCount: msg.otaSlotCount,
           otaSlotSize: msg.otaSlotSize,

@@ -99,9 +99,10 @@ above report `2dac4169-dirty` for that reason alone: they are this branch
 merged with the mDNS fix (#565), which the test boards already carried.
 
 **Left open.**
-- A serial-attached board's `device_info` is a snapshot taken when its
-  connection is identified, and the daemon does not ask again. On those boards
-  the `[HeapFail]` line is the live signal.
+- A serial-attached board's `device_info` is only as fresh as the Node
+  daemon's once-a-minute re-request (`sendHeartbeat`), so on those boards the
+  `[HeapFail]` line is the live signal. (This entry first said the daemon
+  never asks again; it does.)
 - The Swift daemon surfaces none of the heap fields.
 - Whether to free or reserve internal RAM for WiFi before an OTA is the next
   decision, and the counter is how to judge it.

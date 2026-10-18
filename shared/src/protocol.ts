@@ -839,7 +839,8 @@ export interface DeviceInfoMessage {
   freeHeapKb?: number;
   /**
    * Lowest internal-heap level since boot, in KB
-   * (heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)). A 0 here does not
+   * (heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)); since setup() on
+   * a board with an internal reserve (internalReserveKb). A 0 here does not
    * mean an allocation failed: on PSRAM boards a malloc that misses internal
    * RAM is retried in PSRAM. allocFailures answers that.
    */
@@ -863,6 +864,23 @@ export interface DeviceInfoMessage {
   allocFailLastBytes?: number;
   /** MALLOC_CAP_* mask of the most recent failed allocation; present when allocFailures > 0. */
   allocFailLastCaps?: number;
+  /**
+   * Usable size, in KB, of the internal-RAM pool that malloc() cannot take
+   * (firmware util/internal_reserve.h): the WiFi driver, lwIP, task stacks
+   * and DMA buffers fall back on it once the regular internal heap refuses
+   * them. 0 means this firmware reserved none (no PSRAM, or IPS10); absent
+   * means firmware without the pool. freeHeapKb, minFreeHeapKb and
+   * largestFreeBlockKb all count the pool, and on a board that reserved one
+   * minFreeHeapKb is the minimum since setup() rather than since boot.
+   */
+  internalReserveKb?: number;
+  /**
+   * The pool's low-water mark since setup(), in KB, tracked by ESP-IDF on
+   * every allocation. Below internalReserveKb means something had to fall
+   * back on it. Present when internalReserveKb > 0 and the board could track
+   * it; absent means unknown, never empty.
+   */
+  internalReserveMinKb?: number;
   /** Board-held Codex window percentages; -1 means no window is displayed. */
   usageCodex5H?: number;
   usageCodex7D?: number;

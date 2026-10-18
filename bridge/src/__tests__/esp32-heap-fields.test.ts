@@ -14,6 +14,7 @@ import { handleSerialLine, type SerialConnection } from '../esp32-serial.js';
 const HEAP_FIELDS = [
   'freeHeapKb', 'minFreeHeapKb', 'largestFreeBlockKb',
   'allocFailures', 'allocFailLastBytes', 'allocFailLastCaps',
+  'internalReserveKb', 'internalReserveMinKb',
 ] as const;
 
 const report = {
@@ -21,6 +22,7 @@ const report = {
   wifiConfigured: true, wifiConnected: true,
   freeHeapKb: 63, minFreeHeapKb: 0, largestFreeBlockKb: 21,
   allocFailures: 2, allocFailLastBytes: 1664, allocFailLastCaps: 2052,
+  internalReserveKb: 15, internalReserveMinKb: 9,
 };
 
 function serialConn(): SerialConnection {
@@ -64,5 +66,15 @@ describe('ESP32 heap fields reach both device registries', () => {
     const old = { ...zero, allocFailures: undefined };
     expect(viaWifi(old).allocFailures).toBeUndefined();
     expect(viaSerial(old).allocFailures).toBeUndefined();
+  });
+
+  it('keeps an explicit zero reserve, which says this board reserved none', () => {
+    const none = { ...report, internalReserveKb: 0, internalReserveMinKb: undefined };
+    expect(viaWifi(none).internalReserveKb).toBe(0);
+    expect(viaSerial(none).internalReserveKb).toBe(0);
+    __resetWifiEsp32OtaState();
+    const old = { ...none, internalReserveKb: undefined };
+    expect(viaWifi(old).internalReserveKb).toBeUndefined();
+    expect(viaSerial(old).internalReserveKb).toBeUndefined();
   });
 });

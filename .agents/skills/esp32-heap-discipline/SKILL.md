@@ -88,9 +88,21 @@ fixed to a stack local.)
   fires only after the last fallback): `allocFailures` /
   `allocFailLastBytes` / `allocFailLastCaps` in `device_info`, and a numeric
   `[HeapFail]` serial line that the daemon logs under `esp32-heap`. On a
-  serial-attached board `device_info` is a connect-time snapshot, so read the
-  line. A deliberate attempt with a fallback (internal buffer, then PSRAM)
+  serial-attached board the Node daemon re-requests `device_info` about once
+  a minute, so read the line when you need the moment it happened. A deliberate attempt with a fallback (internal buffer, then PSRAM)
   counts too, so judge a count by its size and caps.
+- **The last 16 KB of internal RAM is not malloc's.** On the PSRAM boards
+  (except IPS10) `util/internal_reserve.h` carves `INTERNAL_RESERVE_BYTES` out
+  of internal RAM at the top of `setup()` and registers it as a heap without
+  `MALLOC_CAP_DEFAULT`, at the lowest priority. Plain `malloc` never reaches
+  it, so small mallocs spill to PSRAM instead of starving the WiFi driver;
+  an explicit internal or DMA request (WiFi, lwIP, task stacks, your own
+  `MALLOC_CAP_INTERNAL` buffers) falls back on it once the regular internal
+  heap refuses. So a large internal buffer allocated at init has that much
+  less to draw on, and the pool is no place for a buffer that could live in
+  PSRAM. `device_info` carries `internalReserveKb` and its true low-water
+  mark `internalReserveMinKb`; never call
+  `heap_caps_monitor_local_minimum_free_size_stop()`, which zeroes that mark.
 
 ## Justify every allocation
 
