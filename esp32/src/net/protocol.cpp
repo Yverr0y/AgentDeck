@@ -14,6 +14,7 @@
 #include "../util/utf8.h"
 #include "../util/memory.h"
 #include "../util/heap_telemetry.h"
+#include "../util/internal_reserve.h"
 #include "config.h"
 #include <ArduinoJson.h>
 #include <cmath>
@@ -1322,6 +1323,7 @@ static void handleOtaEnd(JsonObject& obj) {
 
     sendOtaAck(otaId, "end", UINT32_MAX, otaRx.written, otaRx.written);
     resetOtaRx();
+    InternalReserve::logState("ota-end");
     delay(250);
     ESP.restart();
 }
@@ -1403,12 +1405,14 @@ static void sendDeviceInfo() {
     // DeviceInfoMessage): ESP-Hosted kills the board with an assert when an
     // internal allocation fails, so the low-watermark across successive
     // device_info frames is the leak-vs-burst discriminator.
-    resp["freeHeapKb"] = (uint32_t)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
-    resp["minFreeHeapKb"] = (uint32_t)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024);
+    // The internal reserve (util/internal_reserve.h) is left out of all three,
+    // so they mean what they meant before it existed; it has fields of its own.
+    resp["freeHeapKb"] = InternalReserve::heapFreeBytes(MALLOC_CAP_INTERNAL) / 1024;
+    resp["minFreeHeapKb"] = InternalReserve::heapMinFreeBytes(MALLOC_CAP_INTERNAL) / 1024;
     // DMA-capable contiguous headroom — the number the hosted SDIO streaming
     // RX allocation actually needs (one buffer per coalesced burst).
-    resp["largestFreeBlockKb"] = (uint32_t)(
-        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024);
+    resp["largestFreeBlockKb"] =
+        InternalReserve::heapLargestFreeBlock(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024;
     // Whether an allocation actually failed (util/heap_telemetry.h): the
     // low-water mark above reads 0 on boards where every request still
     // succeeded in PSRAM. Size and caps say which request it was.
@@ -1418,6 +1422,18 @@ static void sendDeviceInfo() {
         if (failures > 0) {
             resp["allocFailLastBytes"] = HeapTelemetry::lastFailedBytes();
             resp["allocFailLastCaps"] = HeapTelemetry::lastFailedCaps();
+        }
+    }
+    // The internal pool malloc() cannot take (util/internal_reserve.h), on a
+    // board whose firmware asks for one. Absent: none asked for. 0: asked for
+    // and not carved (no PSRAM found at boot). Otherwise its size, what is free
+    // in it now, and its low-water mark since setup(): how far the allocations
+    // that must be internal have had to fall back on it.
+    if (InternalReserve::requestedBytes() > 0) {
+        resp["internalReserveKb"] = InternalReserve::capacityBytes() / 1024;
+        if (InternalReserve::capacityBytes() > 0) {
+            resp["internalReserveFreeKb"] = InternalReserve::freeBytes() / 1024;
+            resp["internalReserveMinKb"] = InternalReserve::minFreeBytes() / 1024;
         }
     }
     // Debug aid: what this board actually holds — lets a host-side probe
