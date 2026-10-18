@@ -37,7 +37,7 @@ import { SERIAL_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import type { AuthProvisionMessage, ESP32ToHostMessage, WifiProvisionMessage } from '@agentdeck/shared/protocol';
 import { formatResetTime, truncateUtf8Bytes } from '@agentdeck/shared';
 import { readLease } from './esp32-flash-lease.js';
-import { BOARD_TIMELINE_ROWS, shrinkTimelineEntryForBoard } from './board-timeline-entry.js';
+import { BOARD_TIMELINE_ROWS, isToolEventRow, shrinkTimelineEntryForBoard } from './board-timeline-entry.js';
 import { debug, log, logTagged } from './logger.js';
 
 /** @internal Exported for testing only */
@@ -512,10 +512,13 @@ export function prepareForSerial(event: BridgeEvent, _conn?: Pick<SerialConnecti
     // 64-row frame ~37KB — far past the boards' 4KB line buffer, so serial
     // firmware discarded it whole and heap-tight WiFi boards dropped the
     // socket on it (chronic reconnect flap). Budget by BYTES, newest first.
+    // Tool rows go before both caps, so the rows and bytes buy rows a board
+    // may show.
     return {
       ...e,
       entries: Array.isArray(e.entries)
-        ? budgetTimelineEntries(e.entries.slice(-BOARD_TIMELINE_ROWS).map(stamp))
+        ? budgetTimelineEntries(e.entries.filter((entry: unknown) => !isToolEventRow(entry))
+          .slice(-BOARD_TIMELINE_ROWS).map(stamp))
         : e.entries,
     };
   }
@@ -921,14 +924,26 @@ export function isVoiceDiagnosticLine(line: string): boolean {
 let serialCommandSink: ((cmd: Record<string, unknown>) => void) | null = null;
 let serialVoiceSink: ((port: string, msg: Record<string, unknown>) => void) | null = null;
 let serialQuiesceCheck: ((port: string) => boolean) | null = null;
+let serialTimelineQueryHandler: ((query: { sessionId?: unknown; since?: unknown }) => BridgeEvent | null) | null = null;
 
 /** While true for a port, the daemon holds its outbound serial writes —
  *  used to keep the line half-duplex during a board→daemon photo upload. */
 export function setSerialQuiesceCheck(check: (port: string) => boolean): void {
   serialQuiesceCheck = check;
 }
-export function setSerialCommandSink(sink: (cmd: Record<string, unknown>) => void): void {
+export function setSerialCommandSink(sink: ((cmd: Record<string, unknown>) => void) | null): void {
   serialCommandSink = sink;
+}
+
+/**
+ * Answers a board's `query_session_timeline` over its own serial line. It is a
+ * request with a reply, which the command sink cannot carry: that sink has no
+ * port to answer on, and nothing behind it handles the query at all.
+ */
+export function setSerialTimelineQueryHandler(
+  handler: ((query: { sessionId?: unknown; since?: unknown }) => BridgeEvent | null) | null,
+): void {
+  serialTimelineQueryHandler = handler;
 }
 
 /**
@@ -1083,8 +1098,14 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
         // irrelevant on native-USB CDC, where the 115200 in the port settings
         // is nominal.
         serialVoiceSink?.(conn.port, msg as unknown as Record<string, unknown>);
+      } else if ((msg.type as string) === 'query_session_timeline') {
+        // A board that falls back to serial when its WiFi is down (the knob's
+        // History view) asks here; the reply goes back down this same line,
+        // through the shaping every other serial frame gets.
+        const reply = serialTimelineQueryHandler?.(msg as { sessionId?: unknown; since?: unknown });
+        if (reply) sendEventToBoard(conn, reply);
       } else if (['select_option', 'session_command', 'permission_decision',
-                  'peripheral_event', 'query_session_timeline', 'focus_session',
+                  'peripheral_event', 'focus_session',
                   'review_run'].includes(msg.type as string)) {
         // Device→daemon command channel over serial (the gap that dropped a
         // serial-attached board's steering taps). Forward into the same
@@ -1198,7 +1219,7 @@ async function openPort(port: string): Promise<SerialConnection | null> {
       for (const event of events) {
         if (!FORWARDED_EVENTS.has(event.type)) continue;
         if ((event.type === 'usage_update' || event.type === 'sessions_list') && !hasLiveDeviceInfo(conn)) continue;
-        sendToConnection(conn, JSON.stringify(prepareForSerial(event, conn)));
+        sendEventToBoard(conn, event);
       }
     } else if (stateProvider) {
       const event = stateProvider();
@@ -1793,9 +1814,21 @@ export function broadcastESP32(event: BridgeEvent): void {
 
   for (const conn of connections) {
     if (event.type === 'sessions_list' && !hasLiveDeviceInfo(conn)) continue;
-    const prepared = prepareForSerial(event, conn);
-    sendToConnection(conn, JSON.stringify(prepared));
+    sendEventToBoard(conn, event);
   }
+}
+
+/**
+ * Queue one forwarded event for one board, shaped by prepareForSerial. A live
+ * Claude tool row is dropped here (a history frame loses its tool rows inside
+ * prepareForSerial): boards never opt in to them, and over WiFi the daemon's
+ * event transformer drops them, so without this the same board showed a
+ * different timeline on USB.
+ * @internal Exported for testing only
+ */
+export function sendEventToBoard(conn: SerialConnection, event: BridgeEvent): void {
+  if (event.type === 'timeline_event' && isToolEventRow((event as { entry?: unknown }).entry)) return;
+  sendToConnection(conn, JSON.stringify(prepareForSerial(event, conn)));
 }
 
 /**
