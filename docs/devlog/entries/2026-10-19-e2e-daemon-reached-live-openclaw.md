@@ -12,8 +12,9 @@ variables the suites override, and the daemon starts its OpenClaw Gateway
 integration unconditionally. On a Mac where the Gateway runs, it listens on
 `127.0.0.1:18789`, so the daemon under test:
 
-- found the Gateway, connected an adapter to it, and fed its live sessions into
-  the daemon being tested;
+- found the Gateway and opened an adapter connection to it. With an empty temp
+  `HOME` the adapter had no device identity or shared token to offer, so it is
+  not known to have read any session;
 - 5 s later ran `openclaw doctor`, which the shell PATH resolves to
   `~/.openclaw/bin/openclaw`, with `HOME` set to the suite's temp directory.
 
@@ -30,14 +31,15 @@ binary.
   schedule in `bridge/src/daemon-server.ts`. The adapter is connected only from
   that probe.
 - Both E2E suites set it, together with the existing
-  `AGENTDECK_CODEX_LIVE_USAGE=0`.
-- A hub test now checks that the daemon never logged `OpenClaw Gateway
-  detected`, that no `.openclaw` appeared in its `HOME`, and that nothing
-  connected to a stand-in Gateway. The stand-in holds the port on machines with
-  no Gateway, so the check means something on CI too.
-- Measured here: with the variable removed from the hub suite, that test fails
-  on the log line. With it, the whole E2E suite passes (3 files, 26 tests) and
-  leaves no temp home.
+  `AGENTDECK_CODEX_LIVE_USAGE=0`, and so does the packaged-daemon harness
+  (`scripts/verify-packaged-daemon.mjs`), whose restricted PATH still includes
+  node's own bin directory, where a global `openclaw` can live.
+- The daemon's startup line used to say `Gateway probe active` whether or not
+  the probe ran. It now says `off (AGENTDECK_DAEMON_NO_GATEWAY=1)` when gated.
+- A hub test waits for that line and requires `off`, which fails on CI too if
+  the gate goes. Where a Gateway runs, it also checks that the daemon never
+  logged `OpenClaw Gateway detected` and that no `.openclaw` appeared in its
+  `HOME`. Those two cannot fail on CI, which runs no Gateway.
 
 **Rejected.**
 
@@ -45,10 +47,16 @@ binary.
   `/opt/homebrew/bin` and home-relative directories back for the model-catalog
   call. The adapter needs no CLI at all, so it would still have reached the live
   Gateway.
-- **Always binding a stand-in on 18789.** The real Gateway binds `127.0.0.1` and
-  `::1` itself, so a second bind fails. A Gateway bound to a wildcard address
-  would let a more specific bind take over the developer's own loopback traffic
-  while the suite runs. The stand-in listens only after a connect was refused.
+- **A stand-in Gateway on 18789 that counts connections** (the first version of
+  the test, which bound it only where a connect was refused). It counted every
+  local process that probes that port, not just the daemon under test: the
+  developer's own daemon every 5 s, managed session bridges every 800 ms, the
+  macOS app's daemon every 5 s. A review ran the same stand-in code beside one
+  5 s prober and counted 1 or 2 connections by the time the assertion runs, in
+  3 of 3 runs. So the test would fail on any machine running AgentDeck without
+  a Gateway, and while the suite held the port the live daemon reported a
+  Gateway to its devices. A Gateway port the daemon could be pointed at would
+  avoid that, but it adds a production setting for a test.
 - **Starting the integration only when `~/.openclaw/openclaw.json` exists.** A
   missing or relocated config would then silently cost a real user the Gateway
   integration.

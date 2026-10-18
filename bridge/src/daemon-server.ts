@@ -7748,14 +7748,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   core.startOllamaProbe();
   core.startMlxProbe();
   core.startAntigravityProbe();
-  // AGENTDECK_DAEMON_NO_GATEWAY=1 keeps the daemon off any OpenClaw Gateway on
-  // this machine: no port probe, no adapter, no `openclaw doctor`. The E2E
-  // suites set it. Their daemon runs with a temp HOME, so a doctor run started
-  // there bootstraps a fresh OpenClaw state dir (npm and bun installs) that
-  // outlives the daemon and races the suite's cleanup, and the adapter would
-  // feed the developer's live Gateway sessions into the daemon under test.
-  // Isolation gate only; normal daemons keep the Gateway on.
-  if (process.env.AGENTDECK_DAEMON_NO_GATEWAY !== '1') {
+  // AGENTDECK_DAEMON_NO_GATEWAY=1 skips the Gateway probe, the only path to the
+  // OpenClaw adapter and the `openclaw doctor` schedule (the opt-in `openclaw`
+  // APME judge backend still dials the Gateway). The E2E suites set it: their
+  // daemon runs with a temp HOME, where a doctor run bootstraps a fresh
+  // OpenClaw state dir (npm and bun installs) that outlives the daemon and
+  // races the suite's cleanup. Isolation gate only; normal daemons keep the
+  // probe, and the startup line below says which.
+  const gatewayProbeOn = process.env.AGENTDECK_DAEMON_NO_GATEWAY !== '1';
+  if (gatewayProbeOn) {
     // Level-triggered: `onAvailable` runs on every tick the port is open, and
     // connectGatewayAdapter's own guards make it a no-op while an adapter lives.
     core.startGatewayProbe(5000,
@@ -8106,7 +8107,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   // Name the build in the log, once. A daemon log that does not say which build
   // wrote it cannot answer "was this fixed before or after that restart?" —
   // and on a dev checkout the answer changes several times a day.
-  log(`[agentdeck] Daemon running (build ${startupBuildId ?? 'unknown'}). Gateway probe active.`);
+  log(`[agentdeck] Daemon running (build ${startupBuildId ?? 'unknown'}). Gateway probe ${
+    gatewayProbeOn ? 'active' : 'off (AGENTDECK_DAEMON_NO_GATEWAY=1)'}.`);
 
   // Worker side of the daemon relay (#273): only on an explicit relay.json
   // opt-in, read once here — `agentdeck relay set` asks for a restart.
