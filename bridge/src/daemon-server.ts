@@ -30,10 +30,12 @@ import { createServer, type Server, type ServerResponse } from 'http';
 import { createHash, randomUUID } from 'crypto';
 import WebSocket from 'ws';
 import { trackDaemonSockets } from './daemon-socket-drain.js';
-import { BridgeCore, buildCappedTimelineHistory, ESP32_INITIAL_TIMELINE_HISTORY_MAX_BYTES } from './bridge-core.js';
+import { BridgeCore } from './bridge-core.js';
 import { buildDisplayStateEvent } from './display-dim.js';
 import { SERIAL_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import { prepareForSerial } from './esp32-serial.js';
+import { boardTimelineSeed } from './board-timeline-entry.js';
+import { wireSessionTimelineReplies } from './session-timeline-reply.js';
 import { deliverOrientation, OrientationRequestError, parseEsp32Layout } from './esp32-orientation.js';
 import { OpenClawAdapter } from './adapters/openclaw.js';
 import { BridgeLogStream } from './log-stream.js';
@@ -4112,9 +4114,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           // tags `response_kind` tool_only/empty so the runner skips judging.
           if (apme) {
             // Which turn the reply belongs to is the COLLECTOR's question, not
-            // `turnOpen`'s: the timeline drops `<task-notification>` prompts and
-            // a long turn's prompt scrolls out of the 24 rows read above, so it
-            // reads either turn as closed (see `recordStopReply`).
+            // `turnOpen`'s: the timeline drops `<task-notification>` prompts, so
+            // it reads a turn one of them opened as closed (see
+            // `recordStopReply`).
             apme.collector.recordStopReply(hookSid, responseText);
             // Close the APME turn on the Stop that ended it, tagged with which
             // Stop that was. Runs AFTER the response capture above (the
@@ -4962,6 +4964,36 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     }
   });
 
+  // The reply to a `query_session_timeline`, for a WebSocket client (the raw
+  // handler below) and a board on USB alike; registered before the serial
+  // module can open a port. Tool rows go only to a surface that opted in.
+  const sessionTimelineReply = wireSessionTimelineReplies({
+    resolveSessionId: resolveDeviceSessionId,
+    entriesFor: (sessionId, sinceMs, toolEvents) => {
+      let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs, undefined, { toolEvents });
+      // Passively-observed sessions never push timeline rows (the relay only
+      // covers managed + hook sessions), so the store comes back empty for
+      // them. Reconstruct a recent-activity timeline from their transcript so
+      // the device's Detail view isn't stuck on "No recent activity yet".
+      if (entries.length === 0) {
+        try {
+          entries = transcriptTimelineForSession(sessionId, { since: sinceMs });
+        } catch { /* read-only best effort */ }
+      }
+      // Kiro keeps its transcript in its OWN store, so the Claude reader
+      // above can never find one — and no `kiro_*` hook has ever reached
+      // this daemon (v2 has no global hook surface at all), so the timeline
+      // store is empty for it too. Without this branch an observed Kiro
+      // session's Detail view is empty whatever it does.
+      if (entries.length === 0 && sessionId.startsWith('observed:kiro')) {
+        try {
+          entries = kiroTimelineForSession(sessionId, { since: sinceMs });
+        } catch { /* read-only best effort */ }
+      }
+      return entries;
+    },
+  });
+
   // mDNS + device modules
   const deviceModules = createDefaultModules('daemon' as any);
   // AGENTDECK_DAEMON_NO_SERIAL=1 leaves the daemon fully functional over WiFi
@@ -5062,8 +5094,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // ticker shows the real latest event instead of whatever its ring last
       // held. Kept to 6 entries — the whole line must stay well under the
       // small (4KB) serial RX buffers on non-TRMNL 7.5" boards; prepareForSerial
-      // byte-caps each entry's raw/detail at send time.
-      const recent = core.bridgeTimeline.getHistory().slice(-6);
+      // byte-caps each entry's raw/detail at send time. Claude's tool rows are
+      // left out before the six are counted, since boards never receive them.
+      const recent = boardTimelineSeed(core.bridgeTimeline.getHistory(), 6);
       if (recent.length > 0) {
         events.push({ type: 'timeline_history', entries: recent } as BridgeEvent);
       }
@@ -6366,43 +6399,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       // device that connected mid-session can fill its Detail view on demand
       // (the live timeline_event stream is forward-only). Useful for any
       // reconnecting surface, not just the XTeink X3.
-      const sessionId = resolveDeviceSessionId((msg as { sessionId?: unknown }).sessionId);
-      const since = (msg as { since?: unknown }).since;
-      if (typeof sessionId === 'string' && sessionId) {
-        const sinceMs = typeof since === 'number' ? since : undefined;
-        const toolEvents = surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY);
-        let entries = core.bridgeTimeline.getHistoryForSession(sessionId, sinceMs, undefined, { toolEvents });
-        // Passively-observed sessions never push timeline rows (the relay only
-        // covers managed + hook sessions), so the store comes back empty for
-        // them. Reconstruct a recent-activity timeline from their transcript so
-        // the device's Detail view isn't stuck on "No recent activity yet".
-        if (entries.length === 0) {
-          try {
-            entries = transcriptTimelineForSession(sessionId, { since: sinceMs });
-          } catch { /* read-only best effort */ }
-        }
-        // Kiro keeps its transcript in its OWN store, so the Claude reader
-        // above can never find one — and no `kiro_*` hook has ever reached
-        // this daemon (v2 has no global hook surface at all), so the timeline
-        // store is empty for it too. Without this branch an observed Kiro
-        // session's Detail view is empty whatever it does.
-        if (entries.length === 0 && sessionId.startsWith('observed:kiro')) {
-          try {
-            entries = kiroTimelineForSession(sessionId, { since: sinceMs });
-          } catch { /* read-only best effort */ }
-        }
-        if (!toolEvents) {
-          entries = entries.filter((entry) => entry.toolEvent !== true);
-        }
-        // Boards keep their ≤4096 B frame rule here too; dashboards get the
-        // dashboard ceiling (a Detail view asking for a session's rows).
-        const historyEvent = buildCappedTimelineHistory(entries,
-          core.wsServer.isEsp32Client(sender) ? ESP32_INITIAL_TIMELINE_HISTORY_MAX_BYTES : undefined, { sessionId });
-        if (historyEvent) {
-          try {
-            sender.send(JSON.stringify(historyEvent));
-          } catch { /* client disconnecting */ }
-        }
+      const historyEvent = sessionTimelineReply(msg, {
+        toolEvents: surfaceHasCapability(surfaceNegotiations.get(sender), CLAUDE_TOOL_EVENTS_CAPABILITY),
+        board: core.wsServer.isEsp32Client(sender),
+      });
+      if (historyEvent) {
+        try {
+          sender.send(JSON.stringify(historyEvent));
+        } catch { /* client disconnecting */ }
       }
       return true; // consumed
     }
