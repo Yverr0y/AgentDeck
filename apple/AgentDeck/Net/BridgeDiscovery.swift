@@ -361,7 +361,8 @@ final class BridgeDiscovery: ObservableObject, @unchecked Sendable {
             }
             let token = (json["pairingToken"] as? String) ?? localToken
             let mode = json["mode"] as? String  // "daemon" or "session"
-            print("[Discovery] /health got token: \(token?.prefix(8) ?? "nil")... mode: \(mode ?? "nil")")
+            // Presence only: this reaches the Xcode console and diagnostic bundles.
+            print("[Discovery] /health got token=\(token != nil ? "yes" : "nil") mode: \(mode ?? "nil")")
             completion(HealthInfo(token: token, agentType: mode))
         }.resume()
     }
