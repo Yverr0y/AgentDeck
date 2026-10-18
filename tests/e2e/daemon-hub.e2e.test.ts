@@ -137,7 +137,7 @@ async function stopDaemon(daemon: Daemon): Promise<{ selfExited: boolean }> {
 }
 
 /** A dashboard client: collects every frame the hub pushes. */
-async function connect(port: number): Promise<{ frames: Frame[]; close: () => void }> {
+async function connect(port: number): Promise<{ frames: Frame[]; send: (msg: Record<string, unknown>) => void; close: () => void }> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   const frames: Frame[] = [];
   ws.addEventListener('message', (ev) => {
@@ -147,7 +147,7 @@ async function connect(port: number): Promise<{ frames: Frame[]; close: () => vo
     ws.addEventListener('open', () => ok(), { once: true });
     ws.addEventListener('error', () => fail(new Error('WS connect failed')), { once: true });
   });
-  return { frames, close: () => ws.close() };
+  return { frames, send: (msg) => ws.send(JSON.stringify(msg)), close: () => ws.close() };
 }
 
 function postHook(port: number, event: string, body: Record<string, unknown>): Promise<Response> {
@@ -298,6 +298,75 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
       expect(persisted.find((e) => e.type === 'chat_start' && e.sessionId === SESSION.session_id)).toMatchObject({
         raw: 'e2e: say hello', sessionId: SESSION.session_id, agentType: 'claude-code',
       });
+    } finally {
+      client.close();
+    }
+  });
+
+  it("closes a long Claude turn against its prompt and keeps the turn in a plain client's Detail view", async () => {
+    // Claude's per-tool hook rows (up to two per tool call) reach only a
+    // surface that negotiated `timeline.tool-events.read`. They used to count
+    // toward the 24-row read the Stop and SessionEnd paths make, so a turn of
+    // a dozen tool calls lost its prompt row: the reply went out without
+    // `startedAt`, a turn with no reply text got no closing row, and a session
+    // ending mid-turn was not closed at its SessionEnd. A plain client's
+    // Detail query also took the last 16 rows before dropping them.
+    const done = { ...SESSION, session_id: 'e2e-long-turn-0001', permission_mode: 'bypassPermissions' };
+    const quit = { ...SESSION, session_id: 'e2e-long-turn-0002', permission_mode: 'bypassPermissions' };
+    const quiet = { ...SESSION, session_id: 'e2e-long-turn-0003', permission_mode: 'bypassPermissions' };
+    const client = await connect(daemon.port);
+    const rows = (sid: string) => client.frames
+      .filter((f) => f.type === 'timeline_event')
+      .map((f) => f.entry as Record<string, unknown>)
+      .filter((e) => e && e.sessionId === sid);
+    const longTurn = async (session: typeof done) => {
+      await postHook(daemon.port, 'SessionStart', { ...session, hook_event_name: 'SessionStart', source: 'startup' });
+      await postHook(daemon.port, 'UserPromptSubmit', { ...session, hook_event_name: 'UserPromptSubmit', prompt: 'e2e: run fifteen steps' });
+      // Distinct tool names, as a real turn mixes tools: exact dedup folds a
+      // repeat of the same name within 8 s.
+      for (let i = 0; i < 15; i++) {
+        const tool = { tool_name: `mcp__e2e__step_${i}`, tool_use_id: `toolu_${session.session_id}_${i}`, tool_input: { path: `/tmp/agentdeck-e2e-project/f${i}` } };
+        await postHook(daemon.port, 'PreToolUse', { ...session, hook_event_name: 'PreToolUse', ...tool });
+        await postHook(daemon.port, 'PostToolUse', { ...session, hook_event_name: 'PostToolUse', ...tool, tool_response: 'ok' });
+      }
+    };
+    try {
+      await longTurn(done);
+      await postHook(daemon.port, 'Stop', { ...done, hook_event_name: 'Stop', last_assistant_message: 'All fifteen steps ran.' });
+      const reply = await waitFor('the reply on the wire', () => rows(done.session_id).find((e) => e.type === 'chat_response'))
+        .catch((err: unknown) => { throw new Error(`${String(err)}\n${daemon.log().slice(-3000)}`); });
+      const prompt = rows(done.session_id).find((e) => e.type === 'chat_start');
+      expect(prompt).toBeDefined();
+      expect(reply.startedAt).toBe(prompt!.startedAt ?? prompt!.ts);
+      expect(rows(done.session_id).some((e) => e.toolEvent === true)).toBe(false);
+
+      client.send({ type: 'query_session_timeline', sessionId: done.session_id });
+      const detail = await waitFor('the Detail reply', () => client.frames.find(
+        (f) => f.type === 'timeline_history' && f.sessionId === done.session_id)) as { entries: Array<Record<string, unknown>> };
+      expect(detail.entries.filter((e) => e.type === 'chat_start' || e.type === 'chat_response').map((e) => e.type))
+        .toEqual(['chat_start', 'chat_response']);
+      expect(detail.entries.some((e) => e.toolEvent === true)).toBe(false);
+
+      // No reply text (the transcript path names no file): the Stop closes the
+      // turn with a chat_end instead.
+      await longTurn(quiet);
+      await postHook(daemon.port, 'Stop', { ...quiet, hook_event_name: 'Stop' });
+      const completed = await waitFor('the reply-less close', () => rows(quiet.session_id).find((e) => e.type === 'chat_end'))
+        .catch((err: unknown) => { throw new Error(`${String(err)}\n${daemon.log().slice(-3000)}`); });
+      const quietPrompt = rows(quiet.session_id).find((e) => e.type === 'chat_start');
+      expect(String(completed.raw)).toMatch(/^Completed · /);
+      expect(completed.startedAt).toBe(quietPrompt!.startedAt ?? quietPrompt!.ts);
+
+      await longTurn(quit);
+      await postHook(daemon.port, 'SessionEnd', { ...quit, hook_event_name: 'SessionEnd', reason: 'exit' });
+      const closed = await waitFor('the interrupted close', () => rows(quit.session_id).find((e) => e.type === 'chat_end'))
+        .catch((err: unknown) => { throw new Error(`${String(err)}\n${daemon.log().slice(-3000)}`); });
+      const quitPrompt = rows(quit.session_id).find((e) => e.type === 'chat_start');
+      expect(String(closed.raw)).toMatch(/^Interrupted · /);
+      expect(closed.startedAt).toBe(quitPrompt!.startedAt ?? quitPrompt!.ts);
+      for (const session of [done, quiet]) {
+        await postHook(daemon.port, 'SessionEnd', { ...session, hook_event_name: 'SessionEnd', reason: 'exit' });
+      }
     } finally {
       client.close();
     }
