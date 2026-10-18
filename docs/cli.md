@@ -343,6 +343,7 @@ no subprocesses.
 | `agentdeck apme scorecard` | Model scorecard by category and overall |
 | `agentdeck apme stop-health` | Stop-hook delivery rate — how turns actually closed (`--since 7d`, `--agent`) |
 | `agentdeck apme judge-health` | Judge coverage — whether closed work actually got a verdict (`--since 14d`, `--json`) |
+| `agentdeck apme coverage` | Per-agent coverage — reply and model capture on finished turns, and judge coverage per agent (`--since 30d`, `--json`) |
 | `agentdeck apme prune` | Reclaim `apme.sqlite` disk space by clearing old tool payloads (`--older-than 30`, `--apply`, `--vacuum`) |
 | `agentdeck apme tune` | Trigger rubric auto-tuner (OPRO loop) |
 | `agentdeck apme vibe <runId> <verdict>` | Label a run (`approve`/`reject`/`neutral`) |
