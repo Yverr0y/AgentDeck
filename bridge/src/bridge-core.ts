@@ -256,6 +256,9 @@ export class BridgeCore {
   private lastSessionsListBroadcast = 0;
   private sessionsListTrailingTimer: ReturnType<typeof setTimeout> | undefined;
   private lastSessionsListEvent: BridgeEvent | null = null;
+  /** Start order of roster snapshots, so one that finishes late cannot replace a newer one. */
+  private sessionsListSnapshots = 0;
+  private lastSessionsListSnapshot = 0;
   private shutdownInProgress = false;
   private shutdownCallbacks: (() => void | Promise<void>)[] = [];
   private sseBroadcast?: (evt: BridgeEvent) => void;
@@ -734,6 +737,9 @@ export class BridgeCore {
       fiveHour: u.fiveHourPercent == null ? null : { usedPercent: u.fiveHourPercent, resetsAt: u.fiveHourResetsAt },
       sevenDay: u.sevenDayPercent == null ? null : { usedPercent: u.sevenDayPercent, resetsAt: u.sevenDayResetsAt },
     } : this.claudeStatusline;
+    // OAuth readings carry a fractional reset second and whole percent; the
+    // ordering check must know which carrier it is comparing against.
+    const currentSource: ClaudeUsageSource | null = u ? this.claudeUsageSource : 'statusline';
     // Remember rejected documents too: an idle session must not become fresh
     // merely because another session (or OAuth) replaced the account reading.
     if (claudeStatuslineProgressRegressed(previousForSession, reading)) return { applied: false, broadcast: false };
@@ -742,7 +748,7 @@ export class BridgeCore {
     if (this.claudeStatuslineSessions.size > CLAUDE_STATUSLINE_SESSION_LIMIT) {
       this.claudeStatuslineSessions.delete(this.claudeStatuslineSessions.keys().next().value!);
     }
-    if (!shouldAcceptClaudeStatusline(previousForSession, current, reading)) return { applied: false, broadcast: false };
+    if (!shouldAcceptClaudeStatusline(previousForSession, current, reading, currentSource)) return { applied: false, broadcast: false };
     const prev = this.claudeStatusline;
     const changed = claudeStatuslineChanged(prev, reading);
     const resumed = classifyClaudeStatuslineAge(prev?.receivedAt ?? null, reading.receivedAt) !== 'fresh';
@@ -1089,19 +1095,33 @@ export class BridgeCore {
 
   /** Broadcast enriched sessions list (debounced 2s from state_changed) */
   async broadcastSessionsList(): Promise<void> {
+    const roster = ++this.sessionsListSnapshots;
     const sessions = await this.buildSessionsSnapshot();
     const event = { type: 'sessions_list', sessions, ...(this.dotDeckProvider ? { dot: this.dotDeckProvider() } : {}) } as BridgeEvent;
     // Cache for the serial heartbeat re-sync (like display_state): a board that
     // reconnects across a daemon handoff during a quiet window otherwise sits
     // on an empty roster until the next unrelated session change broadcasts.
-    this.lastSessionsListEvent = event;
+    this.recordSessionsList(event, roster);
     this.wsServer.broadcast(event);
   }
 
   /** The most recent sessions_list event, for the ESP32 serial heartbeat
-   *  re-sync. Null until the first broadcast. */
+   *  re-sync and for resolving the cut session ids boards send back. Null
+   *  until the first roster is built. */
   getLastSessionsListEvent(): BridgeEvent | null {
     return this.lastSessionsListEvent;
+  }
+
+  /**
+   * Keeps the newest-started roster. A connecting client's own roster counts:
+   * it can show a session the 2 s-debounced broadcast has not reached yet, and
+   * a board resolves the ids it sends back against this cache, so a board that
+   * asked about a session straight off its first roster got no answer.
+   */
+  private recordSessionsList(event: BridgeEvent, roster: number): void {
+    if (roster < this.lastSessionsListSnapshot) return;
+    this.lastSessionsListSnapshot = roster;
+    this.lastSessionsListEvent = event;
   }
 
   /**
@@ -1246,8 +1266,11 @@ export class BridgeCore {
     }
 
     // Sessions list
+    const roster = ++this.sessionsListSnapshots;
     this.buildSessionsSnapshot().then((sessions) => {
-      this.wsServer.sendTo(ws, { type: 'sessions_list', sessions, ...(this.dotDeckProvider ? { dot: this.dotDeckProvider() } : {}) } as BridgeEvent);
+      const event = { type: 'sessions_list', sessions, ...(this.dotDeckProvider ? { dot: this.dotDeckProvider() } : {}) } as BridgeEvent;
+      this.recordSessionsList(event, roster);
+      this.wsServer.sendTo(ws, event);
     }).catch(() => {});
 
     // Extra events from caller

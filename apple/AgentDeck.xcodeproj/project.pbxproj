@@ -349,6 +349,7 @@
 		71CC16D6042B2F145EFC2896 /* AgentCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E37B7FE721FDD18B11DAC32 /* AgentCommand.swift */; };
 		71E85F5B6C7CF77AE7A3162C /* ApmeObservedHookNormalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337A9CAC731DB3377BFF5626 /* ApmeObservedHookNormalizationTests.swift */; };
 		7276F296892636D2949C0E5D /* HermesCreature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49875783E44D33C86D04A038 /* HermesCreature.swift */; };
+		7289CC0685570063D5C36712 /* CodexApprovalHoldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE5AF611F51BB12390D4DB5 /* CodexApprovalHoldTests.swift */; };
 		72CEB6C700EFD3EA4D8F1A56 /* ControlTowerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D60A0390EDEA34DD8F09055 /* ControlTowerPanel.swift */; };
 		73859B0A0D1506EC122979DB /* TimelineSummarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478F84014DFA2BC1E6E82110 /* TimelineSummarizer.swift */; };
 		740636215420FB785070986C /* StateTransitions.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9FBCA5AE4B47A5D67D12207 /* StateTransitions.generated.swift */; };
@@ -429,6 +430,7 @@
 		89C78B3EB58A06C87CC5CDE0 /* IDotMatrixProtocolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 640AC95BED93D142107D828E /* IDotMatrixProtocolTests.swift */; };
 		8A28584D14249A2DB2E94361 /* DaemonActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69470A0782BDF6A29012E9F0 /* DaemonActor.swift */; };
 		8A85C2C10B0D18325FCA19A7 /* DotHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50AD86E0F9030974265A7C9 /* DotHost.swift */; };
+		8B6C5D6F726950635B32AB28 /* CodexApprovalHoldTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE5AF611F51BB12390D4DB5 /* CodexApprovalHoldTests.swift */; };
 		8B7311262C05E2B32F563760 /* IntegrationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B7BAB1080F7958F74A1B74 /* IntegrationsView.swift */; };
 		8B995FCD093438C0F919C374 /* GatewayHealthRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA37B6C7D35CA879C9BD8F75 /* GatewayHealthRules.swift */; };
 		8BD045F864776BC79B8BDA5F /* WebSocketServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AC67585E8BFBBB8B0250FF2 /* WebSocketServer.swift */; };
@@ -459,6 +461,7 @@
 		994CF068FC8FC70B3A9B0701 /* PixooTide.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052A78840772DDFD792F07D7 /* PixooTide.swift */; };
 		996C92E310F9A7E69C40C803 /* OpenCodeCreature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2005980598D651492006A3 /* OpenCodeCreature.swift */; };
 		99CC463E11558649E28B5539 /* ApmeJudgeApi.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46988130529D53105344C47F /* ApmeJudgeApi.swift */; };
+		9A0453468790BAF7FAE98D36 /* CodexApprovalHoldRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = C514FCF38B4B37A7AAABC36D /* CodexApprovalHoldRules.generated.swift */; };
 		9A5DC975FE1C36D4AB0B13A4 /* OpenClawTokenExtractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF69E65D3118C105A193227 /* OpenClawTokenExtractTests.swift */; };
 		9A7BB2DEF95CE360EC7A9519 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 731118DC3B388D7BE3F1CDB7 /* DesignTokens.swift */; };
 		9A804F6E4630630D21967869 /* DaemonPttVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18016AE81D6E5779F262104 /* DaemonPttVoice.swift */; };
@@ -585,6 +588,7 @@
 		BF6E216F74A8205677B8B82B /* OnboardingScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9965CED8937C8C1F27DFCC68 /* OnboardingScreen.swift */; };
 		C0A2645826ECB779014A3726 /* SessionJumpRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F26A93963C8E68242637581 /* SessionJumpRow.swift */; };
 		C10CD1596A8DC0CF050C6AED /* CodexCreditsPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FBD79359C74EFD3D692FB05 /* CodexCreditsPresentationTests.swift */; };
+		C1288C445471587590AFCBFD /* CodexApprovalHoldRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = C514FCF38B4B37A7AAABC36D /* CodexApprovalHoldRules.generated.swift */; };
 		C13B92B69ACA5F6CA1D8EE1E /* HookIdleTTLTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165E4184E24C198326D600A6 /* HookIdleTTLTests.swift */; };
 		C1487E9009E1FAA9C78518B9 /* OFL-PocketSansWorld.txt in Resources */ = {isa = PBXBuildFile; fileRef = AA6B880920FED6442871AA9F /* OFL-PocketSansWorld.txt */; };
 		C15BFCC30330EE47DC42BA03 /* AquariumResidents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C41CE28781400748CBA9AE6 /* AquariumResidents.swift */; };
@@ -1027,6 +1031,7 @@
 		8C8A40550B31856011EBBCB7 /* DemoPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoPlayback.swift; sourceTree = "<group>"; };
 		8D80206C489734918E56FB0B /* TUITerrariumRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TUITerrariumRenderer.swift; sourceTree = "<group>"; };
 		8EB6D1182ABF3CF9649640FE /* OpenClawApprovalErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawApprovalErrorTests.swift; sourceTree = "<group>"; };
+		8EE5AF611F51BB12390D4DB5 /* CodexApprovalHoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexApprovalHoldTests.swift; sourceTree = "<group>"; };
 		8EF540FF89BA54744CF94CC4 /* ApmeCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeCollector.swift; sourceTree = "<group>"; };
 		908DB05568DE4E828CD7FCE6 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		911116AFCDB54393457A6EB6 /* OpenClawSessionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawSessionSettings.swift; sourceTree = "<group>"; };
@@ -1106,6 +1111,7 @@
 		C1B2045E80851C81C327DFBC /* EinkEsp32Previews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EinkEsp32Previews.swift; sourceTree = "<group>"; };
 		C49283AA6D01816E589516E8 /* pocket-sans-world.manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "pocket-sans-world.manifest.json"; sourceTree = "<group>"; };
 		C50AD86E0F9030974265A7C9 /* DotHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotHost.swift; sourceTree = "<group>"; };
+		C514FCF38B4B37A7AAABC36D /* CodexApprovalHoldRules.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexApprovalHoldRules.generated.swift; sourceTree = "<group>"; };
 		C6229A084E6CE2AB75D86F83 /* ESP32ProvisionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32ProvisionSheet.swift; sourceTree = "<group>"; };
 		C671E2324E45E6745813C681 /* ESP32WifiForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32WifiForwardTests.swift; sourceTree = "<group>"; };
 		C6C4FB1F847E5695EF75A4FB /* DevicePreviewCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicePreviewCatalog.swift; sourceTree = "<group>"; };
@@ -1281,6 +1287,7 @@
 				ABBD412B771BBC8D6616B48D /* ClaudeBackgroundJobRulesTests.swift */,
 				160B2258BF46CD03C53B5AC0 /* ClaudePermissionRulesTests.swift */,
 				87B953D8E77FC4425B70B384 /* ClaudeStatuslineRulesTests.swift */,
+				8EE5AF611F51BB12390D4DB5 /* CodexApprovalHoldTests.swift */,
 				0392D39F45022F762AFE6BE0 /* CodexConfigInstallerTests.swift */,
 				2FBD79359C74EFD3D692FB05 /* CodexCreditsPresentationTests.swift */,
 				DE433C0C306D430DE740AB0F /* CodexExecChildrenTests.swift */,
@@ -1681,6 +1688,7 @@
 				AA9933A43DAF2E11AE595B84 /* CiWaitRules.generated.swift */,
 				43249471B78BB9975F736FC6 /* ClaudeBackgroundJobRules.generated.swift */,
 				408F05BE863985A2E157A5AD /* ClaudePermissionRules.generated.swift */,
+				C514FCF38B4B37A7AAABC36D /* CodexApprovalHoldRules.generated.swift */,
 				0C97EE2C9DA1A4FA137619AF /* CodexExecChildren.swift */,
 				11B35DB1B02937B963A3E6A1 /* CodexHookHarness.generated.swift */,
 				009D8008C77ADBF75BE67485 /* CodexObservationOwnership.swift */,
@@ -2130,6 +2138,7 @@
 				3AA3A8CEDFE2A89F0708D96E /* ClaudeBackgroundJobRulesTests.swift in Sources */,
 				ADC9C0B4303BEA1EEB33E969 /* ClaudePermissionRulesTests.swift in Sources */,
 				7508D8DB27034D39CA026615 /* ClaudeStatuslineRulesTests.swift in Sources */,
+				8B6C5D6F726950635B32AB28 /* CodexApprovalHoldTests.swift in Sources */,
 				00E9789B6EFDA8174842999D /* CodexConfigInstallerTests.swift in Sources */,
 				9AC98859CDC66FD5342EEA61 /* CodexCreditsPresentationTests.swift in Sources */,
 				647687A118742DCA7F1B2B54 /* CodexExecChildrenTests.swift in Sources */,
@@ -2235,6 +2244,7 @@
 				400DA2617A474B0330E9D615 /* ClaudeBackgroundJobRulesTests.swift in Sources */,
 				C984EE6C8F562962DBE4EB5B /* ClaudePermissionRulesTests.swift in Sources */,
 				BC2D8940BCC6A284DD3E87A8 /* ClaudeStatuslineRulesTests.swift in Sources */,
+				7289CC0685570063D5C36712 /* CodexApprovalHoldTests.swift in Sources */,
 				23C366450AF88EC0E69DDD11 /* CodexConfigInstallerTests.swift in Sources */,
 				C10CD1596A8DC0CF050C6AED /* CodexCreditsPresentationTests.swift in Sources */,
 				2B7781C65D87218C0E0719E3 /* CodexExecChildrenTests.swift in Sources */,
@@ -2377,6 +2387,7 @@
 				BD603C0DA671877FFFF496E1 /* ClaudePermissionRules.generated.swift in Sources */,
 				8F90FB5485D7B6614F6F09A6 /* ClaudeStatuslineRules.generated.swift in Sources */,
 				08B47BC18D206538B33DD3B9 /* CloudCreature.swift in Sources */,
+				9A0453468790BAF7FAE98D36 /* CodexApprovalHoldRules.generated.swift in Sources */,
 				EDB44E89F700BC28A7AB9A83 /* CodexConfigInstaller.swift in Sources */,
 				42E93611F3FAC453A20CC7D0 /* CodexExecChildren.swift in Sources */,
 				5DDA6F733312F1A880DE38C9 /* CodexFreshnessRules.generated.swift in Sources */,
@@ -2656,6 +2667,7 @@
 				52F319B3F0699BDB206D714E /* ClaudePermissionRules.generated.swift in Sources */,
 				9D936EAA57266140F1A0CE67 /* ClaudeStatuslineRules.generated.swift in Sources */,
 				469316CAE1172CC311AD34F0 /* CloudCreature.swift in Sources */,
+				C1288C445471587590AFCBFD /* CodexApprovalHoldRules.generated.swift in Sources */,
 				36A5E1C9F248EF1B2B36A6D5 /* CodexConfigInstaller.swift in Sources */,
 				9AE973D827E60195679B39ED /* CodexExecChildren.swift in Sources */,
 				D7E95F09BC44D47D05B4EC06 /* CodexFreshnessRules.generated.swift in Sources */,

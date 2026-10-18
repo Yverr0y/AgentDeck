@@ -1239,6 +1239,10 @@ final class DaemonServer {
     /// overwrite their awaiting_permission overlay from parallel tool hooks
     /// while the device decision is pending (≤ hold timeout).
     private var heldGateSessionIds: Set<String> = []
+    /// Open Codex device-approval holds: session key → the requestId devices
+    /// answer (CodexApprovalHoldRules). A held session is also in
+    /// `heldGateSessionIds` until its hold is released.
+    private var codexHoldRequestBySession: [String: String] = [:]
     /// A structured direct-Claude AskUserQuestion wait.
     ///
     /// One call may carry up to four question groups while SessionInfo has room
@@ -2714,6 +2718,21 @@ final class DaemonServer {
         await serial.serial.setOnMessage { [weak self] portPath, msg in
             guard let self else { return }
             guard let type = msg["type"] as? String else { return }
+            // A request with a reply: answer the board that asked, on its own
+            // line, shaped like every other serial frame. As a forwarded
+            // command it reached `handleCommand`, which has no case for it, so
+            // a board on USB (the knob's History view) never got its rows.
+            // Node parity: setSerialTimelineQueryHandler.
+            if type == "query_session_timeline" {
+                guard let rawSid = msg["sessionId"] as? String, !rawSid.isEmpty else { return }
+                let since = msg["since"] as? Double
+                Task { @DaemonActor [weak self] in
+                    guard let self else { return }
+                    let reply = SendableDict(await self.sessionTimelineReply(rawSid, since: since, board: true))
+                    await self.serialModule?.serial.sendEvent(reply.value, toPort: portPath)
+                }
+                return
+            }
             // Device→daemon command channel over serial. A board whose WiFi is
             // parked (serial-primary) still steers; without this its taps were
             // dropped by the device_info-only parser.
@@ -3853,6 +3872,13 @@ final class DaemonServer {
             // agent process. The only session→process link this daemon has.
             let hookPid = Int(request.headers["x-agentdeck-pid"] ?? "")
             guard let self else { return .json(["received": true]) }
+            // Codex device approval (opt-in): the hold handler's twin of the
+            // notification, answered by the hold alone and never ingested —
+            // the notification handler already was (CodexApprovalHoldRules).
+            if rawName == "codex_permission_request",
+               let budget = request.headers[CodexApprovalHoldRules.header] {
+                return await self.holdCodexApproval(body: bodyData, budgetHeader: budget)
+            }
             // A Codex payload on a Claude endpoint is never a Claude steering
             // call (#490): no PreToolUse gate, no Stop directive — the queued
             // deck command would be handed to Codex. Ingest it (re-routed in
@@ -4443,14 +4469,13 @@ final class DaemonServer {
         // its Detail view without waiting for live events.
         if cmd["type"] as? String == "query_session_timeline" {
             guard let rawSid = cmd["sessionId"] as? String, !rawSid.isEmpty else { return }
-            let sid = resolveDeviceSessionId(rawSid)
             let since = cmd["since"] as? Double
             Task { @DaemonActor [weak self] in
                 guard let self else { return }
-                let entries = await self.timelineStore.historyForSession(sid, since: since)
-                let dicts = entries.map { self.claudeCodeEntryDict($0) }
-                let msg: [String: Any] = ["type": "timeline_history", "sessionId": sid, "entries": dicts]
-                if let data = msg.jsonData { conn.send(data) }
+                let reply = await self.sessionTimelineReply(rawSid, since: since, board: self.isBoardClient(conn))
+                // A board gets the frame size it can take, as in its connect
+                // burst; a full 16-row reply could overrun its 4 KB buffer.
+                if let data = self.frameForClient(reply, conn)?.jsonData { conn.send(data) }
             }
             return
         }
@@ -4479,17 +4504,7 @@ final class DaemonServer {
             // shrinks the payload instead of blasting the full dashboard state that
             // used to overrun the board's buffer and flap the socket.
             @DaemonActor func esp32Shaped(_ event: [String: Any]) -> Data? {
-                guard let reg = self.cachedWifiEsp32[conn.id] else {
-                    // Not registered yet — but a board tagged in its upgrade
-                    // URL is still an ESP32: shape (or drop) from frame zero.
-                    // The unshaped full-state frame used to land here when the
-                    // burst won the race against the board's device_info and
-                    // choked its 4 KB line buffer into a reconnect loop.
-                    return conn.isEsp32
-                        ? ESP32Serial.wifiEsp32Forward(event, deviceInfo: nil)?.jsonData
-                        : event.jsonData
-                }
-                return ESP32Serial.wifiEsp32Forward(event, deviceInfo: ESP32Serial.wifiDeviceInfo(reg.devices.first))?.jsonData
+                self.frameForClient(event, conn)?.jsonData
             }
 
             @DaemonActor func surfaceAllows(_ event: [String: Any]) -> Bool {
@@ -4921,6 +4936,45 @@ final class DaemonServer {
         return matches.count == 1 ? matches[matches.startIndex] : raw
     }
 
+    /// The reply to a `query_session_timeline`, for whichever transport asked:
+    /// a WebSocket client, or a board on USB through the serial handler.
+    private func sessionTimelineReply(_ rawSid: String, since: Double?, board: Bool) async -> [String: Any] {
+        let sid = resolveDeviceSessionId(rawSid)
+        let entries = await timelineStore.historyForSession(sid, since: since)
+        return Self.sessionTimelineReplyFrame(requested: rawSid, resolved: sid, board: board,
+                                              entries: entries.map { claudeCodeEntryDict($0) })
+    }
+
+    /// A board gets back the id it SENT. It matches the reply against that id
+    /// (the T-Embed knob `strcmp`s its `scrubSessionId[32]`), and board ids
+    /// arrive cut to 31 bytes, so echoing the resolved 36-char UUID or 52-char
+    /// observed id made it discard every reply. Board shaping trims the rows
+    /// before its byte budget. Node parity: `buildSessionTimelineReply`.
+    nonisolated static func sessionTimelineReplyFrame(
+        requested: String, resolved: String, board: Bool, entries: [[String: Any]]
+    ) -> [String: Any] {
+        ["type": "timeline_history", "sessionId": board ? requested : resolved, "entries": entries]
+    }
+
+    private func isBoardClient(_ conn: WebSocketConnection) -> Bool {
+        cachedWifiEsp32[conn.id] != nil || conn.isEsp32
+    }
+
+    /// A frame addressed to one WebSocket client: a board gets the serial-size
+    /// frame (or nil, for an event it never displays), anything else the frame
+    /// as built.
+    private func frameForClient(_ event: [String: Any], _ conn: WebSocketConnection) -> [String: Any]? {
+        guard let reg = cachedWifiEsp32[conn.id] else {
+            // Not registered yet — but a board tagged in its upgrade
+            // URL is still an ESP32: shape (or drop) from frame zero.
+            // The unshaped full-state frame used to land here when the
+            // burst won the race against the board's device_info and
+            // choked its 4 KB line buffer into a reconnect loop.
+            return conn.isEsp32 ? ESP32Serial.wifiEsp32Forward(event, deviceInfo: nil) : event
+        }
+        return ESP32Serial.wifiEsp32Forward(event, deviceInfo: ESP32Serial.wifiDeviceInfo(reg.devices.first))
+    }
+
     private func handleCommand(_ cmd: [String: Any]) {
         guard let type = cmd["type"] as? String else { return }
         DaemonLogger.shared.debug("Daemon", "cmd: \(type)")
@@ -4991,19 +5045,17 @@ final class DaemonServer {
                 return
             }
             let gw = gatewayAdapter
-            // Send ONLY the two params the method takes. Forwarding the whole
-            // device command dragged `type`/`requestId` into the RPC alongside a
-            // decision spelling the Gateway does not accept.
-            let cmdBox = SendableDict(["type": "respond", "value": decision])
             Task {
                 if await ObservedSteering.shared.resolveGate(requestId: requestId, decision: decision) != nil {
                     return // held route handler resumes + clears the overlay
                 }
-                if let gw {
-                    await gw.resolvePendingApproval(command: cmdBox.value)
-                } else {
-                    DaemonLogger.shared.debug("Daemon", "permission_decision: no gate/gateway for request \(requestId)")
+                // Only the OpenClaw approval this id names. Falling through on
+                // any id resolved whichever approval was up — so a late press
+                // for an answered Codex hold or Claude gate approved it.
+                if let gw, await gw.resolvePendingApproval(requestId: requestId, decision: decision) {
+                    return
                 }
+                DaemonLogger.shared.info("permission_decision: no gate or approval for request \(requestId), nothing resolved")
             }
             return
         }
@@ -5083,6 +5135,18 @@ final class DaemonServer {
                 }
             }
             return
+        }
+
+        // Observed Codex: a deck's Allow / Deny keys answer a held approval
+        // with an option press on the session — inside session_command (the
+        // Stream Deck) or bare with its sessionId (multi-up panels) — never
+        // with permission_decision. Ahead of the focused-session fallback
+        // below, which hands a bare press to a focused Claude session. With no
+        // hold open the routes below take the command as before.
+        if let sessionId = cmd["sessionId"] as? String {
+            let press: [String: Any]? = type == "session_command" ? cmd["command"] as? [String: Any]
+                : type == "select_option" ? cmd : nil
+            if let press, answerCodexApproval(sessionId: sessionId, command: press) { return }
         }
 
         // `client_register` is intercepted in `handleWSCommand` (it needs
@@ -6102,6 +6166,14 @@ final class DaemonServer {
             claudeTranscriptPathBySession[sessionId] = tp
         }
 
+        // A held Codex approval waits inside one turn. The turn ending (Ctrl+C,
+        // stop, a new prompt) releases it before the state below is applied —
+        // the hold would otherwise keep `updateSessionHookState` out.
+        if isCodexEvent, let sessionId, codexHoldRequestBySession[sessionId] != nil,
+           CodexApprovalHoldRules.releasingEvents.contains(event) {
+            await releaseCodexHold(sessionId: sessionId)
+        }
+
         switch event {
         case "codex_session_start":
             _ = stateMachine.transition(trigger: "session_start", source: .hook)
@@ -6372,14 +6444,12 @@ final class DaemonServer {
             // terminal). The next lifecycle hook on the session ends the wait:
             // an approval runs the tool, a denial or Ctrl+C ends the turn, a
             // new prompt supersedes it — all of which pass through
-            // updateSessionHookState and overwrite the state.
-            if let sessionId, var entry = pushedSessionsById[sessionId] {
-                entry.state = "awaiting_permission"
-                entry.question = Self.codexPermissionQuestion(json)
-                entry.requestId = nil
-                pushedSessionsById[sessionId] = entry
-                upsertIntoCachedSessions(entry)
-                broadcastSessionsList()
+            // updateSessionHookState and overwrite the state. A held device
+            // approval owns the prompt and its button until it is released, so
+            // a parallel call's notification must not swap the question.
+            if let sessionId, codexHoldRequestBySession[sessionId] == nil {
+                showCodexApprovalPrompt(
+                    sessionId: sessionId, question: Self.codexPermissionQuestion(json), requestId: nil)
             }
         case "codex_interrupt":
             // The user's Ctrl+C on an active turn: no Stop follows, so close
@@ -6493,6 +6563,7 @@ final class DaemonServer {
         // UNIQUE(task_id, dedup_key) collapse hook/SSE echoes inside one DB.
         if !apmeHandledEarly, let hook = normalizedApmeHook {
             apmeCollector?.handleHook(event: hook.event, data: hook.payload)
+            Self.stampApmeStopIdentity(hook, collector: apmeCollector)
         }
         // Coordination evidence carried BY the hook itself (the Node daemon's
         // `CoordinationTracker` hook half): a received cross-session envelope
@@ -7709,7 +7780,7 @@ final class DaemonServer {
 
     nonisolated static let serialForwardableCommands: Set<String> = [
         "select_option", "session_command", "permission_decision",
-        "peripheral_event", "query_session_timeline", "focus_session", "review_run",
+        "peripheral_event", "focus_session", "review_run",
     ]
 
     /// Mirrors the Node `looksLikePermissionMessage` regex.
@@ -8185,6 +8256,154 @@ final class DaemonServer {
             "decision": "block",
             "reason": "The user sent this follow-up from their AgentDeck controller: \"\(directive)\". Carry out this instruction now.",
         ])
+    }
+
+    /// Answer a Codex hold request (CodexApprovalHoldRules): hold it for a
+    /// device's Allow/Deny, or answer at once with nothing so Codex draws its
+    /// own prompt. A held request shows the prompt with its button; a released
+    /// one leaves it display-only, since Codex is drawing it now. Mirror of the
+    /// Node daemon's `holdCodexApproval`.
+    private func holdCodexApproval(body: Data, budgetHeader: String) async -> HTTPServer.HTTPResponse {
+        guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+            return .text("")
+        }
+        let sid = Self.hookSessionId(event: "codex_permission_request", json: json) ?? ""
+        let question = Self.codexPermissionQuestion(json)
+        let holdMs = CodexApprovalHoldRules.holdMilliseconds(
+            header: budgetHeader, defaultMs: Int(ObservedSteering.holdTimeoutSeconds * 1000))
+        let background = !sid.isEmpty && (codexAmbientThreads.isAmbient(sid)
+            || CodexAmbientHookRules.isBackgroundCwd(json["cwd"] ?? json["project_path"]))
+        let execChild = !sid.isEmpty && codexExecChildren.knows(sid)
+        let verdict: (hold: Bool, reason: String) = holdMs == nil
+            ? (false, "no-budget")
+            : CodexApprovalHoldRules.decision(.init(
+                enabled: ObservedSteering.gateEnabled,
+                clientCount: activeWSConnectionIds.count,
+                sessionId: sid,
+                background: background,
+                execChild: execChild,
+                visible: pushedSessionsById[sid].map { Self.isCodexSession(sessionId: sid, entry: $0) } ?? false,
+                alreadyHeld: codexHoldRequestBySession[sid] != nil))
+        guard verdict.hold, let holdMs,
+              let requestId = await ObservedSteering.shared.beginCodexGate(
+                  sessionId: sid, clientCount: activeWSConnectionIds.count,
+                  holdSeconds: TimeInterval(holdMs) / 1000) else {
+            DaemonLogger.shared.debug("Steering", "Codex approval not held: \(verdict.hold ? "gate busy" : verdict.reason) (\(sid.prefix(14)))")
+            // The display-only prompt still belongs on the row when Codex ran
+            // only this handler (the notification one untrusted or removed).
+            if !sid.isEmpty, !background, !execChild, codexHoldRequestBySession[sid] == nil,
+               let entry = pushedSessionsById[sid], entry.state != "awaiting_permission" {
+                showCodexApprovalPrompt(sessionId: sid, question: question, requestId: nil)
+            }
+            return .text("")
+        }
+        codexHoldRequestBySession[sid] = requestId
+        heldGateSessionIds.insert(sid)
+        showCodexApprovalPrompt(sessionId: sid, question: question, requestId: requestId)
+        DaemonLogger.shared.info("Steering: Codex approval held (\(sid.prefix(14))) req=\(requestId) for \(holdMs) ms")
+
+        let decision = await ObservedSteering.shared.awaitGate(requestId: requestId)
+
+        // `releaseCodexHold` already dropped the records of a hold whose turn
+        // ended; one this handler still owns is dropped here.
+        let ended = codexHoldRequestBySession[sid] != requestId
+        if !ended {
+            codexHoldRequestBySession.removeValue(forKey: sid)
+            heldGateSessionIds.remove(sid)
+        }
+        let outcome = ended ? "ended" : decision
+        if var entry = pushedSessionsById[sid], entry.requestId == requestId {
+            entry.requestId = nil
+            // Undecided (pass): Codex draws its prompt now, so the question
+            // stays, display-only. Decided or ended: the wait is over.
+            if outcome != "pass", entry.state == "awaiting_permission" {
+                entry.state = "processing"
+                entry.question = nil
+            }
+            pushedSessionsById[sid] = entry
+            upsertIntoCachedSessions(entry)
+        }
+        broadcastSessionsList()
+        DaemonLogger.shared.info("Steering: Codex approval released (\(sid.prefix(14))) → \(outcome)")
+        return .text(CodexApprovalHoldRules.decisionBody(outcome))
+    }
+
+    /// What an option press on a session does to its open Codex hold.
+    enum CodexApprovalPress: Equatable {
+        /// Resolve the hold as a `permission_decision` for `requestId` would.
+        case answer(requestId: String, decision: String)
+        /// Neither an Allow nor a Deny: nothing is resolved.
+        case notAnAnswer
+        /// Echoes a prompt the hold does not show: nothing is resolved, and the
+        /// row is re-sent so the device redraws the live one.
+        case stale
+    }
+
+    /// A deck's Allow / Deny keys answer a hold with an option press on the
+    /// session, never with `permission_decision`. nil = no hold is open, or the
+    /// command is not an option press: it takes its usual route. `shown*` is
+    /// the prompt on the session's row. Mirror of the Node
+    /// `CodexApprovalHolds.press`.
+    nonisolated static func codexApprovalPress(
+        command: [String: Any], heldRequestId: String?, shownRequestId: String?, shownQuestion: String?
+    ) -> CodexApprovalPress? {
+        let type = command["type"] as? String ?? ""
+        guard type == "select_option" || type == "respond", let heldRequestId else { return nil }
+        guard let decision = CodexApprovalHoldRules.pressDecision(
+            type: type, index: command["index"] as? Int, value: command["value"] as? String) else {
+            return .notAnAnswer
+        }
+        // A press that echoes its question must name the prompt this hold
+        // shows: the session may already be on its next approval, and an Allow
+        // aimed at the previous one would approve a command nobody saw.
+        if let echo = command["question"] as? String {
+            guard shownRequestId == heldRequestId, let shownQuestion, !shownQuestion.isEmpty,
+                  ObservedSteering.askEchoMatches(echo, shownQuestion) else { return .stale }
+        }
+        return .answer(requestId: heldRequestId, decision: decision)
+    }
+
+    /// Answer a held Codex approval from a deck's option press through the
+    /// resolution `permission_decision` uses. False = no hold is open on the
+    /// session. Node twin: `answerCodexApproval`.
+    private func answerCodexApproval(sessionId: String, command: [String: Any]) -> Bool {
+        let shown = pushedSessionsById[sessionId]
+        guard let press = Self.codexApprovalPress(
+            command: command, heldRequestId: codexHoldRequestBySession[sessionId],
+            shownRequestId: shown?.requestId, shownQuestion: shown?.question) else { return false }
+        switch press {
+        case .answer(let requestId, let decision):
+            DaemonLogger.shared.info("Steering: Codex approval answered by a press (\(sessionId.prefix(14))) → \(decision)")
+            handleCommand(["type": "permission_decision", "requestId": requestId, "decision": decision])
+        case .stale:
+            DaemonLogger.shared.info("Steering: Codex approval press dropped (\(sessionId.prefix(14))): answers a prompt the hold no longer shows")
+            broadcastSessionsList()
+        case .notAnAnswer:
+            DaemonLogger.shared.debug("Steering", "Codex approval press ignored: not an Allow or a Deny (\(sessionId.prefix(14)))")
+        }
+        return true
+    }
+
+    /// Release an open Codex hold whose turn ended. Its handler finds the
+    /// records gone and reports `ended`: the prompt is cleared, not kept, and
+    /// Codex gets no decision.
+    private func releaseCodexHold(sessionId: String) async {
+        guard let requestId = codexHoldRequestBySession.removeValue(forKey: sessionId) else { return }
+        heldGateSessionIds.remove(sessionId)
+        await ObservedSteering.shared.endGate(requestId: requestId)
+    }
+
+    /// Put a Codex approval prompt on the session's row: answerable (with the
+    /// requestId a device sends back) while a hold is open, display-only
+    /// otherwise.
+    private func showCodexApprovalPrompt(sessionId: String, question: String, requestId: String?) {
+        guard var entry = pushedSessionsById[sessionId] else { return }
+        entry.state = "awaiting_permission"
+        entry.question = question
+        entry.requestId = requestId
+        pushedSessionsById[sessionId] = entry
+        upsertIntoCachedSessions(entry)
+        broadcastSessionsList()
     }
 
     // MARK: - On-demand independent review (REVIEW deck button)
@@ -10004,7 +10223,11 @@ final class DaemonServer {
            let oldest = claudeStatuslineSessions.min(by: { $0.value.receivedAtMs < $1.value.receivedAtMs })?.key {
             claudeStatuslineSessions.removeValue(forKey: oldest)
         }
-        guard ClaudeStatuslineRules.shouldAccept(previousForSession: previousForSession, current: current, next: reading) else {
+        // A sibling relay's OAuth reading keeps its fractional reset second and
+        // whole percent; the ordering check must know which carrier `current` is.
+        let currentSource = cachedApiUsage != nil ? claudeUsageSource : "statusline"
+        guard ClaudeStatuslineRules.shouldAccept(
+            previousForSession: previousForSession, current: current, next: reading, currentSource: currentSource) else {
             return ClaudeStatuslineIngest(applied: false, broadcast: false)
         }
         let prev = claudeStatusline
@@ -12308,6 +12531,25 @@ final class DaemonServer {
         if let model = hook.payload["model_name"] as? String {
             collector.updateTurnIdentity(modelId: model, provider: nil, sessionId: sessionId)
         }
+    }
+
+    /// A Stop hook that names its model stamps the turn it just closed, as
+    /// Node's Stop path does with `updateModel`: Codex hooks carry `model`,
+    /// the OpenCode observer (v5) `model` plus `model_provider`. The run-open
+    /// read of `model_name` never sees a model reported at Stop, so these
+    /// turns carried no model on this daemon. Node also stamps at
+    /// `session_end`; no hook producer sends a model there, and this daemon's
+    /// `session_end` drops the run before a stamp could find it.
+    static func stampApmeStopIdentity(
+        _ hook: (event: String, payload: [String: Any])?, collector: ApmeCollector?
+    ) {
+        guard let hook, let collector, hook.event == "stop",
+              let sessionId = nonEmptyString(hook.payload["session_id"]),
+              let model = nonEmptyString(hook.payload["model"]) else { return }
+        collector.updateTurnIdentity(
+            modelId: String(model.prefix(200)),
+            provider: nonEmptyString(hook.payload["model_provider"]).map { String($0.prefix(80)) },
+            sessionId: sessionId)
     }
 
     /// Explicit new-turn signal for a Codex thread (`codex_session_start`,
