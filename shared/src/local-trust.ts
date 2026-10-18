@@ -20,12 +20,20 @@
  * handshake and every request other than GET and HEAD. So local trust also
  * requires both of these:
  *
- *  - `Host` names this machine: an IP literal, `localhost`, or one of its own
- *    host names. A rebinding page's `Host` is the page's own domain.
+ *  - `Host` names this machine without asking the network: an IP literal,
+ *    `localhost` or a `.localhost` name (RFC 6761), or this machine's own mDNS
+ *    name exactly as `gethostname` reports it (`<name>.local`). A rebinding
+ *    page's `Host` is the page's own domain, and so is any name DNS answers:
+ *    a bare host name (macOS resolves a single label through the DNS search
+ *    domains), a fully qualified one, or another machine's `.local` name.
  *  - On a WebSocket upgrade or a method that changes state, `Origin` is absent,
  *    is the daemon's own origin (a page the daemon served itself, such as the
  *    APME dashboard), or is the literal `file://` some non-browser clients send.
- *    A browser serialises an opaque origin as `null`, never as `file://`.
+ *    A browser serialises an opaque origin as `null`, never as `file://`. Its
+ *    own origin is this machine at either the port the request was addressed
+ *    to (its `Host`: a browser writes the page's host and port into both, and
+ *    behind a port forward that is not the port this server listens on) or the
+ *    port it listens on.
  *
  * A GET or HEAD keeps local trust whatever its `Origin`. A browser shows a page
  * the answer only from a route that opts in with `Access-Control-Allow-Origin`,
@@ -35,6 +43,11 @@
  * judged as a LAN peer's would be: a pairing token still admits it. An
  * operator approval does not, since it names a device on the network, and
  * approving a loopback address would hand local trust to every page.
+ *
+ * Every test is on ASCII: whitespace is trimmed and case is folded only as
+ * ASCII, and the rest is compared code unit for code unit, which is how the
+ * Swift evaluator reads it too (a browser sends nothing else in these headers).
+ * A Unicode case or space mapping would make the two daemons disagree.
  *
  * `pnpm generate-local-trust-rules` emits the Swift evaluator
  * (`LocalTrustRules.generated.swift`), drift gated by `local-trust-sync.test.ts`;
@@ -62,7 +75,7 @@ export interface LocalTrustEnvironment {
    * addresses, loopback included: the daemon's `isLocalConnection`.
    */
   isLocalAddress: (ip: string) => boolean;
-  /** This machine's host names, in any case, with or without `.local`. */
+  /** This machine's host names (`gethostname`), in any case; only a `.local` one is trusted. */
   hostNames: readonly string[];
 }
 
@@ -79,13 +92,18 @@ const SAFE_METHODS = new Set(LOCAL_TRUST_SAFE_METHODS);
 
 /** Whether a same-machine request may skip the pairing token, and why not. */
 export function localTrustVerdict(req: LocalTrustRequest, env: LocalTrustEnvironment): LocalTrustVerdict {
-  const host = req.host?.trim() ?? '';
-  if (host !== '' && !hostIsThisMachine(host, env)) return 'foreign-host';
-  const checksOrigin = req.upgrade === true || !SAFE_METHODS.has(req.method.trim().toUpperCase());
+  const hostHeader = trimAscii(req.host ?? '');
+  let host: Authority | null = null;
+  if (hostHeader !== '') {
+    host = splitAuthority(hostHeader);
+    // A browser reaches an IP literal without DNS, so rebinding cannot produce one.
+    if (!host || !(isIpLiteral(host.host) || isThisMachineName(host.host, env))) return 'foreign-host';
+  }
+  const checksOrigin = req.upgrade === true || !SAFE_METHODS.has(asciiUpper(trimAscii(req.method)));
   if (!checksOrigin) return 'trusted';
-  const origin = req.origin?.trim() ?? '';
-  if (origin === '' || origin.toLowerCase() === LOCAL_TRUST_FILE_ORIGIN) return 'trusted';
-  return isOwnOrigin(origin, env) ? 'trusted' : 'foreign-origin';
+  const origin = trimAscii(req.origin ?? '');
+  if (origin === '' || asciiLower(origin) === LOCAL_TRUST_FILE_ORIGIN) return 'trusted';
+  return isOwnOrigin(origin, host, env) ? 'trusted' : 'foreign-origin';
 }
 
 /** `localTrustVerdict(...) === 'trusted'`. */
@@ -94,15 +112,28 @@ export function isLocallyTrusted(req: LocalTrustRequest, env: LocalTrustEnvironm
 }
 
 interface Authority {
-  /** Lower case, without brackets or a trailing dot. */
+  /** ASCII lower case, without brackets or a trailing dot. */
   host: string;
   /** Digits, or '' when the authority names no port. */
   port: string;
 }
 
+/** Trim ASCII whitespace only; `String.prototype.trim` also takes Unicode spaces. */
+function trimAscii(text: string): string {
+  return text.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, '');
+}
+
+function asciiLower(text: string): string {
+  return text.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
+function asciiUpper(text: string): string {
+  return text.replace(/[a-z]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 32));
+}
+
 /** Split `host[:port]` or `[ipv6][:port]`; null when it is neither. */
 function splitAuthority(authority: string): Authority | null {
-  const text = authority.trim().toLowerCase();
+  const text = asciiLower(trimAscii(authority));
   let host: string;
   let port = '';
   if (text.startsWith('[')) {
@@ -144,35 +175,34 @@ function withoutZone(host: string): string {
   return percent < 0 ? host : host.slice(0, percent);
 }
 
-function hostIsThisMachine(header: string, env: LocalTrustEnvironment): boolean {
-  const authority = splitAuthority(header);
-  if (!authority) return false;
-  // A browser reaches an IP literal without DNS, so rebinding cannot produce one.
-  return isIpLiteral(authority.host) || isThisMachineName(authority.host, env);
-}
-
 function isThisMachineName(host: string, env: LocalTrustEnvironment): boolean {
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  // Only the mDNS name, which the system resolver answers from this machine's
+  // own records: never a name derived from it, which DNS would answer.
   for (const raw of env.hostNames) {
     const name = splitAuthority(raw)?.host;
-    if (!name) continue;
-    const bare = name.endsWith('.local') ? name.slice(0, -'.local'.length) : name;
-    if (bare !== '' && (host === bare || host === `${bare}.local`)) return true;
+    if (name && name.length > '.local'.length && name.endsWith('.local') && host === name) return true;
   }
   return false;
 }
 
-function isOwnOrigin(origin: string, env: LocalTrustEnvironment): boolean {
+function isOwnOrigin(origin: string, host: Authority | null, env: LocalTrustEnvironment): boolean {
   // A browser never sends a path; a trailing slash from a non-browser client is
   // tolerated, since host and port still have to be this daemon's.
   const match = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)\/?$/i.exec(origin);
   if (!match) return false;
-  const defaultPort = LOCAL_TRUST_DEFAULT_PORTS[match[1].toLowerCase()];
+  const scheme = asciiLower(match[1]);
+  // Own keys only: `constructor://` must not find Object.prototype.constructor.
+  const defaultPort = Object.prototype.hasOwnProperty.call(LOCAL_TRUST_DEFAULT_PORTS, scheme)
+    ? LOCAL_TRUST_DEFAULT_PORTS[scheme]
+    : undefined;
   if (defaultPort === undefined || match[2].includes('@')) return false;
   const authority = splitAuthority(match[2]);
   if (!authority) return false;
   const port = authority.port === '' ? defaultPort : Number(authority.port);
-  if (port !== env.port) return false;
+  const addressed = host !== null && host.host === authority.host
+    && (host.port === '' ? defaultPort : Number(host.port)) === port;
+  if (!addressed && port !== env.port) return false;
   // An IP literal must be this machine's: any address with the daemon's port
   // would admit a page served from another host's server on that port.
   if (isIpLiteral(authority.host)) return env.isLocalAddress(withoutZone(authority.host));

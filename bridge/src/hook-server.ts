@@ -263,8 +263,13 @@ export class HookServer extends EventEmitter {
     this.app.get('/status', (req, res) => {
       if (!this.checkAuth(req, res)) return;
 
-      const token = req.query.token as string || '';
-      const sseUrl = token ? `/sse?token=${token}` : '/sse';
+      // Echo back only the token this bridge issued. A page on this origin
+      // passes every route's local-trust check, so whatever /status reflects
+      // into its script runs with that trust (a crafted ?token= did).
+      const token = req.query.token;
+      const sseUrl = typeof token === 'string' && validateToken(token)
+        ? `/sse?token=${encodeURIComponent(token)}`
+        : '/sse';
 
       debug('Hook', 'GET /status');
       res.type('html').send(statusPageHtml(sseUrl, this.meta));
@@ -507,7 +512,7 @@ function statusPageHtml(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AgentDeck — ${meta.projectName || 'Bridge'}</title>
+<title>AgentDeck — ${esc(meta.projectName || 'Bridge')}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0f172a;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:24px}
@@ -544,7 +549,7 @@ h1{font-size:20px;color:#94a3b8;margin-bottom:16px}
 <div class="banner">AgentDeck Bridge &middot; <a href="https://github.com/agentdeck">GitHub</a></div>
 
 <script>
-const es=new EventSource("${sseUrl}");
+const es=new EventSource(${scriptString(sseUrl)});
 const $=id=>document.getElementById(id);
 const colors=${STATE_COLORS_JS};
 es.addEventListener('state_update',e=>{
@@ -565,6 +570,11 @@ es.addEventListener('usage_update',e=>{
 </script>
 </body>
 </html>`;
+}
+
+/** A JS string literal safe inside an inline <script> (no `</script>` breakout). */
+function scriptString(s: string): string {
+  return JSON.stringify(s).replace(/</g, '\\u003c');
 }
 
 function esc(s: string): string {

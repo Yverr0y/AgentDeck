@@ -172,4 +172,33 @@ describe('HookServer: a same-machine POST', () => {
     });
     expect(answer).toEqual({ status: 200, acao: undefined });
   });
+
+  /** A top-level navigation: a GET with no Origin, which keeps local trust. */
+  function page(path: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port, path }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => { body += chunk; });
+        res.on('end', () => resolve(body));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  // Any page may navigate the browser here, and a script /status runs is on
+  // the bridge's own origin, which every route trusts: a reflected ?token=
+  // used to put the visitor's script there.
+  it('reflects no visitor-supplied token into the /status script', async () => {
+    const crafted = encodeURIComponent('");document.title="PWNED";//');
+    const html = await page(`/status?token=${crafted}`);
+    expect(html).not.toContain('PWNED');
+    expect(html).toContain('new EventSource("/sse")');
+  });
+
+  it('keeps the issued token for a /status page opened with it', async () => {
+    const html = await page(`/status?token=${token}`);
+    expect(html).toContain(`new EventSource(${JSON.stringify(`/sse?token=${encodeURIComponent(token)}`)})`);
+  });
 });

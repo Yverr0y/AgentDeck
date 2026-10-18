@@ -7,7 +7,7 @@ const { environment, cases } = JSON.parse(readFileSync(
   fileURLToPath(new URL('../../local-trust-vectors.json', import.meta.url)), 'utf8',
 )) as {
   environment: { port: number; localAddresses: string[]; hostNames: string[] };
-  cases: Array<{ note: string; request: LocalTrustRequest; verdict: string }>;
+  cases: Array<{ note: string; hostNames?: string[]; request: LocalTrustRequest; verdict: string }>;
 };
 
 const env: LocalTrustEnvironment = {
@@ -22,8 +22,9 @@ describe('local trust (shared vectors)', () => {
   });
   for (const c of cases) {
     it(c.note, () => {
-      expect(localTrustVerdict(c.request, env)).toBe(c.verdict);
-      expect(isLocallyTrusted(c.request, env)).toBe(c.verdict === 'trusted');
+      const caseEnv = c.hostNames ? { ...env, hostNames: c.hostNames } : env;
+      expect(localTrustVerdict(c.request, caseEnv)).toBe(c.verdict);
+      expect(isLocallyTrusted(c.request, caseEnv)).toBe(c.verdict === 'trusted');
     });
   }
 });
@@ -37,14 +38,4 @@ describe('local trust environment', () => {
     expect(asked).toEqual(['fe80::1']);
   });
 
-  it('accepts its own host names with or without .local', () => {
-    const bare: LocalTrustEnvironment = { ...env, hostNames: ['studio-mac'] };
-    expect(localTrustVerdict({ method: 'GET', host: 'Studio-Mac.local:9120' }, bare)).toBe('trusted');
-    expect(localTrustVerdict({ method: 'GET', host: 'studio-mac:9120' }, bare)).toBe('trusted');
-  });
-
-  it('reads an empty host-name entry as no name', () => {
-    const empty: LocalTrustEnvironment = { ...env, hostNames: ['', '.local'] };
-    expect(localTrustVerdict({ method: 'GET', host: 'local:9120' }, empty)).toBe('foreign-host');
-  });
 });

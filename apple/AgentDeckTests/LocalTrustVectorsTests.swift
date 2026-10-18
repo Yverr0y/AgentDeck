@@ -16,6 +16,8 @@ final class LocalTrustVectorsTests: XCTestCase {
     }
     private struct Case: Decodable {
         let note: String
+        /// Replaces environment.hostNames for this case.
+        let hostNames: [String]?
         let request: Request
         let verdict: String
     }
@@ -49,9 +51,12 @@ final class LocalTrustVectorsTests: XCTestCase {
         XCTAssertEqual(Set(file.cases.map(\.verdict)), ["trusted", "foreign-host", "foreign-origin"],
                        "every verdict must be exercised")
         for c in file.cases {
+            let caseEnv = c.hostNames.map {
+                LocalTrustRules.Environment(port: env.port, isLocalAddress: env.isLocalAddress, hostNames: $0)
+            } ?? env
             let verdict = LocalTrustRules.verdict(
                 method: c.request.method, upgrade: c.request.upgrade == true,
-                origin: c.request.origin, host: c.request.host, environment: env)
+                origin: c.request.origin, host: c.request.host, environment: caseEnv)
             XCTAssertEqual(verdict.rawValue, c.verdict, c.note)
         }
     }
@@ -79,8 +84,12 @@ final class LocalTrustVectorsTests: XCTestCase {
         let dashboard = parsed("POST /apme/vibe HTTP/1.1\r\nHost: 127.0.0.1:9120\r\nOrigin: http://127.0.0.1:9120")
         XCTAssertEqual(LocalTrust.verdict(for: dashboard, port: 9120), .trusted,
                        "the dashboard this daemon serves posts with its own origin")
-        XCTAssertEqual(LocalTrust.verdict(for: dashboard, port: 9121), .foreignOrigin,
-                       "own origin means this server's port")
+        let forwarded = parsed("POST /apme/vibe HTTP/1.1\r\nHost: 127.0.0.1:19120\r\nOrigin: http://127.0.0.1:19120")
+        XCTAssertEqual(LocalTrust.verdict(for: forwarded, port: 9120), .trusted,
+                       "through a port forward both headers carry the forwarded port")
+        let otherDaemon = parsed("POST /apme/vibe HTTP/1.1\r\nHost: 127.0.0.1:9121\r\nOrigin: http://127.0.0.1:9120")
+        XCTAssertEqual(LocalTrust.verdict(for: otherDaemon, port: 9121), .foreignOrigin,
+                       "a page the daemon on another port served is not this daemon's")
     }
 
     /// Asked about an IP origin only, without brackets or a zone, as

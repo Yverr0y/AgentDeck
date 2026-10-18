@@ -279,9 +279,13 @@ actor WebSocketServer {
         }
     }
 
-    private static func isWebSocketUpgrade(_ data: Data) -> Bool {
-        guard let text = String(data: data, encoding: .utf8) else { return false }
-        return text.range(of: "upgrade: websocket", options: .caseInsensitive) != nil
+    /// Whether the request's HEADERS ask for an upgrade. The body is not
+    /// looked at: a hook POST whose JSON quotes "upgrade: websocket" was sent
+    /// down the upgrade path and dropped.
+    static func isWebSocketUpgrade(_ data: Data) -> Bool {
+        let headerEnd = data.range(of: Data("\r\n\r\n".utf8))?.lowerBound ?? data.endIndex
+        guard let head = String(data: data[data.startIndex..<headerEnd], encoding: .utf8) else { return false }
+        return head.range(of: "upgrade: websocket", options: .caseInsensitive) != nil
     }
 
     /// Answer an upgrade that did not authenticate with a 401 and close.
