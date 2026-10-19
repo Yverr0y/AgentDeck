@@ -41,6 +41,10 @@ enum ESP32WifiProvisionRules {
         var wifiCredId: String?
         var expectedCredId: String?
         var refreshIps10Endpoint: Bool
+        /// The operator asked for this provision just now (`POST /esp32/wifi`):
+        /// a provision already sent on this connection does not stop it, and old
+        /// firmware gets one send per request.
+        var manual: Bool = false
     }
 
     struct Decision: Equatable {
@@ -55,7 +59,9 @@ enum ESP32WifiProvisionRules {
         guard let board = input.board, !board.isEmpty else {
             return Decision(send: false, reason: "unidentified", legacy: false)
         }
-        if input.provisionSent { return Decision(send: false, reason: "already-sent", legacy: false) }
+        if input.provisionSent, !input.manual {
+            return Decision(send: false, reason: "already-sent", legacy: false)
+        }
         if input.refreshIps10Endpoint, board == endpointRefreshBoard,
            input.wifiConnected == true, input.wifiRadioParked != true {
             return Decision(send: true, reason: "endpoint-refresh", legacy: false)
@@ -66,9 +72,43 @@ enum ESP32WifiProvisionRules {
                 ? Decision(send: false, reason: "credentials-match", legacy: false)
                 : Decision(send: true, reason: "credentials-differ", legacy: false)
         }
+        if input.manual { return Decision(send: true, reason: "operator-request", legacy: false) }
         return input.wifiConfigured == true
             ? Decision(send: false, reason: "legacy-configured", legacy: true)
             : Decision(send: true, reason: "legacy-unconfigured", legacy: true)
+    }
+
+    /// 802.11 caps an SSID at this many octets.
+    static let ssidMaxBytes = 32
+    /// A WPA passphrase is `passwordMinBytes`...`passphraseMaxBytes` bytes;
+    /// exactly `pskHexLength` hex digits is the raw key.
+    static let passwordMinBytes = 8
+    static let passphraseMaxBytes = 63
+    static let pskHexLength = 64
+
+    /// Why a board could not use these credentials (the word `POST /esp32/wifi`
+    /// answers 400 with), or nil when it could. Lengths are UTF-8 bytes.
+    static func credentialsProblem(ssid: String, password: String) -> String? {
+        if ssid.isEmpty { return "ssid-missing" }
+        if hasControlCharacter(ssid) || hasControlCharacter(password) { return "control-character" }
+        if ssid.utf8.count > ssidMaxBytes { return "ssid-too-long" }
+        let passwordBytes = password.utf8.count
+        if passwordBytes < passwordMinBytes { return "password-too-short" }
+        if passwordBytes > passphraseMaxBytes, !(passwordBytes == pskHexLength && isHexKey(password)) {
+            return "password-too-long"
+        }
+        return nil
+    }
+
+    /// C0 controls and DEL.
+    private static func hasControlCharacter(_ text: String) -> Bool {
+        text.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+    }
+
+    private static func isHexKey(_ text: String) -> Bool {
+        !text.isEmpty && text.unicodeScalars.allSatisfy {
+            ("0"..."9").contains($0) || ("a"..."f").contains($0) || ("A"..."F").contains($0)
+        }
     }
 }
 #endif

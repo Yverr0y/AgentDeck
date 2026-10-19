@@ -279,10 +279,11 @@ import {
   describeDaemonPosture,
   resolveDaemonPosture,
 } from './network-posture.js';
-import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendAuthProvisionToAll, sendLegacyRearmProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm } from './esp32-serial.js';
+import { esp32ConnectionCount, esp32SerialRunning, getESP32DeviceInfo, onESP32Message, provisionSerialBoards, sendAuthProvisionToAll, sendLegacyRearmProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm, wifiSetupBoards } from './esp32-serial.js';
 import { buildWifiProvision } from './esp32-wifi-cred.js';
+import { applyWifiSetup, wifiSetupAuthorized, wifiSetupRefusal, wifiSetupStatus, type WifiSetupDeps } from './esp32-wifi-setup.js';
 import { clampLeaseSeconds, clearLease, readLease, writeLease } from './esp32-flash-lease.js';
-import { loadWifiConfig } from './wifi-config.js';
+import { loadWifiConfig, saveWifiConfig } from './wifi-config.js';
 import { getAdbDeviceCountCached, getCachedAdbDevices } from './adb-reverse.js';
 import { getPixooDeviceDetails, pixooDeviceCount } from './pixoo/pixoo-bridge.js';
 import { loadTimeboxDevices } from './timebox/timebox-settings.js';
@@ -2093,6 +2094,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   });
   let relayUplink: RelayUplink | null = null;
 
+  // GET/POST /esp32/wifi. Resolved per request: the port is settled only once
+  // the bind succeeds, and the token can change under a running daemon.
+  const esp32WifiSetupDeps = (): WifiSetupDeps => ({
+    loadConfig: loadWifiConfig,
+    saveConfig: saveWifiConfig,
+    serialRunning: esp32SerialRunning,
+    boards: wifiSetupBoards,
+    provision: provisionSerialBoards,
+    authToken: getOrCreateToken,
+    bridgeIp: getLanIp,
+    bridgePort: port,
+  });
+
   const httpServer = createServer((req, res) => {
     // LAN default-deny (issue #145): a request that is neither same-machine
     // nor token-bearing reaches exactly one route — a minimal GET /health
@@ -2777,6 +2791,38 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       clearLease();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, wasSuspended: was !== null }));
+      return;
+    }
+    // ===== ESP32 WiFi credentials =====
+    // Loopback plus the token as a bearer, like /integrations/zai: the WiFi
+    // password never crosses the LAN. The macOS app's Wi-Fi sheet and
+    // `agentdeck wifi-setup` call this on whichever daemon holds the port; the
+    // Swift daemon answers in the same shape (esp32-wifi-setup.ts).
+    if (pathname === '/esp32/wifi' && (req.method === 'GET' || req.method === 'POST')) {
+      const respond = (result: { status: number; body: Record<string, unknown> }) => {
+        res.writeHead(result.status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(result.body));
+      };
+      if (!wifiSetupAuthorized(req.socket.remoteAddress, req.headers.authorization, validateToken)) {
+        respond(wifiSetupRefusal());
+        return;
+      }
+      if (req.method === 'GET') {
+        respond(wifiSetupStatus(esp32WifiSetupDeps()));
+        return;
+      }
+      req.setTimeout(10_000, () => req.destroy());
+      readJsonBody(req, 4 * 1024).then((body) => {
+        req.setTimeout(0);
+        const result = applyWifiSetup(body, esp32WifiSetupDeps());
+        if (result.status === 200) {
+          const boards = (result.body.boards as Array<{ sent: boolean }>);
+          log(`[agentdeck] ESP32 WiFi credentials updated; provision sent to ${boards.filter((b) => b.sent).length} of ${boards.length} serial board(s)`);
+        }
+        respond(result);
+      }).catch(() => {
+        respond({ status: 400, body: { ok: false, error: 'invalid-body' } });
+      });
       return;
     }
     if (req.method === 'GET' && pathname === '/esp32/serial/status') {
@@ -5168,8 +5214,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // ONE serial message handler. `onESP32Message` REPLACES rather than adds,
     // so a second registration silently unhooks the first — which is why the
     // credential re-arm below shares this callback with WiFi auto-provisioning
-    // instead of registering beside it.
-    const wifiConfig = loadWifiConfig();
+    // instead of registering beside it. The WiFi config is read on each
+    // device_info rather than once here, so credentials saved after startup
+    // (POST /esp32/wifi, `agentdeck wifi-setup`, a hand edit) apply without a
+    // restart.
     const lanIp = getLanIp();
     // Boards flashed before `auth_provision` existed cannot be re-armed by it —
     // they drop the unknown type silently, and the daemon has no way to tell
@@ -5190,6 +5238,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       legacyRearmTimers.delete(portPath);
     };
     onESP32Message((portPath, msg) => {
+      const wifiConfig = msg.type === 'device_info' ? loadWifiConfig() : null;
       // Keep every serial-attached board armed with the token this daemon is
       // actually serving. Deliberately not gated on auto-provision: a board
       // needs a valid credential whether or not this machine hands out WiFi
@@ -5218,9 +5267,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
               // re-armed again when the token next changes, or when the daemon
               // restarts — both of which are real events, unlike a 30s poll.
               legacyRearm.markRearmed(armedPort, currentToken);
+              // The credentials as they are now, not as they were 1.5 s ago.
+              const rearmConfig = loadWifiConfig() ?? wifiConfig;
               const sent = sendLegacyRearmProvision(armedPort, buildWifiProvision({
-                ssid: wifiConfig.ssid,
-                password: wifiConfig.password,
+                ssid: rearmConfig.ssid,
+                password: rearmConfig.password,
                 bridgeIp: lanIp,
                 bridgePort: port,
                 authToken: getOrCreateToken(),
@@ -5242,6 +5293,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         if (msg.changed) log(`[agentdeck] ESP32 pairing token re-armed on ${portPath}`);
       }
 
+      if (msg.type === 'wifi_provision_ack') {
+        log(msg.success ? `[agentdeck] ESP32 WiFi connected: ${msg.ip} ✓` : `[agentdeck] ESP32 WiFi failed: ${msg.error || 'unknown'}`);
+        return;
+      }
       if (!wifiConfig?.autoProvision) return;
       const shouldRefreshIps10Endpoint = msg.type === 'device_info' &&
         msg.board === 'ips_10' &&
@@ -5258,8 +5313,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
           authToken: getOrCreateToken(),
         }));
         if (sent > 0) log(`[agentdeck] WiFi provision sent to ${sent} ESP32 device(s) after ${portPath}`);
-      } else if (msg.type === 'wifi_provision_ack') {
-        log(msg.success ? `[agentdeck] ESP32 WiFi connected: ${msg.ip} ✓` : `[agentdeck] ESP32 WiFi failed: ${msg.error || 'unknown'}`);
       }
     });
   }

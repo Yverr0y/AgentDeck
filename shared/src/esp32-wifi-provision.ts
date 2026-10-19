@@ -84,6 +84,15 @@ export interface WifiProvisionInput {
    * firmware that reads it, and on that board this provision re-joins the AP.
    */
   refreshIps10Endpoint?: boolean;
+  /**
+   * The operator asked for this provision just now (`POST /esp32/wifi`: the
+   * macOS app's Wi-Fi sheet, `agentdeck wifi-setup`). Two rules stand in for
+   * an operator's request and give way to one: a provision that already went
+   * over this connection may have carried the credentials just replaced, and
+   * old firmware gets one send per request rather than its daemon's legacy
+   * rule. A joined board and a board whose id matches are still left alone.
+   */
+  manual?: boolean;
 }
 
 export type WifiProvisionReason =
@@ -95,7 +104,8 @@ export type WifiProvisionReason =
   | 'credentials-match'
   | 'credentials-differ'
   | 'legacy-configured'
-  | 'legacy-unconfigured';
+  | 'legacy-unconfigured'
+  | 'operator-request';
 
 export interface WifiProvisionDecision {
   send: boolean;
@@ -119,7 +129,7 @@ export function wifiProvisionDecision(input: WifiProvisionInput): WifiProvisionD
   // Nothing has confirmed an AgentDeck board on this tty yet, and WiFi
   // credentials are not something to write speculatively.
   if (!input.board) return verdict(false, 'unidentified');
-  if (input.provisionSent) return verdict(false, 'already-sent');
+  if (input.provisionSent && input.manual !== true) return verdict(false, 'already-sent');
   if (input.refreshIps10Endpoint === true &&
       input.board === WIFI_PROVISION_ENDPOINT_REFRESH_BOARD &&
       input.wifiConnected === true &&
@@ -133,7 +143,67 @@ export function wifiProvisionDecision(input: WifiProvisionInput): WifiProvisionD
       ? verdict(false, 'credentials-match')
       : verdict(true, 'credentials-differ');
   }
+  // Nothing says which credentials the board holds, and the operator has just
+  // asked for these: the request is the one-off event the legacy rule guesses at.
+  if (input.manual === true) return verdict(true, 'operator-request');
   return input.wifiConfigured === true
     ? verdict(false, 'legacy-configured', true)
     : verdict(true, 'legacy-unconfigured', true);
+}
+
+/** 802.11 caps an SSID at 32 octets; ESP-IDF refuses a longer one. */
+export const WIFI_SSID_MAX_BYTES = 32;
+
+/**
+ * A WPA/WPA2/WPA3-Personal passphrase is 8–63 characters. Exactly 64 is read as
+ * the raw 256-bit key in hex, by ESP-IDF as by every access point. The firmware
+ * refuses an empty password (`missing credentials`), so an open network has no
+ * provision either. Lengths are UTF-8 bytes: the firmware measures with strlen.
+ */
+export const WIFI_PASSWORD_MIN_BYTES = 8;
+export const WIFI_PASSPHRASE_MAX_BYTES = 63;
+export const WIFI_PSK_HEX_LENGTH = 64;
+
+export type WifiCredentialsProblem =
+  | 'ssid-missing'
+  | 'ssid-too-long'
+  | 'password-too-short'
+  | 'password-too-long'
+  | 'control-character';
+
+/**
+ * Why a board could not use these credentials, or null when it could. Both
+ * daemons refuse `POST /esp32/wifi` with this word (HTTP 400), and the macOS
+ * sheet checks the same rule before it sends. A control character is refused
+ * outright: NUL separates the fields of the credential id, and the firmware
+ * stores C strings.
+ */
+export function wifiCredentialsProblem(ssid: string, password: string): WifiCredentialsProblem | null {
+  if (ssid === '') return 'ssid-missing';
+  if (hasControlCharacter(ssid) || hasControlCharacter(password)) return 'control-character';
+  if (utf8ByteLength(ssid) > WIFI_SSID_MAX_BYTES) return 'ssid-too-long';
+  const passwordBytes = utf8ByteLength(password);
+  if (passwordBytes < WIFI_PASSWORD_MIN_BYTES) return 'password-too-short';
+  if (passwordBytes > WIFI_PASSPHRASE_MAX_BYTES &&
+      !(passwordBytes === WIFI_PSK_HEX_LENGTH && isHexKey(password))) {
+    return 'password-too-long';
+  }
+  return null;
+}
+
+/** C0 controls and DEL. */
+function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x20 || unit === 0x7f) return true;
+  }
+  return false;
+}
+
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+function isHexKey(text: string): boolean {
+  return /^[0-9A-Fa-f]+$/.test(text);
 }

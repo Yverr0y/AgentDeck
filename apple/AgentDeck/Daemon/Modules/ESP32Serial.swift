@@ -57,6 +57,11 @@ actor ESP32Serial {
         var deviceInfo: DeviceInfo?
         var deviceInfoCapturedAt: Date?
         var provisionSent = false
+        /// When this daemon last wrote a `wifi_provision` here (epoch ms; 0 = not
+        /// on this connection).
+        var wifiProvisionSentAt = 0
+        /// The board's `wifi_provision_ack` to that provision; cleared by each new one.
+        var wifiProvisionAck: WifiProvisionAck?
         /// Pairing token most recently pushed over THIS connection, so a re-arm
         /// costs one write per board per token rather than one per device_info
         /// frame. Connection-scoped, not port-keyed: a reconnect must re-arm,
@@ -95,6 +100,147 @@ actor ESP32Serial {
         var fullRefreshCount: Int?
         var usageCodex5H: Int?
         var usageCodex7D: Int?
+    }
+
+    /// A board's `device_info`, as this daemon keeps it.
+    static func deviceInfo(message msg: [String: Any]) -> DeviceInfo {
+        DeviceInfo(
+            board: msg["board"] as? String,
+            version: msg["version"] as? String,
+            protocolRevision: msg["protocolRevision"] as? Int,
+            wifiConfigured: msg["wifiConfigured"] as? Bool,
+            wifiConnected: msg["wifiConnected"] as? Bool,
+            wifiRadioParked: msg["wifiRadioParked"] as? Bool,
+            wifiCredId: msg["wifiCredId"] as? String,
+            repaintCount: msg["repaintCount"] as? Int,
+            fullRefreshCount: msg["fullRefreshCount"] as? Int,
+            usageCodex5H: msg["usageCodex5H"] as? Int,
+            usageCodex7D: msg["usageCodex7D"] as? Int
+        )
+    }
+
+    /// A board's answer to a `wifi_provision`, as it said it
+    /// (Node parity: `WifiProvisionAckRecord` in bridge/src/esp32-serial.ts).
+    struct WifiProvisionAck: Equatable, Sendable {
+        let success: Bool
+        /// The address the board reports; "" when it gave none.
+        let ip: String
+        /// The board's reason for a failure, e.g. `connection failed`; "" on success.
+        let error: String
+        /// When the daemon read the ack (epoch ms).
+        let at: Int
+
+        init(success: Bool, ip: String, error: String, at: Int) {
+            self.success = success
+            self.ip = ip
+            self.error = error
+            self.at = at
+        }
+
+        /// The ack as `wifi_provision_ack` reports it: only a JSON `true` is a
+        /// success, and each text field is a string or nothing.
+        init(message msg: [String: Any], at: Int) {
+            self.init(
+                success: ESP32Serial.isJSONTrue(msg["success"]),
+                ip: ESP32Serial.boardText(msg["ip"], maxUTF16: 45),
+                error: ESP32Serial.boardText(msg["error"], maxUTF16: 80),
+                at: at)
+        }
+
+        var json: [String: Any] { ["success": success, "ip": ip, "error": error, "at": at] }
+    }
+
+    /// What a provision fan-out did with one live serial connection
+    /// (Node parity: `WifiProvisionOutcome`).
+    struct WifiProvisionOutcome: Equatable, Sendable {
+        let port: String
+        /// "" until a board identified over this connection.
+        let board: String
+        let sent: Bool
+        let reason: String
+
+        var json: [String: Any] { ["port": port, "board": board, "sent": sent, "reason": reason] }
+    }
+
+    /// One live serial board as `GET /esp32/wifi` shows it
+    /// (Node parity: `WifiSetupBoardRow`).
+    struct WifiSetupBoardRow: Equatable, Sendable {
+        let port: String
+        /// "" until a board identified over this connection.
+        let board: String
+        let wifiConnected: Bool?
+        let wifiRadioParked: Bool?
+        /// Whether the board's stored credential id is the id of the configured
+        /// credentials. nil when that cannot be told: firmware that predates the
+        /// id, no configured credentials, or no device_info on this connection.
+        /// The id itself is never served (with the token it tests password guesses).
+        let holdsCredentials: Bool?
+        /// When this daemon last wrote a `wifi_provision` here; 0 = not on this connection.
+        let provisionedAt: Int
+        let ack: WifiProvisionAck?
+
+        init(port: String, board: String, wifiConnected: Bool?, wifiRadioParked: Bool?,
+             holdsCredentials: Bool?, provisionedAt: Int, ack: WifiProvisionAck?) {
+            self.port = port
+            self.board = board
+            self.wifiConnected = wifiConnected
+            self.wifiRadioParked = wifiRadioParked
+            self.holdsCredentials = holdsCredentials
+            self.provisionedAt = provisionedAt
+            self.ack = ack
+        }
+
+        init(port: String, deviceInfo: DeviceInfo?, expectedCredId: String?,
+             provisionedAt: Int, ack: WifiProvisionAck?) {
+            var holds: Bool?
+            if let reported = deviceInfo?.wifiCredId, let expected = expectedCredId, !expected.isEmpty {
+                holds = reported == expected
+            }
+            self.init(
+                port: port, board: deviceInfo?.board ?? "", wifiConnected: deviceInfo?.wifiConnected,
+                wifiRadioParked: deviceInfo?.wifiRadioParked, holdsCredentials: holds,
+                provisionedAt: provisionedAt, ack: ack)
+        }
+
+        var json: [String: Any] {
+            [
+                "port": port,
+                "board": board,
+                "wifiConnected": wifiConnected.map { $0 as Any } ?? NSNull(),
+                "wifiRadioParked": wifiRadioParked.map { $0 as Any } ?? NSNull(),
+                "holdsCredentials": holdsCredentials.map { $0 as Any } ?? NSNull(),
+                "provisionedAt": provisionedAt,
+                "ack": ack.map { $0.json as Any } ?? NSNull(),
+            ]
+        }
+    }
+
+    /// Whether a decoded JSON value is the literal `true`. A cast to `Bool`
+    /// also accepts the number 1, which Node's `=== true` refuses.
+    nonisolated static func isJSONTrue(_ value: Any?) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID() && number.boolValue
+    }
+
+    /// A string a board reported, stripped of C0 controls and DEL and clipped
+    /// to `maxUTF16` UTF-16 units without splitting a surrogate pair; "" for
+    /// anything but a string (Node parity: `boardText`).
+    nonisolated static func boardText(_ value: Any?, maxUTF16: Int) -> String {
+        guard let text = value as? String else { return "" }
+        var kept = String.UnicodeScalarView()
+        var units = 0
+        for scalar in text.unicodeScalars where scalar.value >= 0x20 && scalar.value != 0x7F {
+            let width = scalar.utf16.count
+            if units + width > maxUTF16 { break }
+            kept.append(scalar)
+            units += width
+        }
+        return String(kept)
+    }
+
+    /// Now as integer epoch ms, the shape every stamp takes on the wire.
+    nonisolated static func epochMsNow() -> Int {
+        Int((Date().timeIntervalSince1970 * 1000).rounded(.down))
     }
 
     private struct PortFailure {
@@ -509,26 +655,63 @@ actor ESP32Serial {
     /// hold it, comparing each against the credential id this very message
     /// carries. Build `msg` with `wifiProvisionMessage` at send time.
     func sendWifiProvisionToAll(_ msg: [String: Any]) -> Int {
-        guard let data = try? JSONSerialization.data(withJSONObject: msg),
-              let json = String(data: data, encoding: .utf8) else { return 0 }
-        var count = 0
+        provisionBoards(msg, manual: false).filter(\.sent).count
+    }
+
+    /// The provision fan-out, reporting every live connection (Node parity:
+    /// `provisionSerialBoards`): the automatic path (a board's device_info) and
+    /// an operator's request (`POST /esp32/wifi`, `manual`), which the shared
+    /// decision lets through a provision already sent on the connection and
+    /// through old firmware's legacy rule.
+    func provisionBoards(_ msg: [String: Any], manual: Bool) -> [WifiProvisionOutcome] {
+        guard JSONSerialization.isValidJSONObject(msg),
+              let data = try? JSONSerialization.data(withJSONObject: msg),
+              let json = String(data: data, encoding: .utf8) else { return [] }
         let fingerprint = Self.provisionFingerprint(for: msg)
-        let targets = Self.wifiProvisionTargets(
-            connections.map {
-                ProvisionView(port: $0.port, connected: $0.connected,
-                              provisionSent: $0.provisionSent, deviceInfo: $0.deviceInfo)
+        let live = connections.indices.filter { connections[$0].connected }
+        let plan = Self.wifiProvisionPlan(
+            live.map {
+                ProvisionView(port: connections[$0].port, connected: true,
+                              provisionSent: connections[$0].provisionSent,
+                              deviceInfo: connections[$0].deviceInfo)
             },
             msg: msg,
-            fingerprintsByPort: provisionFingerprintsByPort)
-        for i in targets {
-            sendToConnection(&connections[i], json: json)
-            guard connections[i].connected else { continue }
-            connections[i].provisionSent = true
-            provisionFingerprintsByPort[connections[i].port] = fingerprint
-            count += 1
+            fingerprintsByPort: provisionFingerprintsByPort,
+            manual: manual)
+        var outcomes: [WifiProvisionOutcome] = []
+        for entry in plan {
+            let i = live[entry.index]
+            var sent = false
+            if entry.send {
+                sendToConnection(&connections[i], json: json)
+                if connections[i].connected {
+                    markWifiProvisionWritten(&connections[i])
+                    provisionFingerprintsByPort[connections[i].port] = fingerprint
+                    sent = true
+                }
+            }
+            outcomes.append(WifiProvisionOutcome(
+                port: connections[i].port, board: connections[i].deviceInfo?.board ?? "",
+                sent: sent, reason: entry.reason))
         }
         publishStatusShadow()
-        return count
+        return outcomes
+    }
+
+    /// Every live serial board, judged against the credential id of the
+    /// configured credentials (Node parity: `wifiSetupBoards`).
+    func wifiSetupBoards(expectedCredId: String?) -> [WifiSetupBoardRow] {
+        connections.filter(\.connected).map {
+            WifiSetupBoardRow(port: $0.port, deviceInfo: $0.deviceInfo, expectedCredId: expectedCredId,
+                              provisionedAt: $0.wifiProvisionSentAt, ack: $0.wifiProvisionAck)
+        }
+    }
+
+    private func markWifiProvisionWritten(_ conn: inout SerialConnection) {
+        conn.provisionSent = true
+        conn.wifiProvisionSentAt = Self.epochMsNow()
+        // The previous answer described the previous credentials.
+        conn.wifiProvisionAck = nil
     }
 
     /// What the fan-out reads from one connection.
@@ -539,24 +722,42 @@ actor ESP32Serial {
         let deviceInfo: DeviceInfo?
     }
 
-    /// Which connections (indices) a `wifi_provision` goes to, each compared
-    /// against the credential id this very message carries.
-    static func wifiProvisionTargets(
-        _ views: [ProvisionView], msg: [String: Any], fingerprintsByPort: [String: String]
-    ) -> [Int] {
+    /// What the fan-out decides for the connection at `index`.
+    struct ProvisionPlanEntry: Equatable {
+        let index: Int
+        let send: Bool
+        let reason: String
+    }
+
+    /// Each connection's decision for this `wifi_provision`, compared against
+    /// the credential id the message itself carries.
+    static func wifiProvisionPlan(
+        _ views: [ProvisionView], msg: [String: Any], fingerprintsByPort: [String: String],
+        manual: Bool = false
+    ) -> [ProvisionPlanEntry] {
         let fingerprint = provisionFingerprint(for: msg)
         let expectedCredId = msg["credId"] as? String
-        var targets: [Int] = []
-        for (i, view) in views.enumerated() {
+        return views.enumerated().map { i, view in
             let decision = ESP32WifiProvisionRules.decision(wifiProvisionInput(
                 connected: view.connected,
                 provisionSent: view.provisionSent,
                 deviceInfo: view.deviceInfo,
-                expectedCredId: expectedCredId))
+                expectedCredId: expectedCredId,
+                manual: manual))
             let legacySent = fingerprintsByPort[view.port] == fingerprint
-            if shouldSendWifiProvision(decision, legacyFingerprintSent: legacySent) { targets.append(i) }
+            return ProvisionPlanEntry(
+                index: i,
+                send: shouldSendWifiProvision(decision, legacyFingerprintSent: legacySent),
+                reason: decision.reason)
         }
-        return targets
+    }
+
+    /// Which connections (indices) an automatic `wifi_provision` goes to.
+    static func wifiProvisionTargets(
+        _ views: [ProvisionView], msg: [String: Any], fingerprintsByPort: [String: String]
+    ) -> [Int] {
+        wifiProvisionPlan(views, msg: msg, fingerprintsByPort: fingerprintsByPort)
+            .filter(\.send).map(\.index)
     }
 
     /// A `wifi_provision` for one send. The credential id comes from the token
@@ -586,7 +787,8 @@ actor ESP32Serial {
     /// This daemon never re-sends to a radio-up IPS10: `auth_provision` carries
     /// the endpoint, and on that board a provision re-joins the AP.
     static func wifiProvisionInput(
-        connected: Bool, provisionSent: Bool, deviceInfo: DeviceInfo?, expectedCredId: String?
+        connected: Bool, provisionSent: Bool, deviceInfo: DeviceInfo?, expectedCredId: String?,
+        manual: Bool = false
     ) -> ESP32WifiProvisionRules.Input {
         ESP32WifiProvisionRules.Input(
             connected: connected,
@@ -597,7 +799,8 @@ actor ESP32Serial {
             wifiRadioParked: deviceInfo?.wifiRadioParked,
             wifiCredId: deviceInfo?.wifiCredId,
             expectedCredId: expectedCredId,
-            refreshIps10Endpoint: false)
+            refreshIps10Endpoint: false,
+            manual: manual)
     }
 
     /// The shared decision, except where it fell back to the rule that predates
@@ -669,7 +872,7 @@ actor ESP32Serial {
               let json = String(data: data, encoding: .utf8) else { return false }
         sendToConnection(&connections[i], json: json)
         guard connections[i].connected else { return false }
-        connections[i].provisionSent = true
+        markWifiProvisionWritten(&connections[i])
         return true
     }
 
@@ -1105,25 +1308,16 @@ actor ESP32Serial {
 
             if type == "device_info" {
                 let hadDeviceInfo = connections[idx].deviceInfo != nil
-                connections[idx].deviceInfo = DeviceInfo(
-                    board: msg["board"] as? String,
-                    version: msg["version"] as? String,
-                    protocolRevision: msg["protocolRevision"] as? Int,
-                    wifiConfigured: msg["wifiConfigured"] as? Bool,
-                    wifiConnected: msg["wifiConnected"] as? Bool,
-                    wifiRadioParked: msg["wifiRadioParked"] as? Bool,
-                    wifiCredId: msg["wifiCredId"] as? String,
-                    repaintCount: msg["repaintCount"] as? Int,
-                    fullRefreshCount: msg["fullRefreshCount"] as? Int,
-                    usageCodex5H: msg["usageCodex5H"] as? Int,
-                    usageCodex7D: msg["usageCodex7D"] as? Int
-                )
+                connections[idx].deviceInfo = Self.deviceInfo(message: msg)
                 connections[idx].deviceInfoCapturedAt = Date()
                 failedPorts.removeValue(forKey: port)
                 if !hadDeviceInfo {
                     sendInitialState(to: &connections[idx])
                 }
                 publishStatusShadow()
+            }
+            if type == "wifi_provision_ack" {
+                connections[idx].wifiProvisionAck = WifiProvisionAck(message: msg, at: Self.epochMsNow())
             }
 
             onMessage?(port, msg)
@@ -1757,19 +1951,7 @@ actor ESP32Serial {
                   let jsonData = trimmed.data(using: .utf8),
                   let msg = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                   (msg["type"] as? String) == "device_info" else { continue }
-            return DeviceInfo(
-                board: msg["board"] as? String,
-                version: msg["version"] as? String,
-                protocolRevision: msg["protocolRevision"] as? Int,
-                wifiConfigured: msg["wifiConfigured"] as? Bool,
-                wifiConnected: msg["wifiConnected"] as? Bool,
-                wifiRadioParked: msg["wifiRadioParked"] as? Bool,
-                wifiCredId: msg["wifiCredId"] as? String,
-                repaintCount: msg["repaintCount"] as? Int,
-                fullRefreshCount: msg["fullRefreshCount"] as? Int,
-                usageCodex5H: msg["usageCodex5H"] as? Int,
-                usageCodex7D: msg["usageCodex7D"] as? Int
-            )
+            return deviceInfo(message: msg)
         }
         return nil
     }

@@ -273,7 +273,7 @@ No account required. To see the app's features:
 2. Click "Preview Devices" from the menu bar to see how AgentDeck renders sessions on the built-in preview targets — no real hardware required.
 3. After hooks are enabled, sessions the user starts independently appear automatically in the dashboard. AgentDeck never launches Terminal scripts or command-line tools itself.
 4. Click "Pair iPad" to show a QR code the iOS companion app can scan.
-5. Open Settings → Hardware Setup to see the in-app flows for ESP32 and Pixoo provisioning (no subprocess calls; writes serial config directly).
+5. Open Settings → ESP32 & Pixoo to see the in-app flows for ESP32 and Pixoo provisioning (no subprocess calls; the ESP32 sheet hands the Wi-Fi credentials to AgentDeck's own local service, which saves them and writes them to boards on USB serial).
 
 ## Review instructions — iPhone/iPad
 

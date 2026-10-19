@@ -6,7 +6,9 @@ import {
   WIFI_CRED_ID_HEX_LENGTH,
   wifiCredIdComputable,
   wifiCredIdMessage,
+  wifiCredentialsProblem,
   wifiProvisionDecision,
+  type WifiCredentialsProblem,
   type WifiProvisionDecision,
   type WifiProvisionInput,
 } from '../esp32-wifi-provision.js';
@@ -18,6 +20,7 @@ const VECTORS = JSON.parse(readFileSync(
   credIds: Array<{ name: string; token: string; ssid: string; password: string; credId: string | null }>;
   decisionDefaults: WifiProvisionInput;
   decisions: Array<{ name: string; input: Partial<WifiProvisionInput> } & WifiProvisionDecision>;
+  credentials: Array<{ name: string; ssid: string; password: string; problem: WifiCredentialsProblem | null }>;
 };
 
 describe('ESP32 WiFi provision rules (shared vectors)', () => {
@@ -50,6 +53,20 @@ describe('ESP32 WiFi provision rules (shared vectors)', () => {
     for (const reason of [
       'not-connected', 'unidentified', 'already-sent', 'endpoint-refresh', 'wifi-connected',
       'credentials-match', 'credentials-differ', 'legacy-configured', 'legacy-unconfigured',
+      'operator-request',
     ]) expect(reasons).toContain(reason);
+  });
+
+  for (const v of VECTORS.credentials) {
+    it(`credentials: ${v.name}`, () => {
+      expect(wifiCredentialsProblem(v.ssid, v.password)).toBe(v.problem);
+    });
+  }
+
+  it('every credential problem is pinned by a vector', () => {
+    const problems = new Set(VECTORS.credentials.map((v) => v.problem));
+    for (const problem of [
+      null, 'ssid-missing', 'ssid-too-long', 'password-too-short', 'password-too-long', 'control-character',
+    ]) expect(problems).toContain(problem);
   });
 });

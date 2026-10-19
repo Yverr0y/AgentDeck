@@ -432,7 +432,7 @@ not the same act as finding one you never asked for.
 | `agentdeck timebox remove <address>` | Remove a Timebox device |
 | `agentdeck timebox test [target]` | Send one frame (BLE) |
 | `agentdeck timebox sync [target]` | Run foreground Timebox frame sync (BLE) |
-| `agentdeck wifi-setup` | ESP32 WiFi provisioning (serial) |
+| `agentdeck wifi-setup` | Save ESP32 WiFi credentials (`--ssid`, `--password`; SSID from the WiFi interface and password from the Keychain when omitted). With a daemon running, it hands them to that daemon (`POST /esp32/wifi`), which sends them to the boards on USB at once; `--port` names the daemon, otherwise the one this user's registry names. It never probes ports for a daemon, since the request carries the password. With no daemon it only writes `~/.agentdeck/wifi-config.json`, which a Node daemon reads when a board connects; the macOS app's daemon keeps its own copy (Settings → ESP32 & Pixoo → ESP32 boards). See [esp32.md § Setting the credentials](esp32.md#setting-the-credentials-esp32wifi). |
 | `agentdeck esp32 orientation <target> <auto\|portrait\|landscape>` | Persist a T-Display-S3-Pro layout (portrait Pocket ↔ landscape Focus Strip); the board restarts when the layout changes. `auto` = portrait with a camera shield, else landscape. Node daemon only. |
 | `agentdeck esp32-ota <target>` | Push ESP32 firmware over WiFi OTA (`--build` or `--firmware <path>`). Pull staging uses `--stage`; X3/X4 additionally require `--manifest <agentdeck-surface.json>` or both `--product-id` and `--update-channel`. |
 

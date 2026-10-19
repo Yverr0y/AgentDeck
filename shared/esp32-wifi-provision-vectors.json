@@ -1,5 +1,5 @@
 {
-  "comment": "ESP32 WiFi provisioning rules (shared/src/esp32-wifi-provision.ts). Replayed by shared/src/__tests__/esp32-wifi-provision.test.ts, bridge/src/__tests__/esp32-wifi-cred.test.ts (node:crypto) and apple/AgentDeckTests/ESP32WifiProvisionRulesTests.swift (CryptoKit). credId values were cross-checked against Python's hmac module.",
+  "comment": "ESP32 WiFi provisioning rules and credential checks (shared/src/esp32-wifi-provision.ts). Replayed by shared/src/__tests__/esp32-wifi-provision.test.ts, bridge/src/__tests__/esp32-wifi-cred.test.ts (node:crypto) and apple/AgentDeckTests/ESP32WifiProvisionRulesTests.swift (CryptoKit). credId values were cross-checked against Python's hmac module.",
   "domain": "agentdeck-wifi-cred-v1",
   "hexLength": 16,
   "credIds": [
@@ -180,6 +180,64 @@
       "name": "absent WiFi fields read as not configured",
       "input": { "expectedCredId": "4fbb066b2801b4ae" },
       "send": true, "reason": "legacy-unconfigured", "legacy": true
+    },
+    {
+      "name": "an operator request is not stopped by the provision already sent on this connection",
+      "input": { "manual": true, "provisionSent": true, "wifiConnected": false, "wifiRadioParked": true, "wifiCredId": "7de137f03d5a8983", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "credentials-differ", "legacy": false
+    },
+    {
+      "name": "an operator request does not re-send credentials the board already holds",
+      "input": { "manual": true, "provisionSent": true, "wifiConnected": false, "wifiRadioParked": true, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "credentials-match", "legacy": false
+    },
+    {
+      "name": "an operator request leaves a joined board alone",
+      "input": { "manual": true, "wifiConnected": true, "wifiRadioParked": false, "wifiCredId": "7de137f03d5a8983", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "wifi-connected", "legacy": false
+    },
+    {
+      "name": "an operator request reaches old firmware that reports saved credentials",
+      "input": { "manual": true, "provisionSent": true, "wifiConnected": false, "wifiRadioParked": true, "wifiConfigured": true, "expectedCredId": "4fbb066b2801b4ae" },
+      "send": true, "reason": "operator-request", "legacy": false
+    },
+    {
+      "name": "an operator request with no id to offer",
+      "input": { "manual": true, "wifiConnected": false, "wifiConfigured": true, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": null },
+      "send": true, "reason": "operator-request", "legacy": false
+    },
+    {
+      "name": "an operator request still needs a board that identified here",
+      "input": { "manual": true, "board": null, "wifiConnected": false },
+      "send": false, "reason": "unidentified", "legacy": false
+    },
+    {
+      "name": "manual false is an automatic decision",
+      "input": { "manual": false, "provisionSent": true, "wifiConnected": false, "wifiConfigured": true, "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "already-sent", "legacy": false
     }
+  ],
+  "credentials": [
+    { "name": "ordinary credentials", "ssid": "AgentDeck-Lab", "password": "correct horse battery staple", "problem": null },
+    { "name": "no SSID", "ssid": "", "password": "correct horse battery staple", "problem": "ssid-missing" },
+    { "name": "a 32-byte SSID", "ssid": "abcdefghijklmnopqrstuvwxyz012345", "problem": null, "password": "correct horse battery staple" },
+    { "name": "a 33-byte SSID", "ssid": "abcdefghijklmnopqrstuvwxyz0123456", "password": "correct horse battery staple", "problem": "ssid-too-long" },
+    { "name": "SSID length is UTF-8 bytes: 10 Hangul syllables and 2 letters are 32", "ssid": "카페와이파이카페와이ab", "password": "correct horse battery staple", "problem": null },
+    { "name": "SSID length is UTF-8 bytes: 11 Hangul syllables are 33", "ssid": "카페와이파이카페와이파", "password": "correct horse battery staple", "problem": "ssid-too-long" },
+    { "name": "no password (the firmware refuses an open network)", "ssid": "AgentDeck-Lab", "password": "", "problem": "password-too-short" },
+    { "name": "a 7-byte password", "ssid": "AgentDeck-Lab", "password": "seven77", "problem": "password-too-short" },
+    { "name": "an 8-byte password", "ssid": "AgentDeck-Lab", "password": "eight888", "problem": null },
+    { "name": "password length is UTF-8 bytes: 3 kanji are 9", "ssid": "AgentDeck-Lab", "password": "日本語", "problem": null },
+    { "name": "password length is UTF-8 bytes: 2 kanji are 6", "ssid": "AgentDeck-Lab", "password": "日本", "problem": "password-too-short" },
+    { "name": "two emoji are 8 bytes (4 UTF-16 units)", "ssid": "AgentDeck-Lab", "password": "🙂🙂", "problem": null },
+    { "name": "a 63-byte passphrase", "ssid": "AgentDeck-Lab", "password": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "problem": null },
+    { "name": "64 hex digits are a raw key", "ssid": "AgentDeck-Lab", "password": "0123456789abcdef0123456789ABCDEF0123456789abcdef0123456789ABCDEF", "problem": null },
+    { "name": "64 characters that are not hex", "ssid": "AgentDeck-Lab", "password": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg", "problem": "password-too-long" },
+    { "name": "65 hex digits", "ssid": "AgentDeck-Lab", "password": "00000000000000000000000000000000000000000000000000000000000000000", "problem": "password-too-long" },
+    { "name": "NUL in the password", "ssid": "AgentDeck-Lab", "password": "pass\u0000word1", "problem": "control-character" },
+    { "name": "a newline in the SSID", "ssid": "Desk\nNet", "password": "correct horse battery staple", "problem": "control-character" },
+    { "name": "a tab in the password", "ssid": "AgentDeck-Lab", "password": "pass\tword1", "problem": "control-character" },
+    { "name": "DEL in the password", "ssid": "AgentDeck-Lab", "password": "password\u007f", "problem": "control-character" },
+    { "name": "a control character is reported before a length", "ssid": "Desk\u0001Net", "password": "short", "problem": "control-character" }
   ]
 }
