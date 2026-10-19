@@ -1060,6 +1060,7 @@
       "icon": "▦",
       "match": [
         "bridge/src/__tests__/esp32-*.test.ts",
+        "bridge/src/__tests__/wifi-config.test.ts",
         "scripts/__tests__/esp32-*.test.ts",
         "bridge/src/__tests__/pixoo-*.test.ts",
         "bridge/src/__tests__/timebox-*.test.ts",
