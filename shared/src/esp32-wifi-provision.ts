@@ -82,6 +82,7 @@ export interface WifiProvisionInput {
    * The Node daemon has done this since 2026-07-07. The Swift daemon never
    * has, and does not start now: `auth_provision` carries the endpoint to any
    * firmware that reads it, and on that board this provision re-joins the AP.
+   * An operator's request never makes one: it leaves a joined board alone.
    */
   refreshIps10Endpoint?: boolean;
   /**
@@ -90,7 +91,8 @@ export interface WifiProvisionInput {
    * an operator's request and give way to one: a provision that already went
    * over this connection may have carried the credentials just replaced, and
    * old firmware gets one send per request rather than its daemon's legacy
-   * rule. A joined board and a board whose id matches are still left alone.
+   * rule. A joined board and a board whose id matches are still left alone:
+   * a request must not re-join an IPS10's access point each time it is made.
    */
   manual?: boolean;
 }
@@ -130,7 +132,7 @@ export function wifiProvisionDecision(input: WifiProvisionInput): WifiProvisionD
   // credentials are not something to write speculatively.
   if (!input.board) return verdict(false, 'unidentified');
   if (input.provisionSent && input.manual !== true) return verdict(false, 'already-sent');
-  if (input.refreshIps10Endpoint === true &&
+  if (input.refreshIps10Endpoint === true && input.manual !== true &&
       input.board === WIFI_PROVISION_ENDPOINT_REFRESH_BOARD &&
       input.wifiConnected === true &&
       input.wifiRadioParked !== true) {
@@ -206,4 +208,47 @@ function utf8ByteLength(text: string): number {
 
 function isHexKey(text: string): boolean {
   return /^[0-9A-Fa-f]+$/.test(text);
+}
+
+/**
+ * How long after the latest provision a board's answer to it may still come.
+ * The board answers a provision within about 11 s of starting it (it waits up
+ * to 10 s for the join), a little later when something else held it, and it
+ * takes provisions one at a time; an answer owed for longer than this was lost
+ * (the board reset, or a line was dropped while it was busy joining).
+ */
+export const WIFI_PROVISION_ACK_TIMEOUT_MS = 30_000;
+
+/**
+ * Which provision a `wifi_provision_ack` answers. The board answers one
+ * provision at a time, in the order written, and its ack names none, so each
+ * serial connection counts the answers it is owed: an ack that arrives while a
+ * later provision is still owed one answers an earlier provision, and must not
+ * be shown as the later one's result.
+ */
+export interface WifiProvisionAckLedger {
+  /** Provisions written on this connection whose ack has not come. */
+  owed: number;
+  /** When the latest was written (epoch ms); 0 = none. */
+  lastWriteAt: number;
+}
+
+export const WIFI_PROVISION_ACK_LEDGER_EMPTY: WifiProvisionAckLedger = { owed: 0, lastWriteAt: 0 };
+
+/** The ledger after writing a provision at `now` (epoch ms). */
+export function wifiProvisionAckWritten(ledger: WifiProvisionAckLedger, now: number): WifiProvisionAckLedger {
+  const lost = ledger.owed > 0 && now - ledger.lastWriteAt > WIFI_PROVISION_ACK_TIMEOUT_MS;
+  return { owed: (lost ? 0 : ledger.owed) + 1, lastWriteAt: now };
+}
+
+/**
+ * An ack arrived: whether it answers the latest provision, and the ledger
+ * after it. An ack nothing was owed for (a provision from before this
+ * connection's count began) is taken as the latest answer.
+ */
+export function wifiProvisionAckAnswered(
+  ledger: WifiProvisionAckLedger,
+): { latest: boolean; ledger: WifiProvisionAckLedger } {
+  if (ledger.owed > 1) return { latest: false, ledger: { owed: ledger.owed - 1, lastWriteAt: ledger.lastWriteAt } };
+  return { latest: true, ledger: { owed: 0, lastWriteAt: ledger.lastWriteAt } };
 }

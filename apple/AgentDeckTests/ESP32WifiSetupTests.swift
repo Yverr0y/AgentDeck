@@ -27,8 +27,8 @@ final class ESP32WifiSetupTests: XCTestCase {
     private func ack(_ value: Any?) -> ESP32Serial.WifiProvisionAck? {
         guard let fields = value as? [String: Any] else { return nil }
         return ESP32Serial.WifiProvisionAck(
-            success: fields["success"] as? Bool ?? false, ip: fields["ip"] as? String ?? "",
-            error: fields["error"] as? String ?? "", at: int(fields["at"]))
+            success: fields["success"] as? Bool ?? false, joined: ESP32Serial.jsonBool(fields["joined"]),
+            ip: fields["ip"] as? String ?? "", error: fields["error"] as? String ?? "", at: int(fields["at"]))
     }
 
     /// What the fake dependencies saw.
@@ -194,24 +194,89 @@ final class ESP32WifiSetupTests: XCTestCase {
         XCTAssertFalse(cases.isEmpty)
         for vector in cases {
             let name = vector["name"] as? String ?? "?"
-            let recorded = try XCTUnwrap(vector["recorded"] as? [String: Any], name)
-            let ack = ESP32Serial.WifiProvisionAck(
-                message: try XCTUnwrap(vector["message"] as? [String: Any], name), at: 1)
-            XCTAssertEqual(ack.success, recorded["success"] as? Bool, name)
-            XCTAssertEqual(ack.ip, recorded["ip"] as? String, name)
-            XCTAssertEqual(ack.error, recorded["error"] as? String, name)
+            var recorded = try XCTUnwrap(vector["recorded"] as? [String: Any], name)
+            recorded["at"] = 7
+            let message = try XCTUnwrap(vector["message"] as? [String: Any], name)
+            let ack = ESP32Serial.WifiProvisionAck(message: message, at: 7)
+            XCTAssertEqual(try canonical(ack.json), try canonical(recorded), name)
+            // The sheet reads the field as served, null included.
+            let decoded = try JSONDecoder().decode(
+                ESP32WifiStatus.Ack.self, from: JSONSerialization.data(withJSONObject: ack.json))
+            XCTAssertEqual(decoded.joined, ack.joined, name)
+            // A connection owed nothing keeps it, as the board's line does in Node.
+            var conn = connection()
+            ESP32Serial.recordWifiProvisionAck(&conn, message: message, now: 7)
+            XCTAssertEqual(conn.wifiProvisionAck, ack, name)
         }
     }
 
-    func testBodyParsingMatchesNodesReader() async throws {
+    private func connection() -> ESP32Serial.SerialConnection {
+        ESP32Serial.SerialConnection(port: "/dev/cu.ack", fd: -1, writeHandle: nil, readHandle: nil)
+    }
+
+    func testAnAckWhileALaterProvisionIsOwedOneAnswersTheEarlierProvision() {
+        var conn = connection()
+        ESP32Serial.markWifiProvisionWritten(&conn, now: 1_000)
+        ESP32Serial.markWifiProvisionWritten(&conn, now: 2_000)
+        // The board answers in order: this is the first provision's answer.
+        ESP32Serial.recordWifiProvisionAck(
+            &conn, message: ["type": "wifi_provision_ack", "success": false, "error": "connection failed"], now: 3_000)
+        XCTAssertNil(conn.wifiProvisionAck)
+        ESP32Serial.recordWifiProvisionAck(
+            &conn, message: ["type": "wifi_provision_ack", "success": true, "joined": false], now: 4_000)
+        XCTAssertEqual(conn.wifiProvisionAck,
+                       ESP32Serial.WifiProvisionAck(success: true, joined: false, ip: "", error: "", at: 4_000))
+        XCTAssertEqual(conn.wifiProvisionAckLedger, ESP32WifiProvisionRules.AckLedger(owed: 0, lastWriteAt: 2_000))
+        XCTAssertEqual(conn.wifiProvisionSentAt, 2_000)
+    }
+
+    func testAnAckOwedPastTheSharedTimeoutIsPresumedLostAtTheNextWrite() {
+        var conn = connection()
+        ESP32Serial.markWifiProvisionWritten(&conn, now: 1_000)
+        ESP32Serial.markWifiProvisionWritten(&conn, now: 1_000 + ESP32WifiProvisionRules.ackTimeoutMs + 1)
+        ESP32Serial.recordWifiProvisionAck(
+            &conn, message: ["type": "wifi_provision_ack", "success": true, "joined": true, "ip": "192.168.1.23"],
+            now: 40_000)
+        XCTAssertEqual(conn.wifiProvisionAck?.joined, true)
+        XCTAssertEqual(conn.wifiProvisionAck?.ip, "192.168.1.23")
+    }
+
+    func testTheLogSaysConnectedOnlyForABoardThatJoined() {
+        func line(_ fields: [String: Any]) -> String {
+            ESP32Serial.WifiProvisionAck(message: fields, at: 0).logLine
+        }
+        XCTAssertEqual(line(["success": true, "joined": true, "ip": "192.168.1.23"]), "WiFi connected: 192.168.1.23 \u{2713}")
+        XCTAssertEqual(line(["success": true, "joined": false, "ip": "192.168.1.23"]),
+                       "WiFi credentials saved; the board joins when it leaves USB")
+        XCTAssertEqual(line(["success": true, "ip": "192.168.1.23"]), "WiFi credentials accepted")
+        XCTAssertEqual(line(["success": false, "error": "connection failed"]), "WiFi failed: connection failed")
+    }
+
+    func testBodyVectors() throws {
         XCTAssertEqual(try canonical(ESP32WifiSetup.parseBody(nil)), "{}", "no body reads as an empty object")
-        XCTAssertEqual(try canonical(ESP32WifiSetup.parseBody(Data())), "{}")
-        XCTAssertNil(ESP32WifiSetup.parseBody(Data("{\"ssid\":".utf8)), "not JSON")
-        XCTAssertNil(ESP32WifiSetup.parseBody(Data("\u{FEFF}{}".utf8)), "JSON.parse refuses a BOM")
-        let long = "{\"ssid\":\"" + String(repeating: "x", count: ESP32WifiSetup.maxBodyBytes) + "\"}"
-        XCTAssertNil(ESP32WifiSetup.parseBody(Data(long.utf8)), "over the 4 KiB limit")
-        // A bare string is JSON; apply refuses it rather than the parser.
-        XCTAssertEqual(ESP32WifiSetup.parseBody(Data("\"DeskNet\"".utf8)) as? String, "DeskNet")
+        let cases = try XCTUnwrap(try vectors()["bodies"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for vector in cases {
+            let name = vector["name"] as? String ?? "?"
+            var bytes: Data
+            if let hex = vector["hex"] as? String {
+                bytes = Data(stride(from: 0, to: hex.count, by: 2).compactMap { offset -> UInt8? in
+                    let start = hex.index(hex.startIndex, offsetBy: offset)
+                    return UInt8(hex[start..<hex.index(start, offsetBy: 2)], radix: 16)
+                })
+            } else {
+                bytes = Data((try XCTUnwrap(vector["text"] as? String, name)).utf8)
+            }
+            if let padTo = vector["padTo"] as? Int {
+                bytes.append(Data(repeating: 0x20, count: padTo - bytes.count))
+            }
+            let parsed = ESP32WifiSetup.parseBody(bytes)
+            if try XCTUnwrap(vector["valid"] as? Bool, name) {
+                XCTAssertEqual(try canonical(parsed), try canonical(vector["value"]), name)
+            } else {
+                XCTAssertNil(parsed, name)
+            }
+        }
     }
 
     // MARK: - The route handler the daemon registers
@@ -291,12 +356,23 @@ final class ESP32WifiSetupTests: XCTestCase {
             ESP32WifiStatus.Board(port: "/dev/cu.x", board: name, wifiConnected: connected, wifiRadioParked: true,
                                   holdsCredentials: holds, provisionedAt: provisionedAt, ack: ack)
         }
-        let joined = ESP32WifiStatus.Ack(success: true, ip: "192.168.1.23", error: "", at: 2)
-        let failed = ESP32WifiStatus.Ack(success: false, ip: "", error: "connection failed", at: 2)
+        let joined = ESP32WifiStatus.Ack(success: true, joined: true, ip: "192.168.1.23", error: "", at: 2)
+        let saved = ESP32WifiStatus.Ack(success: true, joined: false, ip: "", error: "", at: 2)
+        let older = ESP32WifiStatus.Ack(success: true, joined: nil, ip: "192.168.1.23", error: "", at: 2)
+        let failed = ESP32WifiStatus.Ack(success: false, joined: false, ip: "", error: "connection failed", at: 2)
+        let unsaved = ESP32WifiStatus.Ack(success: false, joined: false, ip: "", error: "credentials not saved", at: 2)
         XCTAssertEqual(ESP32WifiBoardLine.describe(board(provisionedAt: 1, ack: joined), outcome: nil),
                        .ok("Joined Wi-Fi at 192.168.1.23"))
+        // A serial-primary board stays off Wi-Fi while it is on USB.
+        XCTAssertEqual(ESP32WifiBoardLine.describe(board(provisionedAt: 1, ack: saved), outcome: nil),
+                       .ok("Saved — the board switches to Wi-Fi when it's off USB"))
+        // Older firmware does not say, and its address may be an earlier join's.
+        XCTAssertEqual(ESP32WifiBoardLine.describe(board(provisionedAt: 1, ack: older), outcome: nil),
+                       .ok("The board accepted the credentials"))
         XCTAssertEqual(ESP32WifiBoardLine.describe(board(provisionedAt: 1, ack: failed), outcome: nil),
                        .failed("Couldn't join Wi-Fi: connection failed"))
+        XCTAssertEqual(ESP32WifiBoardLine.describe(board(provisionedAt: 1, ack: unsaved), outcome: nil),
+                       .failed("The board couldn't save the credentials"))
         guard case .waiting = ESP32WifiBoardLine.describe(board(provisionedAt: 1), outcome: nil) else {
             return XCTFail("a sent provision with no answer is still waiting")
         }

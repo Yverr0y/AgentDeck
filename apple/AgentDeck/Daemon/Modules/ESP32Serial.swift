@@ -62,6 +62,10 @@ actor ESP32Serial {
         var wifiProvisionSentAt = 0
         /// The board's `wifi_provision_ack` to that provision; cleared by each new one.
         var wifiProvisionAck: WifiProvisionAck?
+        /// How many `wifi_provision`s here still owe an ack: the board answers in
+        /// order and names none, so an ack that arrives while a later one is owed
+        /// answers an earlier provision.
+        var wifiProvisionAckLedger = ESP32WifiProvisionRules.AckLedger()
         /// Pairing token most recently pushed over THIS connection, so a re-arm
         /// costs one write per board per token rather than one per device_info
         /// frame. Connection-scoped, not port-keyed: a reconnect must re-arm,
@@ -123,6 +127,11 @@ actor ESP32Serial {
     /// (Node parity: `WifiProvisionAckRecord` in bridge/src/esp32-serial.ts).
     struct WifiProvisionAck: Equatable, Sendable {
         let success: Bool
+        /// Whether the board joined the network (true) or only saved the
+        /// credentials for when it leaves USB (false: the serial-primary boards).
+        /// nil when the firmware predates the field: its `success` may then mean
+        /// either, and its `ip` may be an address from an earlier join.
+        let joined: Bool?
         /// The address the board reports; "" when it gave none.
         let ip: String
         /// The board's reason for a failure, e.g. `connection failed`; "" on success.
@@ -130,24 +139,40 @@ actor ESP32Serial {
         /// When the daemon read the ack (epoch ms).
         let at: Int
 
-        init(success: Bool, ip: String, error: String, at: Int) {
+        init(success: Bool, joined: Bool?, ip: String, error: String, at: Int) {
             self.success = success
+            self.joined = joined
             self.ip = ip
             self.error = error
             self.at = at
         }
 
         /// The ack as `wifi_provision_ack` reports it: only a JSON `true` is a
-        /// success, and each text field is a string or nothing.
+        /// success, only a JSON boolean says whether the board joined, and each
+        /// text field is a string or nothing.
         init(message msg: [String: Any], at: Int) {
             self.init(
                 success: ESP32Serial.isJSONTrue(msg["success"]),
+                joined: ESP32Serial.jsonBool(msg["joined"]),
                 ip: ESP32Serial.boardText(msg["ip"], maxUTF16: 45),
                 error: ESP32Serial.boardText(msg["error"], maxUTF16: 80),
                 at: at)
         }
 
-        var json: [String: Any] { ["success": success, "ip": ip, "error": error, "at": at] }
+        var json: [String: Any] {
+            ["success": success, "joined": joined.map { $0 as Any } ?? NSNull(), "ip": ip, "error": error, "at": at]
+        }
+
+        /// The log line (Node parity: `describeWifiProvisionAck`). It says
+        /// connected only for a board that says it joined.
+        var logLine: String {
+            guard success else { return "WiFi failed: \(error.isEmpty ? "unknown" : error)" }
+            switch joined {
+            case true?: return ip.isEmpty ? "WiFi connected \u{2713}" : "WiFi connected: \(ip) \u{2713}"
+            case false?: return "WiFi credentials saved; the board joins when it leaves USB"
+            case nil: return "WiFi credentials accepted"
+            }
+        }
     }
 
     /// What a provision fan-out did with one live serial connection
@@ -218,8 +243,14 @@ actor ESP32Serial {
     /// Whether a decoded JSON value is the literal `true`. A cast to `Bool`
     /// also accepts the number 1, which Node's `=== true` refuses.
     nonisolated static func isJSONTrue(_ value: Any?) -> Bool {
-        guard let number = value as? NSNumber else { return false }
-        return CFGetTypeID(number) == CFBooleanGetTypeID() && number.boolValue
+        jsonBool(value) == true
+    }
+
+    /// A decoded JSON boolean, or nil for anything else: the number 1 is not
+    /// `true` here, as in Node's `typeof value === 'boolean'`.
+    nonisolated static func jsonBool(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
     }
 
     /// A string a board reported, stripped of C0 controls and DEL and clipped
@@ -708,10 +739,26 @@ actor ESP32Serial {
     }
 
     private func markWifiProvisionWritten(_ conn: inout SerialConnection) {
+        Self.markWifiProvisionWritten(&conn, now: Self.epochMsNow())
+    }
+
+    /// Stamp a provision write (Node parity: `writeWifiProvision`, after its send).
+    nonisolated static func markWifiProvisionWritten(_ conn: inout SerialConnection, now: Int) {
         conn.provisionSent = true
-        conn.wifiProvisionSentAt = Self.epochMsNow()
+        conn.wifiProvisionSentAt = now
+        conn.wifiProvisionAckLedger = ESP32WifiProvisionRules.ackWritten(conn.wifiProvisionAckLedger, now: now)
         // The previous answer described the previous credentials.
         conn.wifiProvisionAck = nil
+    }
+
+    /// Keep a board's `wifi_provision_ack` as the answer to the latest
+    /// provision, unless a later provision is still owed one (Node parity:
+    /// `recordWifiProvisionAck`).
+    nonisolated static func recordWifiProvisionAck(_ conn: inout SerialConnection, message: [String: Any], now: Int) {
+        let answer = ESP32WifiProvisionRules.ackAnswered(conn.wifiProvisionAckLedger)
+        conn.wifiProvisionAckLedger = answer.ledger
+        guard answer.latest else { return }
+        conn.wifiProvisionAck = WifiProvisionAck(message: message, at: now)
     }
 
     /// What the fan-out reads from one connection.
@@ -1317,7 +1364,7 @@ actor ESP32Serial {
                 publishStatusShadow()
             }
             if type == "wifi_provision_ack" {
-                connections[idx].wifiProvisionAck = WifiProvisionAck(message: msg, at: Self.epochMsNow())
+                Self.recordWifiProvisionAck(&connections[idx], message: msg, now: Self.epochMsNow())
             }
 
             onMessage?(port, msg)

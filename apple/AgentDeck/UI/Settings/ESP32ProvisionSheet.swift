@@ -33,10 +33,12 @@ struct ESP32ProvisionSheet: View {
     @State private var applying = false
     @State private var applyError: String?
     @State private var lastApply: ESP32WifiApplyResult?
+    @State private var applyTask: Task<Void, Never>?
     @State private var watchTask: Task<Void, Never>?
 
-    /// Seconds the sheet keeps asking for answers from the boards it sent to.
-    private static let ackWatchSeconds = 20
+    /// Seconds the sheet keeps asking for answers from the boards it sent to:
+    /// as long as the daemons hold a provision owed its ack.
+    private static let ackWatchSeconds = ESP32WifiProvisionRules.ackTimeoutMs / 1000
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -51,7 +53,11 @@ struct ESP32ProvisionSheet: View {
         .frame(width: 500, height: 540)
         .aquariumSurface()
         .task { await load(prefill: true) }
-        .onDisappear { watchTask?.cancel() }
+        .onDisappear {
+            // Neither may outlive the sheet: each asks the daemon again with its token.
+            applyTask?.cancel()
+            watchTask?.cancel()
+        }
     }
 
     // MARK: - Sections
@@ -243,17 +249,20 @@ struct ESP32ProvisionSheet: View {
         applying = true
         applyError = nil
         let request = (ssid: ssid, password: password, autoProvision: autoProvision)
-        Task {
+        applyTask = Task {
             defer { applying = false }
             do {
                 let result = try await ESP32WifiSetupClient.apply(
                     port: daemonPort, ssid: request.ssid, password: request.password,
                     autoProvision: request.autoProvision)
+                if Task.isCancelled { return }
                 lastApply = result
                 await load(prefill: false)
+                // A watch started after the sheet closed would never be cancelled.
+                if Task.isCancelled { return }
                 watchAcks(Set(result.boards.filter(\.sent).map(\.port)))
             } catch {
-                applyError = error.localizedDescription
+                if !Task.isCancelled { applyError = error.localizedDescription }
             }
         }
     }

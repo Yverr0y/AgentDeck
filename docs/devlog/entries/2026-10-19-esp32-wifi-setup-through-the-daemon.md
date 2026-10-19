@@ -30,6 +30,26 @@ else. Each connection records the board's `wifi_provision_ack`, and a `GET`
 reports it. The sheet and the CLI both call the route on the daemon that holds
 the port. Contract: [docs/esp32.md](docs/esp32.md#setting-the-credentials-esp32wifi).
 
+**What an adversarial review of the first version found.**
+
+- The sheet said "Joined Wi-Fi at <ip>" for any successful ack. A
+  serial-primary board (T-Display-S3-Pro, the e-ink panels, an IPS10 without
+  voice) only saves the credentials while it is on USB, and its ack carried
+  whatever address an earlier join had left in the firmware's buffer. The ack
+  now says `joined`, and carries an address only for a join. Older firmware
+  does not say, and the sheet then claims only that the board accepted them.
+- A board answers provisions in order and names none, so an ack for an earlier
+  provision could be shown as the answer to a later one. Each connection now
+  counts the acks it is owed, and the count expires after 30 s.
+- The Swift daemon cached the config it last read, so a file written while it
+  stood down was not seen until the app restarted. Both daemons now read the
+  file on every `device_info`.
+- An operator request re-provisioned an IPS10 whose radio was up (the Node
+  endpoint refresh). That is the automatic path's job, so a request no longer
+  makes one.
+- The CLI sent the password to whatever answered on the registered port. It
+  now requires that port's `/health` to report the registered pid.
+
 **Rejected alternatives.**
 
 - *Keep the sheet's serial write and send `wifi_provision` instead.* It would
@@ -42,8 +62,15 @@ the port. Contract: [docs/esp32.md](docs/esp32.md#setting-the-credentials-esp32w
   Wi-Fi password. The CLI uses this user's registry or an explicit `--port`.
   With neither, it writes the file only and says that the macOS app keeps its
   own copy.
-- *Same-machine trust as the gate.* Any local process could then replace the
-  network every board joins.
+- *Same-machine trust alone as the gate.* A local program could then replace
+  the network every board joins while holding nothing. The bearer does not shut
+  that out either, since a local program can read the token from the daemon's
+  loopback `/health`. It does keep out a browser page, which reaches the port
+  from 127.0.0.1 and has been judged as a LAN peer since #583. Loopback keeps
+  out the token's other holders, the paired LAN devices.
+- *Have the board name the provision it answers.* Every board in the field
+  answers without an id, and in order. Counting what each connection is owed
+  works with all of them.
 
 **Parity traps found while porting the route to Swift.** Each is now a vector in
 `shared/esp32-wifi-setup-vectors.json`.
@@ -58,11 +85,20 @@ the port. Contract: [docs/esp32.md](docs/esp32.md#setting-the-credentials-esp32w
   surrogate pair. The lone half that results is something a Swift `String`
   cannot hold, so the two daemons could not answer alike. Both now back off one
   unit.
+- The request body, measured on macOS 26 by the `bodies` vectors: Foundation's
+  `JSONSerialization` accepts a comma before a closing bracket and keeps the
+  first of two equal keys, while `JSON.parse` refuses the comma and keeps the
+  last. The same request could therefore save different credentials, or none,
+  depending on which daemon held the port. Both daemons now refuse either one.
+  Both had also decoded bytes that were not UTF-8 by replacing them, and the two
+  decoders do not replace alike. Such bytes are now refused too.
 
 **Not covered.** No board has been driven through the new route yet. The owner
 deferred device checks, and the tests cover the decision, the route and the
-sheet's wording. The session bridge's `wifi_provision` handler in
-`bridge/src/index.ts` is unreachable, since session bridges never open serial.
-`bridge/src/wifi-config.ts` ignores `AGENTDECK_DATA_DIR`. A hand edit of the
-macOS app's container file applies at the next app start, because the Swift
-daemon caches what it last read or saved.
+sheet's wording. The firmware's `joined` was compiled for `ttgo` and
+`t_display_pro` and not flashed. The session bridge's `wifi_provision` handler
+in `bridge/src/index.ts` is unreachable, since session bridges never open
+serial. `bridge/src/wifi-config.ts` ignores `AGENTDECK_DATA_DIR`. The Swift
+HTTP server decodes a whole request as UTF-8 and reads one that fails as
+`GET /`, so a non-UTF-8 body never reaches that daemon's route. Nothing is saved
+either way, but the status differs from Node's 400.

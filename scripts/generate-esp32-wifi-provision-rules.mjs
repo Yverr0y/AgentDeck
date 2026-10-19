@@ -34,6 +34,7 @@ export function rulesFrom(mod) {
     passwordMinBytes: mod.WIFI_PASSWORD_MIN_BYTES,
     passphraseMaxBytes: mod.WIFI_PASSPHRASE_MAX_BYTES,
     pskHexLength: mod.WIFI_PSK_HEX_LENGTH,
+    ackTimeoutMs: mod.WIFI_PROVISION_ACK_TIMEOUT_MS,
   };
 }
 
@@ -82,8 +83,9 @@ enum ESP32WifiProvisionRules {
         var expectedCredId: String?
         var refreshIps10Endpoint: Bool
         /// The operator asked for this provision just now (\`POST /esp32/wifi\`):
-        /// a provision already sent on this connection does not stop it, and old
-        /// firmware gets one send per request.
+        /// a provision already sent on this connection does not stop it, old
+        /// firmware gets one send per request, and it never makes the endpoint
+        /// refresh (a joined board is left alone).
         var manual: Bool = false
     }
 
@@ -102,7 +104,7 @@ enum ESP32WifiProvisionRules {
         if input.provisionSent, !input.manual {
             return Decision(send: false, reason: "already-sent", legacy: false)
         }
-        if input.refreshIps10Endpoint, board == endpointRefreshBoard,
+        if input.refreshIps10Endpoint, !input.manual, board == endpointRefreshBoard,
            input.wifiConnected == true, input.wifiRadioParked != true {
             return Decision(send: true, reason: "endpoint-refresh", legacy: false)
         }
@@ -116,6 +118,31 @@ enum ESP32WifiProvisionRules {
         return input.wifiConfigured == true
             ? Decision(send: false, reason: "legacy-configured", legacy: true)
             : Decision(send: true, reason: "legacy-unconfigured", legacy: true)
+    }
+
+    /// How long after the latest provision a board's answer to it may still
+    /// come; an answer owed for longer was lost.
+    static let ackTimeoutMs = ${rules.ackTimeoutMs}
+
+    /// The answers a serial connection is owed. A \`wifi_provision_ack\` names
+    /// no provision, and the board takes provisions one at a time, in order.
+    struct AckLedger: Equatable, Sendable {
+        var owed = 0
+        /// When the latest provision was written (epoch ms); 0 = none.
+        var lastWriteAt = 0
+    }
+
+    /// The ledger after writing a provision at \`now\` (epoch ms).
+    static func ackWritten(_ ledger: AckLedger, now: Int) -> AckLedger {
+        let lost = ledger.owed > 0 && now - ledger.lastWriteAt > ackTimeoutMs
+        return AckLedger(owed: (lost ? 0 : ledger.owed) + 1, lastWriteAt: now)
+    }
+
+    /// An ack arrived: whether it answers the latest provision, and the ledger
+    /// after it. An ack nothing was owed for is taken as the latest answer.
+    static func ackAnswered(_ ledger: AckLedger) -> (latest: Bool, ledger: AckLedger) {
+        if ledger.owed > 1 { return (false, AckLedger(owed: ledger.owed - 1, lastWriteAt: ledger.lastWriteAt)) }
+        return (true, AckLedger(owed: 0, lastWriteAt: ledger.lastWriteAt))
     }
 
     /// 802.11 caps an SSID at this many octets.

@@ -75,6 +75,34 @@ final class ESP32WifiProvisionRulesTests: XCTestCase {
         }
     }
 
+    func testAckLedgerVectors() throws {
+        let file = try vectors()
+        XCTAssertEqual(ESP32WifiProvisionRules.ackTimeoutMs, file["ackTimeoutMs"] as? Int)
+        let cases = try XCTUnwrap(file["ackLedger"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for vector in cases {
+            let name = vector["name"] as? String ?? "?"
+            var ledger = ESP32WifiProvisionRules.AckLedger()
+            var answered: [Bool] = []
+            var expected: [Bool] = []
+            for event in try XCTUnwrap(vector["events"] as? [[String: Any]], name) {
+                if let at = event["write"] as? Int {
+                    ledger = ESP32WifiProvisionRules.ackWritten(ledger, now: at)
+                } else {
+                    let answer = ESP32WifiProvisionRules.ackAnswered(ledger)
+                    answered.append(answer.latest)
+                    expected.append(try XCTUnwrap(event["ack"] as? Bool, name))
+                    ledger = answer.ledger
+                }
+            }
+            XCTAssertEqual(answered, expected, name)
+            let end = try XCTUnwrap(vector["ledger"] as? [String: Any], name)
+            XCTAssertEqual(ledger, ESP32WifiProvisionRules.AckLedger(
+                owed: try XCTUnwrap(end["owed"] as? Int, name),
+                lastWriteAt: try XCTUnwrap(end["lastWriteAt"] as? Int, name)), name)
+        }
+    }
+
     func testProvisionCarriesTheIdOfItsOwnToken() throws {
         let cases = try XCTUnwrap(try vectors()["credIds"] as? [[String: Any]])
         let vector = try XCTUnwrap(cases.first)

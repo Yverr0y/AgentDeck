@@ -4327,24 +4327,37 @@ program
     // its own copy in its container) and sends them to boards on USB now.
     // Only this user's registry or an explicit --port names the daemon — never
     // a probed default port, which could be another account's daemon, and
-    // this request carries the WiFi password.
-    const { readDaemonInfo, findDaemonPort } = await import('./session-registry.js');
+    // this request carries the WiFi password. A registered port must still be
+    // answered by the registered process: a registry entry outlives a daemon
+    // whose pid was reused, and the port may then be anyone's.
+    const { readDaemonInfo, findExistingDaemon } = await import('./session-registry.js');
     const info = readDaemonInfo();
+    const legacy = info ? null : findExistingDaemon();
+    const registered = info
+      ? { port: info.httpPort ?? info.port, pid: info.pid }
+      : legacy ? { port: legacy.port, pid: legacy.pid } : null;
     const explicitPort = opts.port != null ? parseInt(opts.port, 10) : null;
     if (explicitPort !== null && !(explicitPort >= 1 && explicitPort <= 65535)) {
       log(`Not saved: --port ${opts.port} is not a port.`);
       process.exit(1);
     }
-    const port = explicitPort ?? info?.httpPort ?? info?.port ?? findDaemonPort();
-    const outcome = port ? await postWifiSetup(port, ssid, password) : 'no-daemon';
-    if (outcome === 'applied') return;
-    if (outcome === 'refused') process.exit(1);
+    const port = explicitPort ?? registered?.port ?? null;
+    const post = port
+      ? await postWifiSetup(port, ssid, password, explicitPort === null ? registered?.pid : undefined)
+      : { outcome: 'no-daemon' as const };
+    if (post.outcome === 'applied') return;
+    if (post.outcome === 'refused') process.exit(1);
 
     saveWifiConfig({ ssid, password, autoProvision: true });
     log(`WiFi config saved: SSID="${ssid}" \u2192 ~/.agentdeck/wifi-config.json`);
-    if (outcome === 'no-route') {
-      log(`The daemon on port ${port} predates live WiFi setup: restart it (\`agentdeck daemon restart\`) to provision boards.`);
-    } else if (outcome === 'unreachable') {
+    if (post.outcome === 'no-route') {
+      log(post.isSwift
+        ? `The AgentDeck app serving port ${port} predates live WiFi setup: update the app, then set the credentials in its ESP32 Wi-Fi setup.`
+        : `The daemon on port ${port} predates live WiFi setup: restart it (\`agentdeck daemon restart\`) to provision boards.`);
+    } else if (post.outcome === 'not-registered') {
+      log(`Not sent: port ${port} is served by another process (pid ${post.pid}), not the daemon this user's registry names (pid ${registered?.pid}).`);
+      log(`If that is your daemon, pass --port ${port}.`);
+    } else if (post.outcome === 'unreachable') {
       log(`The daemon on port ${port} did not answer. A Node daemon reads this file when a board next connects.`);
     } else {
       log('No daemon is registered for this user. A Node daemon reads this file when a board connects;');
@@ -4358,7 +4371,7 @@ function describeWifiCredentialsProblem(problem: string): string {
     case 'ssid-missing': return 'the network name is empty.';
     case 'ssid-too-long': return 'a network name is at most 32 bytes.';
     case 'password-too-short': return 'a WPA password is at least 8 characters (open networks are not supported).';
-    case 'password-too-long': return 'a WPA password is at most 63 characters, or exactly 64 hex digits.';
+    case 'password-too-long': return 'a WPA password is at most 63 bytes (UTF-8), or exactly 64 hex digits.';
     case 'control-character': return 'the name or password contains a control character.';
     default: return problem;
   }
@@ -4378,20 +4391,31 @@ function describeWifiProvisionOutcome(board: { sent?: boolean; reason?: string }
 /**
  * POST the credentials to the running daemon. `applied` = saved and sent;
  * `refused` = the daemon said no (reported); `no-route` = a daemon that
- * predates the route; `unreachable` = no answer. The caller writes the file
- * for the last two.
+ * predates the route; `not-registered` = the port is not served by
+ * `expectedPid`, so nothing was sent; `unreachable` = no answer. The caller
+ * writes the file for the last three.
  */
 async function postWifiSetup(
-  port: number, ssid: string, password: string,
-): Promise<'applied' | 'refused' | 'no-route' | 'unreachable'> {
+  port: number, ssid: string, password: string, expectedPid?: number,
+): Promise<
+  | { outcome: 'applied' | 'refused' | 'unreachable' }
+  | { outcome: 'no-route'; isSwift: boolean }
+  | { outcome: 'not-registered'; pid: string }
+> {
   let res: Response;
+  let isSwift = false;
   try {
     // The route wants the token as a bearer. The daemon serving the port hands
     // its own to a loopback caller on /health, which is also the token a Swift
     // daemon holds (this user's ~/.agentdeck/auth-token may not be).
     const health = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3000) });
-    const token = ((await health.json().catch(() => ({}))) as { pairingToken?: unknown }).pairingToken;
-    if (typeof token !== 'string' || token === '') return 'unreachable';
+    const answer = (await health.json().catch(() => ({}))) as { pairingToken?: unknown; pid?: unknown; isSwift?: unknown };
+    if (expectedPid !== undefined && answer.pid !== expectedPid) {
+      return { outcome: 'not-registered', pid: typeof answer.pid === 'number' ? String(answer.pid) : 'unknown' };
+    }
+    isSwift = answer.isSwift === true;
+    const token = answer.pairingToken;
+    if (typeof token !== 'string' || token === '') return { outcome: 'unreachable' };
     res = await fetch(`http://127.0.0.1:${port}/esp32/wifi`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -4399,13 +4423,13 @@ async function postWifiSetup(
       signal: AbortSignal.timeout(5000),
     });
   } catch {
-    return 'unreachable';
+    return { outcome: 'unreachable' };
   }
-  if (res.status === 404) return 'no-route';
+  if (res.status === 404) return { outcome: 'no-route', isSwift };
   const json = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; boards?: Array<{ port?: string; board?: string; sent?: boolean; reason?: string }> };
   if (!res.ok || json.ok !== true) {
     log(`Not saved: the daemon on port ${port} answered ${res.status}${json.error ? ` (${describeWifiCredentialsProblem(json.error)})` : ''}`);
-    return 'refused';
+    return { outcome: 'refused' };
   }
   log(`WiFi config saved by the daemon on port ${port}: SSID="${ssid}"`);
   const boards = json.boards ?? [];
@@ -4415,7 +4439,7 @@ async function postWifiSetup(
   for (const board of boards) {
     log(`  ${board.port ?? '?'}${board.board ? ` (${board.board})` : ''}: ${describeWifiProvisionOutcome(board)}`);
   }
-  return 'applied';
+  return { outcome: 'applied' };
 }
 
 // ===== TUI Dashboard =====

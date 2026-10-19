@@ -46,6 +46,114 @@ export type WifiSetupError = WifiCredentialsProblem | 'invalid-body' | 'save-fai
 /** Loopback socket addresses as both daemons report them. */
 export const WIFI_SETUP_LOOPBACK_ADDRESSES: readonly string[] = ['127.0.0.1', '::1', '::ffff:127.0.0.1'];
 
+/** The largest `POST /esp32/wifi` body either daemon reads (Swift: `ESP32WifiSetup.maxBodyBytes`). */
+export const WIFI_SETUP_MAX_BODY_BYTES = 4 * 1024;
+
+/**
+ * How much of an oversized body is read and discarded before the request is
+ * dropped instead: enough for any client that sent a real body, so its refusal
+ * arrives as an answer, not a reset.
+ */
+export const WIFI_SETUP_MAX_DRAIN_BYTES = 64 * 1024;
+
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * A `POST /esp32/wifi` body as both daemons read it (the Swift twin is
+ * `ESP32WifiSetup.parseBody`; shared/esp32-wifi-setup-vectors.json `bodies`
+ * pins it): none is `{}`. Not a body, answered `invalid-body`: one over the
+ * limit, bytes that are not UTF-8, a leading byte-order mark (JSON has none),
+ * a key or string holding half a surrogate pair, or JSON the two parsers read
+ * differently ({@link ambiguousJson}). A replacing decoder would save U+FFFD in
+ * the network name, and the two daemons do not replace alike. Any JSON value
+ * parses; {@link applyWifiSetup} refuses all but an object.
+ */
+export function parseWifiSetupBody(bytes: Uint8Array | null): { ok: true; value: unknown } | { ok: false } {
+  if (bytes === null || bytes.length > WIFI_SETUP_MAX_BODY_BYTES) return { ok: false };
+  if (bytes.length === 0) return { ok: true, value: {} };
+  try {
+    // ignoreBOM keeps a byte-order mark in the text, where JSON.parse refuses it.
+    const text = STRICT_UTF8.decode(bytes);
+    const value: unknown = JSON.parse(text, (key, field: unknown) => {
+      if (LONE_SURROGATE.test(key) || (typeof field === 'string' && LONE_SURROGATE.test(field))) {
+        throw new SyntaxError('half a surrogate pair');
+      }
+      return field;
+    });
+    return ambiguousJson(text) ? { ok: false } : { ok: true, value };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Whether JSON text names a key twice in one object or puts a comma before a
+ * closing bracket. The daemons' parsers disagree on both — JSON.parse keeps the
+ * last of two equal keys and refuses the comma, Foundation keeps the first and
+ * accepts it — so the same request would save different credentials, or none,
+ * depending on which daemon holds the port. Run on text a parser accepted.
+ * The Swift twin is `ESP32WifiSetup.ambiguousJSON`.
+ */
+function ambiguousJson(text: string): boolean {
+  // One entry per open container: an object's keys so far, or null for an array.
+  const open: Array<Set<string> | null> = [];
+  let previous = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      let end = i + 1;
+      while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1;
+      const keys = open[open.length - 1];
+      // In an object, a string right after `{` or `,` is a key.
+      if (keys && (previous === '{' || previous === ',')) {
+        const key = JSON.parse(text.slice(i, end + 1)) as string;
+        if (keys.has(key)) return true;
+        keys.add(key);
+      }
+      i = end;
+      previous = '"';
+    } else if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') {
+      if (c === '{') open.push(new Set());
+      else if (c === '[') open.push(null);
+      else if (c === '}' || c === ']') {
+        if (previous === ',') return true;
+        open.pop();
+      }
+      previous = c;
+    }
+  }
+  return false;
+}
+
+/**
+ * Read a `POST /esp32/wifi` body to its end, keeping at most the limit: null
+ * when it ran over. Reading on rather than destroying the request lets the
+ * refusal reach the caller on an intact connection, as the Swift daemon's does;
+ * past {@link WIFI_SETUP_MAX_DRAIN_BYTES} the request is dropped.
+ */
+export function readWifiSetupBody(req: NodeJS.ReadableStream & { destroy(): void }): Promise<Uint8Array | null> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on('data', (chunk: Buffer | string) => {
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      total += buf.length;
+      if (total > WIFI_SETUP_MAX_DRAIN_BYTES) {
+        req.destroy();
+      } else if (total > WIFI_SETUP_MAX_BODY_BYTES) {
+        chunks.length = 0;
+      } else {
+        chunks.push(buf);
+      }
+    });
+    req.on('end', () => resolve(total > WIFI_SETUP_MAX_BODY_BYTES ? null : Buffer.concat(chunks)));
+    req.on('error', reject);
+    // After 'end' this settles nothing; before it, the request was dropped.
+    req.on('close', () => reject(new Error('request closed before its body ended')));
+  });
+}
+
 /**
  * The `/integrations/zai` rule, for the same reason: credentials stay on the
  * loopback interface, and the caller presents the pairing token as a bearer.

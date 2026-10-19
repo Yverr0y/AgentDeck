@@ -34,6 +34,9 @@ struct ESP32WifiStatus: Decodable, Sendable, Equatable {
 
     struct Ack: Decodable, Sendable, Equatable {
         let success: Bool
+        /// true: the board joined; false: it saved the credentials for when it
+        /// leaves USB; nil: its firmware does not say, so `ip` may be stale.
+        let joined: Bool?
         let ip: String
         let error: String
         let at: Int64
@@ -94,7 +97,8 @@ enum ESP32WifiSetupClient {
         case "ssid-missing": return "Enter the network name."
         case "ssid-too-long": return "A network name is at most 32 bytes."
         case "password-too-short": return "A Wi-Fi password is at least 8 characters."
-        case "password-too-long": return "A Wi-Fi password is at most 63 characters, or a 64-digit hex key."
+        case "password-too-long":
+            return "A Wi-Fi password is at most 63 characters (fewer with accented or non-Latin letters), or a 64-digit hex key."
         case "control-character": return "Remove the control character, such as a line break."
         case "invalid-body": return "The daemon could not read the request."
         default: return nil
@@ -176,12 +180,8 @@ enum ESP32WifiBoardLine: Equatable {
     /// `outcome` is this sheet's own send to the board, when it made one.
     static func describe(_ board: ESP32WifiStatus.Board, outcome: ESP32WifiApplyResult.Outcome?) -> ESP32WifiBoardLine {
         if board.provisionedAt > 0 {
-            if let ack = board.ack {
-                return ack.success
-                    ? .ok(ack.ip.isEmpty ? "Joined Wi-Fi" : "Joined Wi-Fi at \(ack.ip)")
-                    : .failed("Couldn't join Wi-Fi: \(ack.error.isEmpty ? "no reason given" : ack.error)")
-            }
-            return .waiting("Credentials sent — waiting for the board to join")
+            if let ack = board.ack { return describe(ack) }
+            return .waiting("Credentials sent — waiting for the board's answer")
         }
         if let outcome, !outcome.sent {
             switch outcome.reason {
@@ -196,6 +196,21 @@ enum ESP32WifiBoardLine: Equatable {
         if board.board.isEmpty { return .neutral("Identifying…") }
         if board.holdsCredentials == false { return .neutral("Holds other credentials") }
         return .neutral("Ready for credentials")
+    }
+
+    /// A board's answer. Only a board that says it joined is called joined: a
+    /// serial-primary board saves the credentials and stays off Wi-Fi while
+    /// it is on USB, and older firmware does not say which it did.
+    private static func describe(_ ack: ESP32WifiStatus.Ack) -> ESP32WifiBoardLine {
+        guard ack.success else {
+            if ack.error == "credentials not saved" { return .failed("The board couldn't save the credentials") }
+            return .failed("Couldn't join Wi-Fi: \(ack.error.isEmpty ? "no reason given" : ack.error)")
+        }
+        switch ack.joined {
+        case true?: return .ok(ack.ip.isEmpty ? "Joined Wi-Fi" : "Joined Wi-Fi at \(ack.ip)")
+        case false?: return .ok("Saved — the board switches to Wi-Fi when it's off USB")
+        case nil: return .ok("The board accepted the credentials")
+        }
     }
 }
 

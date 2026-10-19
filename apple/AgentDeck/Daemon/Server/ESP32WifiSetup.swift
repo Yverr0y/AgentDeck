@@ -38,7 +38,7 @@ enum ESP32WifiSetup {
     /// Loopback socket addresses as both daemons report them.
     static let loopbackAddresses: Set<String> = ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
 
-    /// Node's `readJsonBody` limit for this route.
+    /// The largest body either daemon reads (Node: `WIFI_SETUP_MAX_BODY_BYTES`).
     static let maxBodyBytes = 4 * 1024
 
     /// The `/integrations/zai` rule, for the same reason: credentials stay on
@@ -61,17 +61,73 @@ enum ESP32WifiSetup {
     /// The answer to a caller `authorized` refuses.
     static func refusal() -> Response { refuse(403, "local-token-required") }
 
-    /// The request body as Node reads it: none is `{}`, and a body over the
-    /// limit or one that is not JSON is nil (`invalid-body`). Any JSON value
-    /// parses — `apply` refuses everything but an object. The bytes are decoded
-    /// as UTF-8 with replacement first, and a leading BOM is not JSON, as
-    /// `Buffer.toString` then `JSON.parse` treat them.
+    /// The request body as Node reads it (`parseWifiSetupBody`;
+    /// shared/esp32-wifi-setup-vectors.json `bodies` pins it): none is `{}`.
+    /// Not a body, so nil (`invalid-body`): one over the limit, bytes that are
+    /// not UTF-8, a leading byte-order mark (JSON has none), a key or string
+    /// holding half a surrogate pair, or JSON the two parsers read differently
+    /// (`ambiguousJSON`). A replacing decode would save U+FFFD in the network
+    /// name, and the two daemons do not replace alike. Any JSON value parses —
+    /// `apply` refuses everything but an object.
     static func parseBody(_ data: Data?) -> Any? {
         guard let data, !data.isEmpty else { return [String: Any]() }
-        guard data.count <= maxBodyBytes else { return nil }
-        let text = String(decoding: data, as: UTF8.self)
-        guard text.unicodeScalars.first != "\u{FEFF}" else { return nil }
-        return try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed])
+        guard data.count <= maxBodyBytes,
+              let text = String(validating: data, as: UTF8.self),
+              text.unicodeScalars.first != "\u{FEFF}",
+              let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              !ambiguousJSON(data) else { return nil }
+        return value
+    }
+
+    /// Whether JSON text names a key twice in one object or puts a comma
+    /// before a closing bracket (Node parity: `ambiguousJson`). Foundation keeps
+    /// the first of two equal keys and accepts the comma, JSON.parse keeps the
+    /// last and refuses it, so the same request would save different
+    /// credentials, or none, depending on which daemon holds the port. Keys are
+    /// compared by UTF-16 unit, as Node compares them; run on text a parser
+    /// accepted. Structural characters are ASCII, and UTF-8 never puts an ASCII
+    /// byte inside a multibyte character, so the scan walks bytes.
+    static func ambiguousJSON(_ data: Data) -> Bool {
+        let bytes = [UInt8](data)
+        // One entry per open container: an object's keys so far, or nil for an array.
+        var open: [Set<[UInt16]>?] = []
+        var previous: UInt8 = 0
+        var i = 0
+        while i < bytes.count {
+            let c = bytes[i]
+            if c == UInt8(ascii: "\"") {
+                var end = i + 1
+                while end < bytes.count, bytes[end] != UInt8(ascii: "\"") {
+                    end += bytes[end] == UInt8(ascii: "\\") ? 2 : 1
+                }
+                // In an object, a string right after `{` or `,` is a key.
+                if let keys = open.last, let keys, previous == UInt8(ascii: "{") || previous == UInt8(ascii: ",") {
+                    guard end < bytes.count,
+                          let key = try? JSONSerialization.jsonObject(
+                            with: Data(bytes[i...end]), options: [.fragmentsAllowed]) as? String else { return true }
+                    let units = Array(key.utf16)
+                    if keys.contains(units) { return true }
+                    open[open.count - 1] = keys.union([units])
+                }
+                i = end + 1
+                previous = UInt8(ascii: "\"")
+                continue
+            }
+            switch c {
+            case UInt8(ascii: " "), UInt8(ascii: "\t"), UInt8(ascii: "\n"), UInt8(ascii: "\r"):
+                i += 1
+                continue
+            case UInt8(ascii: "{"): open.append([])
+            case UInt8(ascii: "["): open.append(nil)
+            case UInt8(ascii: "}"), UInt8(ascii: "]"):
+                if previous == UInt8(ascii: ",") { return true }
+                if !open.isEmpty { open.removeLast() }
+            default: break
+            }
+            previous = c
+            i += 1
+        }
+        return false
     }
 
     /// `GET /esp32/wifi`: what is configured and what each live serial board holds.

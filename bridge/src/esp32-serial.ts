@@ -38,7 +38,11 @@ import type { AuthProvisionMessage, ESP32ToHostMessage, WifiProvisionMessage } f
 import {
   formatResetTime,
   truncateUtf8Bytes,
+  WIFI_PROVISION_ACK_LEDGER_EMPTY,
+  wifiProvisionAckAnswered,
+  wifiProvisionAckWritten,
   wifiProvisionDecision,
+  type WifiProvisionAckLedger,
   type WifiProvisionDecision,
   type WifiProvisionReason,
 } from '@agentdeck/shared';
@@ -152,6 +156,13 @@ try {
 /** A board's answer to a `wifi_provision`, as it said it (`wifi_provision_ack`). */
 export interface WifiProvisionAckRecord {
   success: boolean;
+  /**
+   * Whether the board joined the network (true) or only saved the credentials
+   * for when it leaves USB (false: the serial-primary boards). null when the
+   * firmware predates the field: its `success` may then mean either, and its
+   * `ip` may be an address from an earlier join.
+   */
+  joined: boolean | null;
   /** The address the board reports; "" when it gave none. */
   ip: string;
   /** The board's reason for a failure, e.g. `connection failed`; "" on success. */
@@ -242,6 +253,8 @@ export interface SerialConnection {
   wifiProvisionSentAt?: number;
   /** The board's `wifi_provision_ack` to that provision; cleared by each new one. */
   wifiProvisionAck?: WifiProvisionAckRecord;
+  /** The acks this connection is owed, so an earlier provision's is not shown as the latest's. */
+  wifiProvisionAckLedger?: WifiProvisionAckLedger;
   /** Pairing token most recently pushed over this connection, so a re-arm costs
    *  one write per board per token rather than one per device_info frame. */
   authTokenSent?: string;
@@ -1947,22 +1960,57 @@ export function provisionSerialBoards(
   return outcomes;
 }
 
-function writeWifiProvision(conn: SerialConnection, msg: WifiProvisionMessage): void {
+/** @internal Exported for testing only */
+export function writeWifiProvision(conn: SerialConnection, msg: WifiProvisionMessage, now = Date.now()): void {
   sendToConnection(conn, JSON.stringify(msg), true);
   conn.provisionSent = true;
-  conn.wifiProvisionSentAt = Date.now();
+  conn.wifiProvisionSentAt = now;
+  conn.wifiProvisionAckLedger = wifiProvisionAckWritten(conn.wifiProvisionAckLedger ?? WIFI_PROVISION_ACK_LEDGER_EMPTY, now);
   // The previous answer described the previous credentials.
   conn.wifiProvisionAck = undefined;
 }
 
-/** @internal Exported for testing only */
-export function recordWifiProvisionAck(conn: SerialConnection, msg: { success?: unknown; ip?: unknown; error?: unknown }): void {
-  conn.wifiProvisionAck = {
+/**
+ * Keep a board's `wifi_provision_ack` as the answer to the latest provision,
+ * unless a later provision is still owed one: the board answers in order and
+ * names no provision, so that ack is an earlier provision's.
+ * @internal Exported for testing only
+ */
+export function recordWifiProvisionAck(
+  conn: SerialConnection,
+  msg: { success?: unknown; joined?: unknown; ip?: unknown; error?: unknown },
+  now = Date.now(),
+): void {
+  const answer = wifiProvisionAckAnswered(conn.wifiProvisionAckLedger ?? WIFI_PROVISION_ACK_LEDGER_EMPTY);
+  conn.wifiProvisionAckLedger = answer.ledger;
+  if (!answer.latest) return;
+  conn.wifiProvisionAck = parseWifiProvisionAck(msg, now);
+}
+
+/** A `wifi_provision_ack` as the daemons record it (shared/esp32-wifi-setup-vectors.json pins it). */
+export function parseWifiProvisionAck(
+  msg: { success?: unknown; joined?: unknown; ip?: unknown; error?: unknown },
+  at: number,
+): WifiProvisionAckRecord {
+  return {
     success: msg.success === true,
+    joined: typeof msg.joined === 'boolean' ? msg.joined : null,
     ip: boardText(msg.ip, 45),
     error: boardText(msg.error, 80),
-    at: Date.now(),
+    at,
   };
+}
+
+/**
+ * The log line for a board's `wifi_provision_ack`. It says connected only for
+ * a board that says it joined: an older board's `success` may mean it only saved
+ * the credentials, and its `ip` may be an address from an earlier join.
+ */
+export function describeWifiProvisionAck(ack: WifiProvisionAckRecord): string {
+  if (!ack.success) return `WiFi failed: ${ack.error || 'unknown'}`;
+  if (ack.joined === true) return ack.ip ? `WiFi connected: ${ack.ip} \u2713` : 'WiFi connected \u2713';
+  if (ack.joined === false) return 'WiFi credentials saved; the board joins when it leaves USB';
+  return 'WiFi credentials accepted';
 }
 
 /**

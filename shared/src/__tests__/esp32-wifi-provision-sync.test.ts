@@ -28,6 +28,7 @@ describe('generated ESP32 WiFi provision mirrors in sync', () => {
     expect(swift).toContain(`static let passwordMinBytes = ${rulesMod.WIFI_PASSWORD_MIN_BYTES}`);
     expect(swift).toContain(`static let passphraseMaxBytes = ${rulesMod.WIFI_PASSPHRASE_MAX_BYTES}`);
     expect(swift).toContain(`static let pskHexLength = ${rulesMod.WIFI_PSK_HEX_LENGTH}`);
+    expect(swift).toContain(`static let ackTimeoutMs = ${rulesMod.WIFI_PROVISION_ACK_TIMEOUT_MS}`);
     expect(cpp).toContain(`constexpr size_t HEX_LENGTH = ${rulesMod.WIFI_CRED_ID_HEX_LENGTH};`);
   });
 
@@ -37,6 +38,8 @@ describe('generated ESP32 WiFi provision mirrors in sync', () => {
     expect(swiftTest).toContain('ESP32WifiProvisionRules.decision(');
     expect(swiftTest).toContain('ESP32WifiProvisionRules.credId(');
     expect(swiftTest).toContain('ESP32WifiProvisionRules.credentialsProblem(');
+    expect(swiftTest).toContain('ESP32WifiProvisionRules.ackWritten(');
+    expect(swiftTest).toContain('ESP32WifiProvisionRules.ackAnswered(');
   });
 
   it('both firmware device_info builders report the stored id', () => {

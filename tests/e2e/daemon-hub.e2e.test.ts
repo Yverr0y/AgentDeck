@@ -261,6 +261,16 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     const short = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ssid: 'E2E-Net', password: 'short' }) });
     expect(short.status).toBe(400);
     expect(await short.json()).toEqual({ ok: false, error: 'password-too-short' });
+    // A body the route will not read is answered, not reset, and saves nothing:
+    // one over the 4 KiB limit, and bytes that are not UTF-8.
+    const oversized = await fetch(url, { method: 'POST', headers,
+      body: JSON.stringify({ ssid: 'E2E-Big', password: 'x'.repeat(8 * 1024) }), signal: AbortSignal.timeout(5000) });
+    expect(oversized.status).toBe(400);
+    expect(await oversized.json()).toEqual({ ok: false, error: 'invalid-body' });
+    const garbled = await fetch(url, { method: 'POST', headers,
+      body: Buffer.from('{"ssid":"E2E-\xff","password":"e2e-garbled-password"}', 'latin1'), signal: AbortSignal.timeout(5000) });
+    expect(garbled.status).toBe(400);
+    expect(await garbled.json()).toEqual({ ok: false, error: 'invalid-body' });
     expect(existsSync(file)).toBe(false);
 
     const saved = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ssid: 'E2E-Net', password }) });

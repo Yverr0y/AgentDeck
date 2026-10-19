@@ -7,15 +7,21 @@
  * are the shared rule, pinned by shared/esp32-wifi-provision-vectors.json.
  */
 import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { WIFI_PROVISION_ACK_TIMEOUT_MS } from '@agentdeck/shared';
 import type { WifiProvisionMessage } from '@agentdeck/shared/protocol';
 import {
   __setConnectionsForTest,
+  describeWifiProvisionAck,
   handleSerialLine,
+  parseWifiProvisionAck,
   provisionSerialBoards,
+  recordWifiProvisionAck,
   wifiSetupBoardRow,
   wifiSetupBoards,
+  writeWifiProvision,
   type SerialConnection,
   type WifiProvisionOutcome,
   type WifiSetupBoardRow,
@@ -23,6 +29,10 @@ import {
 import { wifiCredId } from '../esp32-wifi-cred.js';
 import {
   applyWifiSetup,
+  parseWifiSetupBody,
+  readWifiSetupBody,
+  WIFI_SETUP_MAX_BODY_BYTES,
+  WIFI_SETUP_MAX_DRAIN_BYTES,
   wifiSetupAuthorized,
   wifiSetupRefusal,
   wifiSetupStatus,
@@ -253,7 +263,7 @@ describe('serial layer behind the routes', () => {
 
   it('a send stamps the connection and forgets the answer to the previous one', () => {
     const board = conn('/dev/cu.stamp', { ...parked, wifiCredId: '' }, {
-      wifiProvisionAck: { success: false, ip: '', error: 'connection failed', at: 1 },
+      wifiProvisionAck: { success: false, joined: null, ip: '', error: 'connection failed', at: 1 },
     });
     use([board]);
     const before = Date.now();
@@ -264,13 +274,44 @@ describe('serial layer behind the routes', () => {
 
   it('records the board\'s ack as it said it, cleaned', () => {
     const board = conn('/dev/cu.ack', { ...parked });
-    handleSerialLine(board, '{"type":"wifi_provision_ack","success":true,"ip":"192.168.1.23"}');
-    expect(board.wifiProvisionAck).toMatchObject({ success: true, ip: '192.168.1.23', error: '' });
+    handleSerialLine(board, '{"type":"wifi_provision_ack","success":true,"joined":true,"ip":"192.168.1.23"}');
+    expect(board.wifiProvisionAck).toMatchObject({ success: true, joined: true, ip: '192.168.1.23', error: '' });
     handleSerialLine(board, '{"type":"wifi_provision_ack","success":false,"error":"connection\\u0007 failed"}');
-    expect(board.wifiProvisionAck).toMatchObject({ success: false, ip: '', error: 'connection failed' });
+    expect(board.wifiProvisionAck).toMatchObject({ success: false, joined: null, ip: '', error: 'connection failed' });
     // Anything but a literal true is a failure.
     handleSerialLine(board, '{"type":"wifi_provision_ack","success":"true"}');
     expect(board.wifiProvisionAck?.success).toBe(false);
+  });
+
+  it('an ack that arrives while a later provision is owed one answers the earlier provision', () => {
+    const board = conn('/dev/cu.ledger', { ...parked, wifiCredId: '' });
+    use([board]);
+    writeWifiProvision(board, msg, 1_000);
+    writeWifiProvision(board, msg, 2_000);
+    // The board answers in order: this is the first provision's answer.
+    recordWifiProvisionAck(board, { success: false, error: 'connection failed' }, 3_000);
+    expect(board.wifiProvisionAck).toBeUndefined();
+    recordWifiProvisionAck(board, { success: true, joined: false }, 4_000);
+    expect(board.wifiProvisionAck).toEqual({ success: true, joined: false, ip: '', error: '', at: 4_000 });
+    expect(board.wifiProvisionAckLedger).toEqual({ owed: 0, lastWriteAt: 2_000 });
+  });
+
+  it('logs connected only for a board that says it joined (ESP32WifiSetupTests: the same lines)', () => {
+    const line = (msg: Record<string, unknown>) => describeWifiProvisionAck(parseWifiProvisionAck(msg, 0));
+    expect(line({ success: true, joined: true, ip: '192.168.1.23' })).toBe('WiFi connected: 192.168.1.23 \u2713');
+    expect(line({ success: true, joined: false, ip: '192.168.1.23' }))
+      .toBe('WiFi credentials saved; the board joins when it leaves USB');
+    expect(line({ success: true, ip: '192.168.1.23' })).toBe('WiFi credentials accepted');
+    expect(line({ success: false, error: 'connection failed' })).toBe('WiFi failed: connection failed');
+  });
+
+  it('an ack owed past the shared timeout is presumed lost when the next provision is written', () => {
+    const board = conn('/dev/cu.lost', { ...parked, wifiCredId: '' });
+    use([board]);
+    writeWifiProvision(board, msg, 1_000);
+    writeWifiProvision(board, msg, 1_000 + WIFI_PROVISION_ACK_TIMEOUT_MS + 1);
+    recordWifiProvisionAck(board, { success: true, joined: true, ip: '192.168.1.23' }, 40_000);
+    expect(board.wifiProvisionAck).toMatchObject({ success: true, joined: true, ip: '192.168.1.23' });
   });
 
   it('a row says whether the board holds the configured credentials, never the id', () => {
@@ -315,10 +356,30 @@ interface RouteVectors {
   refusal: { status: number; response: Record<string, unknown> };
   rows: Array<{
     name: string; deviceInfo: Record<string, unknown> | null; expectedCredId: string | null; provisionedAt: number;
-    ack: { success: boolean; ip: string; error: string; at: number } | null; row: WifiSetupBoardRow;
+    ack: { success: boolean; joined: boolean | null; ip: string; error: string; at: number } | null; row: WifiSetupBoardRow;
   }>;
-  acks: Array<{ name: string; message: Record<string, unknown>; recorded: { success: boolean; ip: string; error: string } }>;
+  acks: Array<{
+    name: string; message: Record<string, unknown>;
+    recorded: { success: boolean; joined: boolean | null; ip: string; error: string };
+  }>;
+  bodies: Array<{ name: string; text?: string; hex?: string; padTo?: number; valid: boolean; value?: unknown }>;
 }
+
+describe('the POST body reader', () => {
+  it('reads an oversized body to its end, keeping none of it, so the refusal is an answer', async () => {
+    const stream = Readable.from([Buffer.alloc(WIFI_SETUP_MAX_BODY_BYTES), Buffer.alloc(1000)], { objectMode: false });
+    await expect(readWifiSetupBody(stream)).resolves.toBeNull();
+    // Ended, not destroyed: an HTTP request read this way keeps its connection.
+    expect(stream.readableEnded).toBe(true);
+  });
+
+  it('drops a request that runs past the drain bound', async () => {
+    const pieces = Array.from({ length: WIFI_SETUP_MAX_DRAIN_BYTES / 4096 + 2 }, () => Buffer.alloc(4096));
+    const stream = Readable.from(pieces, { objectMode: false });
+    await expect(readWifiSetupBody(stream)).rejects.toThrow();
+    expect(stream.readableEnded).toBe(false);
+  });
+});
 
 describe('the route contract both daemons answer (shared/esp32-wifi-setup-vectors.json)', () => {
   const vectors = JSON.parse(readFileSync(
@@ -396,8 +457,27 @@ describe('the route contract both daemons answer (shared/esp32-wifi-setup-vector
     });
   }
 
+  const bodyBytes = (c: RouteVectors['bodies'][number]): Buffer => {
+    const raw = c.hex !== undefined ? Buffer.from(c.hex, 'hex') : Buffer.from(c.text ?? '', 'utf8');
+    return c.padTo === undefined ? raw : Buffer.concat([raw, Buffer.alloc(c.padTo - raw.length, 0x20)]);
+  };
+  const inChunks = (bytes: Buffer, size: number) =>
+    Readable.from(Array.from({ length: Math.ceil(bytes.length / size) }, (_, i) => bytes.subarray(i * size, (i + 1) * size)),
+      { objectMode: false });
+
+  for (const c of vectors.bodies) {
+    it(`body: ${c.name}`, async () => {
+      const expected = c.valid ? { ok: true, value: c.value } : { ok: false };
+      expect(parseWifiSetupBody(bodyBytes(c))).toEqual(expected);
+      // As the route reads it: in pieces that split multibyte sequences.
+      expect(parseWifiSetupBody(await readWifiSetupBody(inChunks(bodyBytes(c), 5)))).toEqual(expected);
+    });
+  }
+
   for (const c of vectors.acks) {
     it(`ack: ${c.name}`, () => {
+      expect(parseWifiProvisionAck(c.message, 7)).toEqual({ ...c.recorded, at: 7 });
+      // The line the board writes takes the same path.
       const board = { port: '/dev/cu.ack', connected: true } as SerialConnection;
       handleSerialLine(board, JSON.stringify(c.message));
       expect(board.wifiProvisionAck).toMatchObject(c.recorded);

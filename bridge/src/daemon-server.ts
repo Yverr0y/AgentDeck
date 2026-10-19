@@ -279,9 +279,9 @@ import {
   describeDaemonPosture,
   resolveDaemonPosture,
 } from './network-posture.js';
-import { esp32ConnectionCount, esp32SerialRunning, getESP32DeviceInfo, onESP32Message, provisionSerialBoards, sendAuthProvisionToAll, sendLegacyRearmProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm, wifiSetupBoards } from './esp32-serial.js';
+import { describeWifiProvisionAck, esp32ConnectionCount, esp32SerialRunning, getESP32DeviceInfo, onESP32Message, parseWifiProvisionAck, provisionSerialBoards, sendAuthProvisionToAll, sendLegacyRearmProvision, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards, releaseESP32SerialPorts, holdESP32SerialBoard, releaseESP32SerialHold, sanitizeRssiDbm, wifiSetupBoards } from './esp32-serial.js';
 import { buildWifiProvision } from './esp32-wifi-cred.js';
-import { applyWifiSetup, wifiSetupAuthorized, wifiSetupRefusal, wifiSetupStatus, type WifiSetupDeps } from './esp32-wifi-setup.js';
+import { applyWifiSetup, parseWifiSetupBody, readWifiSetupBody, wifiSetupAuthorized, wifiSetupRefusal, wifiSetupStatus, type WifiSetupDeps } from './esp32-wifi-setup.js';
 import { clampLeaseSeconds, clearLease, readLease, writeLease } from './esp32-flash-lease.js';
 import { loadWifiConfig, saveWifiConfig } from './wifi-config.js';
 import { getAdbDeviceCountCached, getCachedAdbDevices } from './adb-reverse.js';
@@ -2818,16 +2818,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         return;
       }
       req.setTimeout(10_000, () => req.destroy());
-      readJsonBody(req, 4 * 1024).then((body) => {
+      readWifiSetupBody(req).then((bytes) => {
         req.setTimeout(0);
-        const result = applyWifiSetup(body, esp32WifiSetupDeps());
+        const body = parseWifiSetupBody(bytes);
+        if (!body.ok) {
+          respond({ status: 400, body: { ok: false, error: 'invalid-body' } });
+          return;
+        }
+        const result = applyWifiSetup(body.value, esp32WifiSetupDeps());
         if (result.status === 200) {
           const boards = (result.body.boards as Array<{ sent: boolean }>);
           log(`[agentdeck] ESP32 WiFi credentials updated; provision sent to ${boards.filter((b) => b.sent).length} of ${boards.length} serial board(s)`);
         }
         respond(result);
       }).catch(() => {
-        respond({ status: 400, body: { ok: false, error: 'invalid-body' } });
+        // Dropped by the timeout or the drain bound: there is no one to answer.
+        if (!res.headersSent && !res.destroyed) respond({ status: 400, body: { ok: false, error: 'invalid-body' } });
       });
       return;
     }
@@ -5300,7 +5306,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       }
 
       if (msg.type === 'wifi_provision_ack') {
-        log(msg.success ? `[agentdeck] ESP32 WiFi connected: ${msg.ip} ✓` : `[agentdeck] ESP32 WiFi failed: ${msg.error || 'unknown'}`);
+        log(`[agentdeck] ESP32 ${describeWifiProvisionAck(parseWifiProvisionAck(msg, Date.now()))} (${portPath})`);
         return;
       }
       if (!wifiConfig?.autoProvision) return;

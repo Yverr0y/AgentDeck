@@ -215,6 +215,21 @@
       "name": "manual false is an automatic decision",
       "input": { "manual": false, "provisionSent": true, "wifiConnected": false, "wifiConfigured": true, "expectedCredId": "4fbb066b2801b4ae" },
       "send": false, "reason": "already-sent", "legacy": false
+    },
+    {
+      "name": "an operator request never makes the IPS10 endpoint refresh",
+      "input": { "manual": true, "board": "ips_10", "wifiConnected": true, "wifiRadioParked": false, "wifiCredId": "4fbb066b2801b4ae", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "wifi-connected", "legacy": false
+    },
+    {
+      "name": "nor repeats one already sent on this connection",
+      "input": { "manual": true, "provisionSent": true, "board": "ips_10", "wifiConnected": true, "wifiRadioParked": false, "wifiCredId": "7de137f03d5a8983", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "wifi-connected", "legacy": false
+    },
+    {
+      "name": "an operator request leaves a board that joined since the last provision alone",
+      "input": { "manual": true, "provisionSent": true, "wifiConnected": true, "wifiRadioParked": false, "wifiCredId": "7de137f03d5a8983", "expectedCredId": "4fbb066b2801b4ae" },
+      "send": false, "reason": "wifi-connected", "legacy": false
     }
   ],
   "credentials": [
@@ -239,5 +254,16 @@
     { "name": "a tab in the password", "ssid": "AgentDeck-Lab", "password": "pass\tword1", "problem": "control-character" },
     { "name": "DEL in the password", "ssid": "AgentDeck-Lab", "password": "password\u007f", "problem": "control-character" },
     { "name": "a control character is reported before a length", "ssid": "Desk\u0001Net", "password": "short", "problem": "control-character" }
+  ],
+  "ackTimeoutMs": 30000,
+  "ackLedger": [
+    { "name": "one provision, one answer", "events": [{ "write": 1000 }, { "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 1000 } },
+    { "name": "an answer that comes while a later provision is owed one is the earlier one's", "events": [{ "write": 1000 }, { "write": 4000 }, { "ack": false }, { "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 4000 } },
+    { "name": "three provisions in a row", "events": [{ "write": 1000 }, { "write": 2000 }, { "write": 3000 }, { "ack": false }, { "ack": false }, { "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 3000 } },
+    { "name": "an answer owed past the timeout was lost", "events": [{ "write": 1000 }, { "write": 31001 }, { "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 31001 } },
+    { "name": "at the timeout it is still owed", "events": [{ "write": 1000 }, { "write": 31000 }, { "ack": false }, { "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 31000 } },
+    { "name": "an answer nothing was owed for is the latest", "events": [{ "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 0 } },
+    { "name": "each answered provision starts the count again", "events": [{ "write": 1000 }, { "ack": true }, { "write": 5000 }, { "ack": true }], "ledger": { "owed": 0, "lastWriteAt": 5000 } },
+    { "name": "a provision still owed when the next is written", "events": [{ "write": 1000 }, { "write": 2000 }], "ledger": { "owed": 2, "lastWriteAt": 2000 } }
   ]
 }

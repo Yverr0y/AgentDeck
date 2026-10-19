@@ -2714,9 +2714,8 @@ final class DaemonServer {
         let lanIp = AuthManager.getLanIP() ?? "127.0.0.1"
         // The WiFi config is read on each device_info rather than once here, so
         // credentials saved after startup (POST /esp32/wifi from the Wi-Fi
-        // sheet) apply without a restart. This first read primes the cache off
-        // the message path.
-        _ = WifiConfigManager.current()
+        // sheet, or a Node daemon writing a shared file while this one stood
+        // down) apply without a restart.
         let daemonPort = Int(port)
         await serial.serial.setOnMessage { [weak self] portPath, msg in
             guard let self else { return }
@@ -2753,10 +2752,7 @@ final class DaemonServer {
             }
             if type == "wifi_provision_ack" {
                 // ESP32Serial keeps the ack for GET /esp32/wifi; this is the log line.
-                let ack = ESP32Serial.WifiProvisionAck(message: msg, at: 0)
-                DaemonLogger.shared.info(ack.success
-                    ? "ESP32 WiFi connected on \(portPath): \(ack.ip)"
-                    : "ESP32 WiFi failed on \(portPath): \(ack.error.isEmpty ? "unknown" : ack.error)")
+                DaemonLogger.shared.info("ESP32 \(ESP32Serial.WifiProvisionAck(message: msg, at: 0).logLine) (\(portPath))")
                 return
             }
             guard type == "device_info" else { return }
