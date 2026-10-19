@@ -95,6 +95,8 @@ async function startDaemon(port: number, home: string): Promise<Daemon> {
       AGENTDECK_DAEMON_TOKEN: '',
       AGENTDECK_ZAI_API_KEY: '',
       CLAUDE_CONFIG_DIR: join(home, '.claude'),
+      // Never compile or start the Foundation Models helper (vitest.setup.ts says why).
+      AGENTDECK_FM_HELPER: join(home, 'no-fm-helper'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
