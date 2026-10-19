@@ -96,6 +96,7 @@
 		1FC326F6A3ECA2926AC2D684 /* SessionBrand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E252A5DCAC5E298C21473 /* SessionBrand.swift */; };
 		20B7F193A4B33732519FB7F8 /* AgentStatusIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F4A4AE7D86132501CA1096 /* AgentStatusIcon.swift */; };
 		20BC342C63610F58CFF51A74 /* TerrariumRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481253E76BD28E883C65121F /* TerrariumRenderer.swift */; };
+		20BFFEE785B10180BBC1D46C /* SetupStatusContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB3D810C39BA187CD775B6C /* SetupStatusContractTests.swift */; };
 		2113C540FF031F83DBA1139F /* Creature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A9A073192C93C1277AE490 /* Creature.swift */; };
 		21AF157660FF2065535E3EE2 /* GaugeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEE70EEDDCA2199E894D275 /* GaugeBar.swift */; };
 		21B888794E0EE0FDE78954AB /* ApmeActivityHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB5FA66873A6E7FACA1B8EE /* ApmeActivityHistoryTests.swift */; };
@@ -777,6 +778,7 @@
 		F781DA13FBEBEBD70F5ED73A /* DevicePreviewShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46AB7A0263C3AFB217C9DF13 /* DevicePreviewShared.swift */; };
 		F87C273B16BC9A957F1E2E6E /* CreatureFloorSpacingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B93CE0A5FD951A9FD021DB2 /* CreatureFloorSpacingTests.swift */; };
 		F87FAB4C9CC261368ED37DEA /* DaemonTimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE17EFB01F43FCB1A53F644D /* DaemonTimelineStore.swift */; };
+		F8B64D43196784299B922DD7 /* SetupStatusContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB3D810C39BA187CD775B6C /* SetupStatusContractTests.swift */; };
 		F8BE29A6A14F481757A966DB /* DeskPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D5CE0F7637C0913938BA6B /* DeskPreviews.swift */; };
 		F8C78DB678C94B49C23122AE /* DaemonPttVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18016AE81D6E5779F262104 /* DaemonPttVoice.swift */; };
 		F940158912CF7ACA80C3376C /* TailDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEC7D8557C3DA805DBA75E1 /* TailDecoder.swift */; };
@@ -885,6 +887,7 @@
 		28D92D8BEAB46A00CF081716 /* ci-companion.usdz */ = {isa = PBXFileReference; lastKnownFileType = file.usdz; path = "ci-companion.usdz"; sourceTree = "<group>"; };
 		28DFE82D8F7AC7C7566940F3 /* Timeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Timeline.swift; sourceTree = "<group>"; };
 		2A5EE710FE14F48C58E23B52 /* SessionSettingsRules.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSettingsRules.generated.swift; sourceTree = "<group>"; };
+		2AB3D810C39BA187CD775B6C /* SetupStatusContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupStatusContractTests.swift; sourceTree = "<group>"; };
 		2AD17B846036A2F78B153024 /* ApmeActivityHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeActivityHistory.swift; sourceTree = "<group>"; };
 		2B5C866AF54937CD8E433F49 /* SingletonGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingletonGuard.swift; sourceTree = "<group>"; };
 		2B6B05AD3CC720BD76A681F9 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
@@ -1381,6 +1384,7 @@
 				41CF82AE8E20EDCAE99DCEDD /* SessionLauncherTests.swift */,
 				6E98D7DD3B95496DC3353CF1 /* SessionOrderStoreTests.swift */,
 				73BB88D8C2921CB4B93EC8B9 /* SessionPushRegisterMergeTests.swift */,
+				2AB3D810C39BA187CD775B6C /* SetupStatusContractTests.swift */,
 				279EAD7034309F8B8641DF78 /* SpokenDigestParityTests.swift */,
 				2C734B04F5E770B8B5FE2B70 /* SwiftSurfaceProtocolTests.swift */,
 				BB282455F078889B6DB35F93 /* TerrariumCloudFoldTests.swift */,
@@ -2240,6 +2244,7 @@
 				6D2EA7E15F98B8510CF048E9 /* SessionLauncherTests.swift in Sources */,
 				ACD84A00B81A97A334328DF9 /* SessionOrderStoreTests.swift in Sources */,
 				D98FDB40FEA236A6370DE45E /* SessionPushRegisterMergeTests.swift in Sources */,
+				20BFFEE785B10180BBC1D46C /* SetupStatusContractTests.swift in Sources */,
 				70055CA070869B45C0E300A7 /* SpokenDigestParityTests.swift in Sources */,
 				58E5710560C2B86ACFA1A460 /* SwiftSurfaceProtocolTests.swift in Sources */,
 				56228049434E99DBC2BFD016 /* TerrariumCloudFoldTests.swift in Sources */,
@@ -2350,6 +2355,7 @@
 				9B1DF1D553619B6728566E86 /* SessionLauncherTests.swift in Sources */,
 				B2BC3A51EE207F9B7DE4C750 /* SessionOrderStoreTests.swift in Sources */,
 				D0668EACC4D50BE30B10ACE5 /* SessionPushRegisterMergeTests.swift in Sources */,
+				F8B64D43196784299B922DD7 /* SetupStatusContractTests.swift in Sources */,
 				D68284901B3BD6ED764CB572 /* SpokenDigestParityTests.swift in Sources */,
 				0B5C74B616EFAC3B3D82CFB2 /* SwiftSurfaceProtocolTests.swift in Sources */,
 				7409E65BFDFE78944B389B63 /* TerrariumCloudFoldTests.swift in Sources */,

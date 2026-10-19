@@ -3430,13 +3430,22 @@ final class DaemonServer {
         // session state word, and deliberately NO pairingToken — a payload a
         // browser page may read cross-origin must carry no secret. Still behind
         // the LAN access policy: unauthenticated remote peers get 401.
+        //
+        // `sessions` is the count the deck shows and `claudeHooks` whether Claude
+        // Code reports here: the panel used to read "no session" off the state
+        // word, which says `disconnected` whenever no managed session is focused
+        // — i.e. over a deck full of observed sessions (Ulanzi QA, 2026-10-19).
+        // Shape pinned for both daemons by shared/setup-status-contract.json.
         await httpServer.get("/setup-status") { [weak self] _ in
             let health = await self?.buildModuleHealth().value ?? ["state": "disconnected"]
-            return HTTPServer.HTTPResponse.json([
-                "status": "ok", "mode": "daemon", "port": daemonPort,
-                "state": health["state"] as? String ?? "disconnected",
-                "isSwift": true,
-            ] as [String: Any]).allowingAnyOrigin()
+            let sessions = await self?.setupStatusSessionCount()
+            let hooks = await self?.setupStatusClaudeHooks() ?? "unknown"
+            return HTTPServer.HTTPResponse.json(Self.setupStatusPayload(
+                port: Int(daemonPort),
+                state: health["state"] as? String ?? "disconnected",
+                sessions: sessions,
+                claudeHooks: hooks
+            )).allowingAnyOrigin()
         }
 
         await httpServer.get("/dashboard/providers") { [weak self] _ in
@@ -10934,6 +10943,42 @@ final class DaemonServer {
             serial: await serialStatusSnapshot(),
             adb: adbStatusSnapshot()
         )
+    }
+
+    // MARK: - /setup-status
+
+    /// The `/setup-status` body (Node `buildSetupStatusPayload` parity). Counts
+    /// and flags only — never ids, names, paths or the pairing token: a browser
+    /// page may read this route cross-origin. `sessions` nil (unknown) encodes as
+    /// JSON null, never 0.
+    nonisolated static func setupStatusPayload(port: Int, state: String, sessions: Int?, claudeHooks: String) -> [String: Any] {
+        [
+            "status": "ok", "mode": "daemon", "port": port,
+            "state": state,
+            "isSwift": true,
+            "sessions": sessions.map { $0 as Any } ?? NSNull(),
+            "claudeHooks": claudeHooks,
+        ]
+    }
+
+    /// Rows the deck shows (the same roster `sessions_list` carries).
+    func setupStatusSessionCount() -> Int {
+        (buildSessionsListEvent()["sessions"] as? [[String: Any]])?.count ?? 0
+    }
+
+    /// Whether Claude Code will report to this daemon. The sandboxed app reads no
+    /// file to answer it: `installed` only when the app itself wrote the hooks
+    /// and still holds the user's consent, otherwise `unknown` — the CLI may have
+    /// installed them into the same file, so the app never claims `missing`.
+    func setupStatusClaudeHooks() -> String {
+        Self.setupStatusClaudeHooks(
+            hooksInstalled: AppPreferences.shared.hooksInstalled,
+            consent: AppPreferences.shared.hookInstallConsent
+        )
+    }
+
+    nonisolated static func setupStatusClaudeHooks(hooksInstalled: Bool, consent: AppPreferences.HookInstallConsent) -> String {
+        hooksInstalled && consent == .accepted ? "installed" : "unknown"
     }
 
     private func buildModuleHealth() async -> SendableDict {
