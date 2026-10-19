@@ -641,6 +641,7 @@
 		C984EE6C8F562962DBE4EB5B /* ClaudePermissionRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160B2258BF46CD03C53B5AC0 /* ClaudePermissionRulesTests.swift */; };
 		C9A93A44534B81815553F80B /* TimelineRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8884FD5EE02A0EDAF5D6C448 /* TimelineRelay.swift */; };
 		CA87D544027881EBC6EE45D8 /* DotDirectHostingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF123E62CA46345F1A78445F /* DotDirectHostingTests.swift */; };
+		CB1EFCC1BDAF5A521ABAC5D2 /* ClaudePermissionRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1C1449392382945373BE3D /* ClaudePermissionRequestTests.swift */; };
 		CB3B1034257089A73707A651 /* PortFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6165A6BFF174139F6AF07CED /* PortFormatting.swift */; };
 		CB4DB4586BC5196412C3429C /* UsageAPIClientThreadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9841FBF8AFC5D5C65809F8B /* UsageAPIClientThreadingTests.swift */; };
 		CB77E3E1CAFEB083339F155C /* MenuBarDensityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0DF2FF90EE46351B4FC2F59 /* MenuBarDensityPolicyTests.swift */; };
@@ -763,6 +764,7 @@
 		F352145007826B5BE9683A3D /* WearableTabletPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 573B908900BFBC530F17EAB6 /* WearableTabletPreviews.swift */; };
 		F4150CA5E9A31CD575F69F0C /* SessionGrouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBAB8DFED8E277FFB6136742 /* SessionGrouping.swift */; };
 		F42F09D300661953D5F0EAFF /* StateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA46D3D4A84FBDE6C8B3AB62 /* StateMachine.swift */; };
+		F49521249811C23E231FCB8D /* ClaudePermissionRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1C1449392382945373BE3D /* ClaudePermissionRequestTests.swift */; };
 		F49AA20F8B3A8A1E046DFB6A /* MultiDaemonConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D08149C174AF40B6A80DD1 /* MultiDaemonConnectionTests.swift */; };
 		F4A65D852B783D1D78C7F1A4 /* CollaborationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B987710CFB6B547DB06A21 /* CollaborationModel.swift */; };
 		F4ADA603AE92064770BBAD3C /* dot-mcp-contract.json in Resources */ = {isa = PBXBuildFile; fileRef = 8521590B433F1C0B3F3FB330 /* dot-mcp-contract.json */; };
@@ -1055,6 +1057,7 @@
 		8BE1D983995443760EDE3A4A /* CodexOtelParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexOtelParserTests.swift; sourceTree = "<group>"; };
 		8C8A40550B31856011EBBCB7 /* DemoPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoPlayback.swift; sourceTree = "<group>"; };
 		8D80206C489734918E56FB0B /* TUITerrariumRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TUITerrariumRenderer.swift; sourceTree = "<group>"; };
+		8E1C1449392382945373BE3D /* ClaudePermissionRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudePermissionRequestTests.swift; sourceTree = "<group>"; };
 		8EB6D1182ABF3CF9649640FE /* OpenClawApprovalErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenClawApprovalErrorTests.swift; sourceTree = "<group>"; };
 		8EE5AF611F51BB12390D4DB5 /* CodexApprovalHoldTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexApprovalHoldTests.swift; sourceTree = "<group>"; };
 		8EF540FF89BA54744CF94CC4 /* ApmeCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeCollector.swift; sourceTree = "<group>"; };
@@ -1313,6 +1316,7 @@
 				2C3ADC7DBDBDBAD81580DCE1 /* BridgeDiscoveryLogTests.swift */,
 				44FA10A61851AAD5430F1685 /* CiWaitRulesTests.swift */,
 				ABBD412B771BBC8D6616B48D /* ClaudeBackgroundJobRulesTests.swift */,
+				8E1C1449392382945373BE3D /* ClaudePermissionRequestTests.swift */,
 				160B2258BF46CD03C53B5AC0 /* ClaudePermissionRulesTests.swift */,
 				87B953D8E77FC4425B70B384 /* ClaudeStatuslineRulesTests.swift */,
 				8EE5AF611F51BB12390D4DB5 /* CodexApprovalHoldTests.swift */,
@@ -2173,6 +2177,7 @@
 				5BCD8A6D3633B4B1F6E9D497 /* BridgeDiscoveryLogTests.swift in Sources */,
 				8CB40A396077F92F9140E25F /* CiWaitRulesTests.swift in Sources */,
 				3AA3A8CEDFE2A89F0708D96E /* ClaudeBackgroundJobRulesTests.swift in Sources */,
+				CB1EFCC1BDAF5A521ABAC5D2 /* ClaudePermissionRequestTests.swift in Sources */,
 				ADC9C0B4303BEA1EEB33E969 /* ClaudePermissionRulesTests.swift in Sources */,
 				7508D8DB27034D39CA026615 /* ClaudeStatuslineRulesTests.swift in Sources */,
 				8B6C5D6F726950635B32AB28 /* CodexApprovalHoldTests.swift in Sources */,
@@ -2284,6 +2289,7 @@
 				29CC4AEF894AEBCC934EC9C5 /* BridgeDiscoveryLogTests.swift in Sources */,
 				C5F162AA9AB80292E55F6046 /* CiWaitRulesTests.swift in Sources */,
 				400DA2617A474B0330E9D615 /* ClaudeBackgroundJobRulesTests.swift in Sources */,
+				F49521249811C23E231FCB8D /* ClaudePermissionRequestTests.swift in Sources */,
 				C984EE6C8F562962DBE4EB5B /* ClaudePermissionRulesTests.swift in Sources */,
 				BC2D8940BCC6A284DD3E87A8 /* ClaudeStatuslineRulesTests.swift in Sources */,
 				7289CC0685570063D5C36712 /* CodexApprovalHoldTests.swift in Sources */,

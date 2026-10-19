@@ -6151,6 +6151,25 @@ final class DaemonServer {
             armCodexBackgroundPoll()
         }
 
+        // Claude Code's `PermissionRequest` (a Codex payload was re-routed to
+        // `codex_permission_request` above): runs as Claude is about to draw
+        // its permission dialog, where the permission_prompt Notification
+        // waits ~6 s of keyboard silence. Display-only — the installed hook
+        // prints nothing, so it never decides the dialog — and nothing else:
+        // no timeline row, no APME step, no turn change. A subagent's dialog
+        // is drawn in its parent's terminal, so it lands on the parent's row
+        // (`session_id`) before child hooks are consumed below. The same
+        // tool/turn hooks that clear the Notification's prompt clear this one.
+        if event == "permission_request" {
+            if let sessionId = Self.hookSessionId(event: event, json: json), pushedSessionsById[sessionId] != nil {
+                Task { await ObservedSteering.shared.notePermissionPromptShown(sessionId: sessionId) }
+                let toolInput = json["tool_input"] as? [String: Any]
+                let question = Self.claudeGateQuestion(tool: json["tool_name"] as? String ?? "", toolInput: toolInput)
+                showClaudePermissionPrompt(sessionId: sessionId, signal: .permissionRequest, question: question)
+            }
+            return
+        }
+
         // Child lifecycle is telemetry-only. Consume it before resurrection,
         // state, APME, and steering bookkeeping so a child's tool hooks can
         // never alter or request approval through the parent session.
@@ -6508,21 +6527,15 @@ final class DaemonServer {
             let message = json["message"] as? String ?? ""
             let notificationType = json["notification_type"] as? String
             if Self.isPermissionNotification(notificationType: notificationType, message: message), let sessionId,
-               var entry = pushedSessionsById[sessionId] {
+               pushedSessionsById[sessionId] != nil {
                 // Steering learner: a genuine terminal prompt appeared — recent
                 // undecided gate releases were real prompts, learn nothing.
                 Task { await ObservedSteering.shared.notePermissionPromptShown(sessionId: sessionId) }
                 // AskUserQuestion emits this generic permission notification
-                // after its structured PreToolUse. Preserve the real prompt.
-                guard pendingAskBySession[sessionId] == nil else { break }
-                let q = String(message.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
-                if entry.state != "awaiting_permission" || entry.question != q {
-                    entry.state = "awaiting_permission"
-                    entry.question = q
-                    pushedSessionsById[sessionId] = entry
-                    upsertIntoCachedSessions(entry)
-                    broadcastSessionsList()
-                }
+                // after its structured PreToolUse, a held gate owns its
+                // requestId, and PermissionRequest already showed this prompt
+                // with its tool: the Notification replaces none of them.
+                showClaudePermissionPrompt(sessionId: sessionId, signal: .notification, question: message)
             }
         case "codex_user_prompt_submit":
             _ = stateMachine.transition(trigger: "user_prompt_submit", source: .hook)
@@ -8254,13 +8267,13 @@ final class DaemonServer {
         ) else {
             return .text("")
         }
+        // A hook process Claude abandons (interrupt, its own timeout) closes
+        // its socket; release the hold then instead of at the 25 s timer, so
+        // the device stops offering a decision nobody is waiting for.
+        Self.releaseHoldOnPeerClose(requestId: requestId)
         // Device-native question ("Allow Bash: git push…?") — never a mirror
         // of the TUI prompt's option labels.
-        let preview = commandText
-            ?? (toolInput?["file_path"] as? String)
-            ?? (toolInput?["url"] as? String)
-            ?? ""
-        let question = String((preview.isEmpty ? "Allow \(tool)?" : "Allow \(tool): \(preview)").prefix(120))
+        let question = Self.claudeGateQuestion(tool: tool, toolInput: toolInput)
         if var e = pushedSessionsById[sid] {
             e.state = "awaiting_permission"
             e.question = question
@@ -8303,6 +8316,84 @@ final class DaemonServer {
         }
     }
 
+    /// Release a held hook gate as undecided (`pass`) when the hook's HTTP
+    /// socket closes before the daemon answered — mirror of the Node daemon's
+    /// `releaseHoldOnHookClose`. The hook runner gave up on the call, so no
+    /// answer can reach it any more; the 25 s timer stays the backstop. Called
+    /// outside `HTTPServer.handle` (no task-local signal), the timer alone
+    /// applies.
+    nonisolated static func releaseHoldOnPeerClose(
+        requestId: String, steering: ObservedSteering = .shared
+    ) {
+        HTTPRequestContext.peerClose?.onClose {
+            Task { await steering.releaseUndecided(requestId: requestId) }
+        }
+    }
+
+    /// Device-native question for a Claude tool call ("Allow Bash: git push"),
+    /// shared by the held PreToolUse gate and the PermissionRequest display.
+    nonisolated static func claudeGateQuestion(tool: String, toolInput: [String: Any]?) -> String {
+        let preview = (toolInput?["command"] as? String)
+            ?? (toolInput?["file_path"] as? String)
+            ?? (toolInput?["url"] as? String)
+            ?? ""
+        return String((preview.isEmpty ? "Allow \(tool)?" : "Allow \(tool): \(preview)").prefix(120))
+    }
+
+    /// Which Claude signal says a permission dialog is up.
+    enum ClaudePermissionPromptSignal: Equatable {
+        /// The `PermissionRequest` hook — runs as Claude is about to draw the
+        /// dialog, carries the tool.
+        case permissionRequest
+        /// `Notification` with `notification_type: permission_prompt` — about
+        /// six seconds later, free text only. The fallback.
+        case notification
+    }
+
+    /// The question a Claude permission-prompt signal writes on the row, or nil
+    /// to leave the row as it is. Mirror of the Node daemon's
+    /// `setPermissionRequestOverlay` / `setPermissionNotificationOverlay`:
+    /// neither signal replaces an AskUserQuestion prompt or a held gate (whose
+    /// `requestId` is the device's only way to answer); PermissionRequest
+    /// replaces a display-only prompt unless it is already showing this
+    /// question; the Notification never replaces a prompt already shown, so
+    /// the two signals for one dialog count once.
+    nonisolated static func claudePermissionPromptQuestion(
+        signal: ClaudePermissionPromptSignal,
+        question: String,
+        state: String?,
+        currentQuestion: String?,
+        askPending: Bool,
+        gateHeld: Bool
+    ) -> String? {
+        if askPending || gateHeld || state == "awaiting_option" { return nil }
+        let q = String(question.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+        guard state == "awaiting_permission" else { return q }
+        switch signal {
+        case .permissionRequest:
+            return currentQuestion == q ? nil : q
+        case .notification:
+            return (currentQuestion ?? "").isEmpty ? q : nil
+        }
+    }
+
+    /// Apply a Claude permission-prompt signal to the session's row.
+    private func showClaudePermissionPrompt(
+        sessionId: String, signal: ClaudePermissionPromptSignal, question: String
+    ) {
+        guard var entry = pushedSessionsById[sessionId],
+              let q = Self.claudePermissionPromptQuestion(
+                  signal: signal, question: question,
+                  state: entry.state, currentQuestion: entry.question,
+                  askPending: pendingAskBySession[sessionId] != nil,
+                  gateHeld: heldGateSessionIds.contains(sessionId)) else { return }
+        entry.state = "awaiting_permission"
+        entry.question = q
+        pushedSessionsById[sessionId] = entry
+        upsertIntoCachedSessions(entry)
+        broadcastSessionsList()
+    }
+
     /// Hold an AskUserQuestion open until a device answers every question group
     /// or the hold expires.
     ///
@@ -8319,6 +8410,7 @@ final class DaemonServer {
             return .text("")
         }
         pendingAskBySession[sid]?.gateRequestId = requestId
+        Self.releaseHoldOnPeerClose(requestId: requestId)
         // The gate owns this session's prompt until it resolves — parallel tool
         // hooks must not strip the question out from under an open device wait.
         heldGateSessionIds.insert(sid)
@@ -8416,6 +8508,7 @@ final class DaemonServer {
         }
         codexHoldRequestBySession[sid] = requestId
         heldGateSessionIds.insert(sid)
+        Self.releaseHoldOnPeerClose(requestId: requestId)
         showCodexApprovalPrompt(sessionId: sid, question: question, requestId: requestId)
         DaemonLogger.shared.info("Steering: Codex approval held (\(sid.prefix(14))) req=\(requestId) for \(holdMs) ms")
 
@@ -9192,6 +9285,7 @@ final class DaemonServer {
         case "Stop":         return "stop"
         case "UserPromptSubmit": return "user_prompt_submit"
         case "Notification": return "notification"
+        case "PermissionRequest": return "permission_request"
         case "SubagentStart": return "subagent_start"
         case "SubagentStop": return "subagent_stop"
         case "TaskCompleted": return "task_completed"
