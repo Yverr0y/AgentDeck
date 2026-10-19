@@ -36,9 +36,11 @@ answers `installed` only for its own consented install and `unknown`
 otherwise, never `missing`. Codex hook status was not added.
 
 **The setup command did not start the daemon.** The panels said
-`npx @agentdeck/setup`. Without `--yes`, setup neither installs nor starts
-the daemon. It ends by listing `agentdeck daemon install` as a next step, and
-a user following the panel never sees that line.
+`npx @agentdeck/setup`. In the setup the tester ran, leaving out `--yes`
+meant the daemon was neither installed nor started; the only pointer was
+`agentdeck daemon install` in a list of next steps. Since
+[the setup onboarding change](docs/devlog/entries/2026-10-19-setup-root-owned-prefix-and-ulanzi-onboarding.md),
+setup asks at a terminal, but the panel spells out the unattended form anyway.
 The panels and the guide now say `npx -y @agentdeck/setup --yes`. `--yes`
 sets `autoInstallDaemon`, which runs `agentdeck daemon install`; that
 installs and starts the unit and refreshes the Claude, Kiro, Codex and
