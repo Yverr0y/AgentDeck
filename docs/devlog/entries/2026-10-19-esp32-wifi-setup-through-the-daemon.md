@@ -99,6 +99,7 @@ sheet's wording. The firmware's `joined` was compiled for `ttgo` and
 `t_display_pro` and not flashed. The session bridge's `wifi_provision` handler
 in `bridge/src/index.ts` is unreachable, since session bridges never open
 serial. `bridge/src/wifi-config.ts` ignores `AGENTDECK_DATA_DIR`. The Swift
-HTTP server decodes a whole request as UTF-8 and reads one that fails as
-`GET /`, so a non-UTF-8 body never reaches that daemon's route. Nothing is saved
-either way, but the status differs from Node's 400.
+HTTP server decoded a whole request as UTF-8 and read one that failed as
+`GET /`, so a non-UTF-8 body never reached that daemon's route. Nothing was
+saved either way, but the status differed from Node's 400. Fixed the same day:
+[the parser entry](docs/devlog/entries/2026-10-19-swift-http-parser-reads-only-the-head-as-text.md).

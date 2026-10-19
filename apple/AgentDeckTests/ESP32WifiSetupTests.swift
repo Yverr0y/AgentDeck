@@ -323,6 +323,23 @@ final class ESP32WifiSetupTests: XCTestCase {
             body: "{nope}"))
         XCTAssertEqual(garbled.status, 400)
         XCTAssertEqual(recorder.saved.count, 1, "a body that is not JSON saves nothing")
+
+        // Bytes that are not UTF-8 reach the route and are refused there, as
+        // Node refuses them. The server used to read such a request as `GET /`.
+        var latin1 = Data(#"{"ssid":"Desk"#.utf8)
+        latin1.append(0xFF)
+        latin1.append(Data(#"","password":"correct horse battery staple"}"#.utf8))
+        var raw = Data(("POST /esp32/wifi HTTP/1.1\r\nHost: 127.0.0.1:9120\r\nAuthorization: Bearer \(token)\r\n"
+            + "Content-Type: application/json\r\nContent-Length: \(latin1.count)\r\n\r\n").utf8)
+        raw.append(latin1)
+        let parsed = HTTPServer.parseHTTPRequest(raw, remoteIP: "127.0.0.1")
+        XCTAssertEqual(parsed.method, "POST")
+        XCTAssertEqual(parsed.path, "/esp32/wifi")
+        let notUTF8 = await answer(parsed)
+        XCTAssertEqual(notUTF8.status, 400)
+        let refusal = try XCTUnwrap(notUTF8.body.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        XCTAssertEqual(refusal["error"] as? String, "invalid-body")
+        XCTAssertEqual(recorder.saved.count, 1, "bytes that are not UTF-8 save nothing")
     }
 
     // MARK: - The operator's request through the fan-out
