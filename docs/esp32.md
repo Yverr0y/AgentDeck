@@ -266,7 +266,7 @@ ESP32 디스플레이는 **USB 시리얼** (기본) + **WiFi WebSocket** (독립
 ```bash
 agentdeck wifi-setup --ssid "MyNetwork" --password "secret"
 # → 실행 중인 daemon에 POST /esp32/wifi: daemon이 저장하고 USB의 ESP32에 바로 전송 (재시작 불필요)
-# → 등록된 daemon이 없거나 응답이 없으면 ~/.agentdeck/wifi-config.json 에만 저장 (autoProvision: true)
+# → 등록된 daemon이 없거나 응답이 없으면 데이터 디렉토리(~/.agentdeck, AGENTDECK_DATA_DIR 지정 시 그곳)의 wifi-config.json 에만 저장 (autoProvision: true)
 ```
 
 macOS 앱에서는 Settings → ESP32 & Pixoo → ESP32 boards → **Set up…** 시트가 같은 경로를 쓴다(앱 안 daemon이든 앱이 클라이언트로 붙은 Node daemon이든, 포트를 잡은 daemon에 보낸다).
