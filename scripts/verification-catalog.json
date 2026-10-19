@@ -615,9 +615,10 @@
       "trigger": "PRs and pushes touching apple/**, shared/** or generated/protocol/**",
       "blocking": true,
       "command": "verify-build.sh macOS Debug / Release / DotPreviewRelease; verify-build.sh iOS Release / DotPreviewRelease; validate-appstore-submission.sh",
-      "evidence": ["apple/AgentDeckTests/AgentDeckPathsTests.swift", "apple/AgentDeckTests/TerrariumCloudFoldTests.swift", "apple/AgentDeckTests/CommunicationGraphTests.swift", "apple/AgentDeckTests/LocalPortProbeTests.swift", "apple/AgentDeckTests/BridgeConnectionLifetimeTests.swift", "apple/AgentDeckTests/ClaudePermissionRequestTests.swift"],
+      "evidence": ["apple/AgentDeckTests/AgentDeckPathsTests.swift", "apple/AgentDeckTests/TerrariumCloudFoldTests.swift", "apple/AgentDeckTests/CommunicationGraphTests.swift", "apple/AgentDeckTests/LocalPortProbeTests.swift", "apple/AgentDeckTests/BridgeConnectionLifetimeTests.swift", "apple/AgentDeckTests/SetupStatusContractTests.swift", "apple/AgentDeckTests/ClaudePermissionRequestTests.swift"],
       "proves": [
         "the macOS app and its in-process Swift daemon build and pass XCTest",
+        "the Swift daemon's cross-origin /setup-status answers exactly the secret-free key set of shared/setup-status-contract.json, with a session count and a Claude hook flag that never claims missing from inside the sandbox",
         "the Swift daemon maps Claude PermissionRequest to the same display-only prompt as the permission Notification, counts the two once, never replaces a held gate or a question, and its HTTP listener releases a held gate undecided when the hook's connection closes",
         "communication graphs keep unrelated sessions isolated, resolve only explicit peer identity, retain one-way burst ages, and distinguish crossed messages and unavailable history; native graph rendering uses synthetic sessions; habitat currents require visible peers and follow resident parent and camera transforms",
         "selected-host discovery recovery survives network retry exhaustion while explicit stops and authentication refusals remain stopped",
@@ -869,6 +870,7 @@
         "bridge/src/__tests__/discovery-security.test.ts",
         "bridge/src/__tests__/ws-server-auth.test.ts",
         "bridge/src/__tests__/local-trust-*.test.ts",
+        "bridge/src/__tests__/setup-status.test.ts",
         "shared/src/__tests__/local-trust*.test.ts",
         "shared/src/__tests__/pairing-code*.test.ts"
       ]

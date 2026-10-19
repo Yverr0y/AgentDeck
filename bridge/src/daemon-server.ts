@@ -351,6 +351,7 @@ import {
 } from './types.js';
 
 import { hookPayloadProjectName, resolveProjectNameFromCwdCached } from './utils/project-name.js';
+import { buildSetupStatusPayload, claudeHookPresence, withinBudget } from './setup-status.js';
 
 function exitProcessNow(code = 0): void {
   if (code === 0) {
@@ -2279,17 +2280,26 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     // and ACAO there would hand the pairing token to any web page the user
     // happens to visit (the request comes from their own machine, so it passes
     // the local check). This payload is deliberately the public-health fields
-    // plus the session state word — no token, no modules, no session inventory.
+    // plus the session state word, the session COUNT and whether Claude hooks
+    // are installed — no token, no modules, no session inventory. Shape pinned
+    // for both daemons by shared/setup-status-contract.json (setup-status.ts).
     if (req.method === 'GET' && pathname === '/setup-status') {
-      const snap = core.stateMachine.getSnapshot();
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-        'Access-Control-Allow-Origin': '*',
-      });
-      res.end(JSON.stringify({
-        status: 'ok', mode: 'daemon', port, state: snap.state, isSwift: false,
-      }));
+      void (async () => {
+        const snap = core.stateMachine.getSnapshot();
+        // The roster is the same pipeline sessions_list uses; bounded so a slow
+        // observer scan costs the panel a field, not an answer.
+        const roster = await withinBudget(core.buildSessionsSnapshot(), 1_000);
+        const cached = (core.getLastSessionsListEvent() as { sessions?: unknown[] } | null)?.sessions;
+        const sessions = roster ? roster.length : (Array.isArray(cached) ? cached.length : null);
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify(buildSetupStatusPayload({
+          port, state: snap.state, sessions, claudeHooks: claudeHookPresence(),
+        })));
+      })();
       return;
     }
     // ── Pairing window, operator side ─────────────────────────────────────
