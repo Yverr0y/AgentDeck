@@ -44,7 +44,24 @@ installation command from the new location.
 
 For a normal installation without a source checkout, use
 `npx @agentdeck/setup`; that installer also makes the `agentdeck` command
-available. Daemon installation does not by itself diagnose a Stream Deck
+available. On Windows, setup:
+
+- **Detects Ulanzi Studio without a warning about Stream Deck.** If Ulanzi Studio is found and the Stream Deck app is not,
+  the closing steps describe the Ulanzi plugin and nothing is said about Stream Deck. The paths it checks have **not
+  been verified on a real Windows install**: `%APPDATA%\Ulanzi\UlanziDeck`, `%ProgramFiles%\Ulanzi Studio`,
+  `%ProgramFiles%\UlanziStudio`, `%ProgramFiles(x86)%\Ulanzi Studio` and `%LOCALAPPDATA%\Programs\Ulanzi Studio`.
+  If none of them matches, setup lists both deck hosts. Pass `--surface=ulanzi` to choose the Ulanzi steps.
+- **Falls back to a per-user prefix without editing your PATH.** The default npm prefix (`%APPDATA%\npm`) is
+  user-writable. If the global prefix is not, setup installs into `%USERPROFILE%\.agentdeck\npm` and prints the
+  directory to add under Environment Variables → User variables → Path. It does not edit the
+  persistent user `PATH`: `setx` truncates values at 1024 characters, and a registry read-modify-write could flatten
+  `%VAR%` entries, which has not been checked on a real Windows machine. The Scheduled Task runs absolute `node.exe` and
+  `cli.js` paths, so autostart does not need the `PATH` entry.
+- **Reports an `EPERM` instead of retrying.** It usually means a running daemon or antivirus holds a file. Stop the
+  daemon with `agentdeck daemon stop` and run setup again.
+
+Run `npx -y @agentdeck/setup --yes` to install daemon autostart in the same run. Without `--yes`, an interactive
+PowerShell asks before installing it. Daemon installation does not by itself diagnose a Stream Deck
 plugin that remains OFFLINE; that connectivity report is tracked separately
 in [#303](https://github.com/puritysb/AgentDeck/issues/303).
 
