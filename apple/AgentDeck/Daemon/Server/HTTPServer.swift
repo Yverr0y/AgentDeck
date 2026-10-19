@@ -343,7 +343,16 @@ actor HTTPServer {
     // MARK: - HTTP Parsing (static — used by WebSocketServer for unified handling)
 
     static func parseHTTPRequest(_ data: Data, remoteIP: String) -> HTTPRequest {
-        let text = String(data: data, encoding: .utf8) ?? ""
+        // Only the request line and headers are text; the body is sliced from
+        // the raw bytes below and may be anything. Decoding the whole request
+        // read one whose body was not UTF-8 (protobuf, gzip, a stray byte) as
+        // `GET /` with no headers, so it never reached its route, where Node
+        // hands such a body over untouched. A head that is not UTF-8 is read
+        // byte for byte as Latin-1, as Node reads header values, rather than as
+        // some other request.
+        let headerTerminator = data.range(of: Data("\r\n\r\n".utf8))
+        let head = headerTerminator.map { data[data.startIndex..<$0.lowerBound] } ?? data
+        let text = String(data: head, encoding: .utf8) ?? String(data: head, encoding: .isoLatin1) ?? ""
         let separator = "\r\n"
         let lines = text.components(separatedBy: separator)
 
@@ -400,7 +409,7 @@ actor HTTPServer {
         // mangled trailing bytes. Header parsing above can stay string-
         // based (text-only, well below pathological sizes).
         let body: Data?
-        if let headerTerminator = data.range(of: Data("\r\n\r\n".utf8)) {
+        if let headerTerminator {
             let bodyOffset = headerTerminator.upperBound
             if bodyOffset < data.count {
                 body = data.subdata(in: bodyOffset..<data.count)
