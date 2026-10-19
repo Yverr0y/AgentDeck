@@ -88,8 +88,22 @@ async function health(port: number): Promise<Record<string, unknown> | undefined
   }
 }
 
+// The APME judge chain falls back to a local MLX server at 127.0.0.1:8800,
+// so a developer's running server answered these daemons (four connections in
+// one run, 2026-10-19). Pin an endpoint that refuses instead; tests that
+// rewrite settings.json keep this key.
+const NO_LOCAL_JUDGE = { llm: { mlx: { endpoint: 'http://127.0.0.1:9' } } };
+
+function pinNoLocalJudge(): void {
+  const file = join(dataDir, 'settings.json');
+  const current = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown> : {};
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(file, JSON.stringify({ ...current, ...NO_LOCAL_JUDGE }));
+}
+
 async function startDaemon(port: number): Promise<Daemon> {
   let output = '';
+  pinNoLocalJudge();
   const child = spawn(process.execPath, [
     CLI, 'daemon', 'start', '--foreground', '--local', '--loopback', '--no-build',
     '--port-window', `${port}-${port}`, '--port', String(port),
@@ -228,7 +242,7 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     }
     const headers = { Authorization: `Bearer ${(await health(daemon.port))?.pairingToken}`,
       'Content-Type': 'application/json' };
-    writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({ unrelated: 'preserved' }));
+    writeFileSync(join(dataDir, 'settings.json'), JSON.stringify({ ...NO_LOCAL_JUDGE, unrelated: 'preserved' }));
     // PAYG skips provider I/O: this is a route/key-custody test, never a live account request.
     const fakeKey = 'sk-pay-route-test-only';
     const saved = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ apiKey: fakeKey }),
@@ -237,12 +251,12 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     const reply = await saved.text();
     expect(JSON.parse(reply)).toMatchObject({ configured: true, source: 'daemon-settings', editable: true, authFailed: false, verified: true });
     expect(reply).not.toContain(fakeKey);
-    expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8'))).toEqual({ unrelated: 'preserved', zaiApiKey: fakeKey });
+    expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8'))).toEqual({ ...NO_LOCAL_JUDGE, unrelated: 'preserved', zaiApiKey: fakeKey });
     if (POSIX) expect(statSync(join(dataDir, 'settings.json')).mode & 0o777).toBe(0o600);
     expect(await (await fetch(url, { headers })).text()).not.toContain(fakeKey);
     expect((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ apiKey: 'invalid key' }) })).status).toBe(400);
     expect((await fetch(url, { method: 'DELETE', headers })).status).toBe(200);
-    expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8'))).toEqual({ unrelated: 'preserved' });
+    expect(JSON.parse(readFileSync(join(dataDir, 'settings.json'), 'utf8'))).toEqual({ ...NO_LOCAL_JUDGE, unrelated: 'preserved' });
     expect(daemon.log()).not.toContain(fakeKey);
   });
 
