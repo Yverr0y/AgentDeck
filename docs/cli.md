@@ -16,6 +16,10 @@ The daemon installs or refreshes the lifecycle integrations and observes agents
 started through their normal commands. The **daemon** (port 9120, `0.0.0.0` by
 default) aggregates all sessions for external clients.
 
+`npx @agentdeck/setup` installs this CLI. It accepts `--yes`, `--enterprise`, `--statusline` and
+`--surface=ulanzi|streamdeck`. If npm's global prefix is not writable, it installs into `~/.agentdeck/npm` instead.
+Both are described in [install.md § What `npx @agentdeck/setup` does](install.md#what-npx-agentdecksetup-does).
+
 > **Compatibility notice:** `agentdeck claude`, `agentdeck codex`,
 > `agentdeck opencode`, and `agentdeck monitor` are a long-term compatibility
 > path; no removal is planned ([#273](https://github.com/puritysb/AgentDeck/issues/273)).
