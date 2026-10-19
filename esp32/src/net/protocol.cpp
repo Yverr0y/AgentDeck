@@ -1007,7 +1007,7 @@ static void handleWifiProvision(JsonObject& obj) {
 
     if (ssid[0] == '\0' || password[0] == '\0') {
         Serial.println("[Provision] Missing SSID or password");
-        Serial.println("{\"type\":\"wifi_provision_ack\",\"success\":false,\"error\":\"missing credentials\"}");
+        Serial.println("{\"type\":\"wifi_provision_ack\",\"success\":false,\"joined\":false,\"error\":\"missing credentials\"}");
         return;
     }
 
@@ -1032,6 +1032,10 @@ static void handleWifiProvision(JsonObject& obj) {
     Net::wifiSaveAuthToken(authToken);
 
     bool ok = false;
+    // Whether this provision joined the network, as opposed to saving the
+    // credentials for when USB goes away: the ack says which, so a daemon
+    // never reports a board as connected that only stored them.
+    bool joined = false;
     const char* failure = "connection failed";
 #if defined(BOARD_T_DISPLAY_PRO) || defined(AGENTDECK_DEFER_BOOT_WIFI_JOIN) || \
     (defined(BOARD_IPS10) && !defined(BOARD_HAS_VOICE_CAPTURE))
@@ -1051,6 +1055,7 @@ static void handleWifiProvision(JsonObject& obj) {
     {
         bool refused = false;
         ok = Net::wifiConnectWith(ssid, password, credId, &refused);
+        joined = ok;
         if (refused) failure = "credentials not saved";
     }
     if (ok) {
@@ -1077,9 +1082,12 @@ static void handleWifiProvision(JsonObject& obj) {
     JsonDocument resp;
     resp["type"] = "wifi_provision_ack";
     resp["success"] = ok;
-    if (ok) {
+    resp["joined"] = joined;
+    if (joined) {
+        // Only from this join: the address buffer outlives the connection it
+        // was set by, so a save-only ack would carry an earlier join's.
         resp["ip"] = Net::wifiLocalIP();
-    } else {
+    } else if (!ok) {
         resp["error"] = failure;
     }
     char buf[256];

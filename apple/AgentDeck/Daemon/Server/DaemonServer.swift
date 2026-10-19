@@ -2712,8 +2712,10 @@ final class DaemonServer {
         // which also silently took the device→daemon command channel and the
         // credential re-arm with it whenever this machine had no WiFi config.
         let lanIp = AuthManager.getLanIP() ?? "127.0.0.1"
-        let wifiConfig = WifiConfigManager.load()
-        let autoProvision = wifiConfig?.autoProvision == true
+        // The WiFi config is read on each device_info rather than once here, so
+        // credentials saved after startup (POST /esp32/wifi from the Wi-Fi
+        // sheet, or a Node daemon writing a shared file while this one stood
+        // down) apply without a restart.
         let daemonPort = Int(port)
         await serial.serial.setOnMessage { [weak self] portPath, msg in
             guard let self else { return }
@@ -2748,7 +2750,14 @@ final class DaemonServer {
                 Task { await self.serialModule?.serial.noteAuthProvisionAck(port: portPath) }
                 return
             }
+            if type == "wifi_provision_ack" {
+                // ESP32Serial keeps the ack for GET /esp32/wifi; this is the log line.
+                DaemonLogger.shared.info("ESP32 \(ESP32Serial.WifiProvisionAck(message: msg, at: 0).logLine) (\(portPath))")
+                return
+            }
             guard type == "device_info" else { return }
+            let wifiConfig = WifiConfigManager.current()
+            let autoProvision = wifiConfig?.autoProvision == true
 
             // Keep every serial-attached board armed with the token this daemon
             // serves — regardless of the auto-provision setting, and regardless
@@ -2769,8 +2778,10 @@ final class DaemonServer {
                 // user's WiFi credentials).
                 guard !armed.isEmpty, autoProvision, let config = wifiConfig else { return }
                 try? await Task.sleep(for: .milliseconds(Self.legacyRearmGraceMilliseconds))
+                // The credentials as they are now, not as they were before the grace.
+                let rearmConfig = WifiConfigManager.current() ?? config
                 let legacy = SendableDict(ESP32Serial.wifiProvisionMessage(
-                    ssid: config.ssid, password: config.password,
+                    ssid: rearmConfig.ssid, password: rearmConfig.password,
                     bridgeIP: lanIp, bridgePort: daemonPort, authToken: AuthManager.shared.token))
                 for armedPort in armed {
                     let sent = await self.serialModule?.serial
@@ -2876,6 +2887,58 @@ final class DaemonServer {
     nonisolated static func jsonBody(_ body: Data?) -> [String: Any] {
         guard let body, !body.isEmpty else { return [:] }
         return ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any]) ?? [:]
+    }
+
+    /// `GET` / `POST /esp32/wifi` as the routes answer them; the token check
+    /// and the daemon's dependencies are injected so XCTest drives this very
+    /// handler (ESP32WifiSetupTests). nil deps = the server is going away.
+    nonisolated static func esp32WifiRouteResponse(
+        _ request: HTTPServer.HTTPRequest,
+        validateToken: (String) -> Bool,
+        deps: () async -> ESP32WifiSetup.Deps?
+    ) async -> HTTPServer.HTTPResponse {
+        guard ESP32WifiSetup.authorized(
+            remoteAddress: request.remoteIP, authorization: request.headers["authorization"],
+            validateToken: validateToken) else {
+            return wifiSetupResponse(ESP32WifiSetup.refusal())
+        }
+        let isPost = request.method == "POST"
+        let body: Any? = isPost ? ESP32WifiSetup.parseBody(request.body) : nil
+        if isPost, body == nil {
+            return wifiSetupResponse(ESP32WifiSetup.Response(status: 400, body: ["ok": false, "error": "invalid-body"]))
+        }
+        guard let deps = await deps() else {
+            return .json(["ok": false, "error": "daemon unavailable"], status: 503)
+        }
+        guard isPost else { return wifiSetupResponse(await ESP32WifiSetup.status(deps)) }
+        let result = await ESP32WifiSetup.apply(body: body, deps: deps)
+        if result.status == 200, let boards = result.body["boards"] as? [[String: Any]] {
+            let sent = boards.filter { $0["sent"] as? Bool == true }.count
+            DaemonLogger.shared.info("ESP32 WiFi credentials updated; provision sent to \(sent) of \(boards.count) serial board(s)")
+        }
+        return wifiSetupResponse(result)
+    }
+
+    nonisolated static func wifiSetupResponse(_ result: ESP32WifiSetup.Response) -> HTTPServer.HTTPResponse {
+        let json = HTTPServer.HTTPResponse.json(result.body, status: result.status)
+        var headers = json.headers
+        headers["Cache-Control"] = "no-store"
+        return HTTPServer.HTTPResponse(status: json.status, headers: headers, body: json.body)
+    }
+
+    /// What `/esp32/wifi` reads and drives, resolved per request: the token can
+    /// change under a running daemon (Node: `esp32WifiSetupDeps`).
+    func esp32WifiSetupDeps(port: UInt16) -> ESP32WifiSetup.Deps {
+        let serial = serialModule?.serial
+        return ESP32WifiSetup.Deps(
+            loadConfig: { WifiConfigManager.current() },
+            saveConfig: { try WifiConfigManager.save($0) },
+            serialRunning: { serial != nil },
+            boards: { await serial?.wifiSetupBoards(expectedCredId: $0) ?? [] },
+            provision: { msg, manual in await serial?.provisionBoards(msg.value, manual: manual) ?? [] },
+            authToken: { AuthManager.shared.token },
+            bridgeIP: { AuthManager.getLanIP() ?? "127.0.0.1" },
+            bridgePort: Int(port))
     }
 
     private func weatherConfig() -> SwiftWeatherConfig? {
@@ -3634,6 +3697,22 @@ final class DaemonServer {
             let resumeModule: SerialModule? = await DaemonActor.run { [weak self] in self?.serialModule }
             let was = await resumeModule?.resume() ?? false
             return .json(["ok": true, "wasSuspended": was])
+        }
+
+        // ESP32 WiFi credentials (Node parity: `/esp32/wifi` in daemon-server.ts).
+        // Loopback plus the token as a bearer, like Node's /integrations/zai:
+        // the WiFi password never crosses the LAN. The Wi-Fi sheet and
+        // `agentdeck wifi-setup` call this on whichever daemon holds the port,
+        // and ESP32WifiSetup.swift answers in the shape both daemons share.
+        await httpServer.get("/esp32/wifi") { [weak self] request in
+            await Self.esp32WifiRouteResponse(
+                request, validateToken: { AuthManager.shared.validateToken($0) },
+                deps: { await self?.esp32WifiSetupDeps(port: daemonPort) })
+        }
+        await httpServer.post("/esp32/wifi") { [weak self] request in
+            await Self.esp32WifiRouteResponse(
+                request, validateToken: { AuthManager.shared.validateToken($0) },
+                deps: { await self?.esp32WifiSetupDeps(port: daemonPort) })
         }
 
         // WiFi OTA push to a connected ESP32 board (Node parity:

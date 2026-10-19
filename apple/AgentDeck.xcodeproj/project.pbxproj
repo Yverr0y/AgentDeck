@@ -76,6 +76,7 @@
 		18B5EB50FB19AB4013D78F74 /* UnknownAgentForwardCompatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A472C32952DF18A4C77A969A /* UnknownAgentForwardCompatTests.swift */; };
 		18D2B511A7F81AAF84A40130 /* DashboardProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F5AD0F31E7A87406FF94F4 /* DashboardProviders.swift */; };
 		190DE65C9F234AC406B0DCF5 /* NOTICE-PocketSansWorld.md in Resources */ = {isa = PBXBuildFile; fileRef = B935860AB75CE325C47F3081 /* NOTICE-PocketSansWorld.md */; };
+		191F927A5C4A1A56D378F956 /* ESP32WifiSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E182322308CF38A3CF924E68 /* ESP32WifiSetup.swift */; };
 		19CDAF0B79C1F843366192C0 /* DevicePreviewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E033ABF49F0DDF31D309181 /* DevicePreviewSnapshotTests.swift */; };
 		19ECE218BBAF3ED4EE451B0E /* ObservedAgentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F191BB05A8E86E61E7A12CCE /* ObservedAgentSettings.swift */; };
 		1A219C27AD260DD6199484E0 /* DashboardProviderVectorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCFFBDF3C8B9091DE9D5E376 /* DashboardProviderVectorsTests.swift */; };
@@ -98,6 +99,7 @@
 		2113C540FF031F83DBA1139F /* Creature.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A9A073192C93C1277AE490 /* Creature.swift */; };
 		21AF157660FF2065535E3EE2 /* GaugeBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEE70EEDDCA2199E894D275 /* GaugeBar.swift */; };
 		21B888794E0EE0FDE78954AB /* ApmeActivityHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB5FA66873A6E7FACA1B8EE /* ApmeActivityHistoryTests.swift */; };
+		2210FE1D75FA255DC50C016D /* ESP32WifiSetupClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6890A429431F7A4FB1556B20 /* ESP32WifiSetupClient.swift */; };
 		22242F96E921D3043AD847E5 /* TimelineSummarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478F84014DFA2BC1E6E82110 /* TimelineSummarizer.swift */; };
 		226C0560BFB5D0437C67D06A /* DaemonParityRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B15676E4DF3FA331DBEF87 /* DaemonParityRules.generated.swift */; };
 		22E17790915238FDB6934686 /* GatewayLiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14A41EA31C51D5B49399A788 /* GatewayLiveActivityTests.swift */; };
@@ -141,6 +143,7 @@
 		2E7C2729C1B7011497854D53 /* Protocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = E532E5457B6DFDE324D8F11C /* Protocol.swift */; };
 		2E7C74FFF503BE4BA7DAB125 /* LocalModelPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09CAADD258896F0E3EA347D2 /* LocalModelPresentationTests.swift */; };
 		2E8F7A4A759E6BE13F311440 /* SessionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31609846ED73DC70F674FCF0 /* SessionLauncher.swift */; };
+		2ED6C951A3B95C7FA9D9C05C /* ESP32WifiSetupClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6890A429431F7A4FB1556B20 /* ESP32WifiSetupClient.swift */; };
 		2EE44EAE57C230A666AE9812 /* UsageSeverity.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC86BC8920ED9B001F7AFF10 /* UsageSeverity.generated.swift */; };
 		2EE4D025FDE45D64FD147DB4 /* PocketSansWorld_12.cpfont in Resources */ = {isa = PBXBuildFile; fileRef = 0BDA4F07842CEFAA838A0A2B /* PocketSansWorld_12.cpfont */; };
 		2EEDFE019406138F64268122 /* PairingCredentialTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD0E0570EC405C2542D130A1 /* PairingCredentialTests.swift */; };
@@ -248,6 +251,7 @@
 		4D7595686B60FDBDE4A5210D /* AdbModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83589BA4C41B89C8EF1A46FD /* AdbModule.swift */; };
 		4E3E8F33089962383FF83309 /* DockVisibilityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41DA855405F8F1F5BA174D0 /* DockVisibilityPolicyTests.swift */; };
 		4E7E45770216EA4F310DA2E8 /* ESP32WifiProvisionRulesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126F2DE93055C4D847017AF3 /* ESP32WifiProvisionRulesTests.swift */; };
+		4E9390CA4B03B3C97B679F59 /* ESP32WifiSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C1FA1216E865783FAF1164 /* ESP32WifiSetupTests.swift */; };
 		4EC0E953449451FC7C10AEBC /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86E42A4F5681EFB215B43645 /* AppPreferences.swift */; };
 		4F534C59020FE00D6FA87610 /* ProcessEnumerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32CE020EB705544FFD580DD9 /* ProcessEnumerator.swift */; };
 		4F6DEDF8FD3A71AFD059278D /* TimelineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7847FA7381FB8075331B0F12 /* TimelineTests.swift */; };
@@ -426,6 +430,7 @@
 		86F7FE3919CB9698A247E2A3 /* SandDisturbance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F9B51FC480E3419A6334A20 /* SandDisturbance.swift */; };
 		870485DE54A08A2F09A9BE6A /* IDotMatrixBLE.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F068BCFDB979A23AEDA5C3 /* IDotMatrixBLE.swift */; };
 		8725AE45CBFE49B582BBB46A /* HermesAquariumTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F065367613106CF36A21BF2 /* HermesAquariumTests.swift */; };
+		878491FCBC9ACFD6C53F5A9B /* ESP32WifiSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = E182322308CF38A3CF924E68 /* ESP32WifiSetup.swift */; };
 		87DEC76D4B119C02E02D43E4 /* TimeboxSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 362BC758256086C0D78EF7A8 /* TimeboxSheet.swift */; };
 		88E5BC49F042917DFE14A2C9 /* ToastOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = F358D3115EEB262D59BD6439 /* ToastOverlay.swift */; };
 		896B4B7AD5A5DA6FB6B4B7D4 /* CodexTelemetryModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81ECEA1581963132423FB0C8 /* CodexTelemetryModule.swift */; };
@@ -782,6 +787,7 @@
 		FA4DE837BCE2D19760C8ECEE /* DotRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76D12DF5535F73FD12022173 /* DotRules.generated.swift */; };
 		FB489658B1372F96E04EDDA6 /* OpenClawSessionKeyRules.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE9FB969CBCB0E2EC2506C46 /* OpenClawSessionKeyRules.generated.swift */; };
 		FBB919EF89AE0DBEE2DC0082 /* ApmeCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF540FF89BA54744CF94CC4 /* ApmeCollector.swift */; };
+		FBBDA9F3AF3CD9B1C35AF5AC /* ESP32WifiSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C1FA1216E865783FAF1164 /* ESP32WifiSetupTests.swift */; };
 		FBBDE4862E8788F5007ACBC3 /* apme-dashboard.html in Resources */ = {isa = PBXBuildFile; fileRef = 766909A21820E709DA63C7C2 /* apme-dashboard.html */; };
 		FC3FC48B2EB1C7FE0790EED5 /* GatewayLiveActivity.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77F4FA4E17866309859930F /* GatewayLiveActivity.generated.swift */; };
 		FC69321DFB051CE20F9FC541 /* jp-n3-ko.manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 79398BB5E612A59F14C13245 /* jp-n3-ko.manifest.json */; };
@@ -982,7 +988,9 @@
 		64EB18086FC44B69D1CBE171 /* ApmeJudgeMlx.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApmeJudgeMlx.swift; sourceTree = "<group>"; };
 		6675586368BA1D73919FA7E0 /* DaemonPostureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonPostureTests.swift; sourceTree = "<group>"; };
 		66917928C455891D401F29E6 /* ConnectionOverlayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionOverlayTests.swift; sourceTree = "<group>"; };
+		66C1FA1216E865783FAF1164 /* ESP32WifiSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32WifiSetupTests.swift; sourceTree = "<group>"; };
 		685766B4F565619F7EC7DB28 /* LocalPeerOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalPeerOwnership.swift; sourceTree = "<group>"; };
+		6890A429431F7A4FB1556B20 /* ESP32WifiSetupClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32WifiSetupClient.swift; sourceTree = "<group>"; };
 		68F068BCFDB979A23AEDA5C3 /* IDotMatrixBLE.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDotMatrixBLE.swift; sourceTree = "<group>"; };
 		69470A0782BDF6A29012E9F0 /* DaemonActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonActor.swift; sourceTree = "<group>"; };
 		69BCA057209786EF62993762 /* TerrariumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerrariumView.swift; sourceTree = "<group>"; };
@@ -1172,6 +1180,7 @@
 		DEE56374F8A04DA305E6BD93 /* AgentDeck.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeck.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0C496748B5F5315E3551E69 /* IDotMatrixSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IDotMatrixSheet.swift; sourceTree = "<group>"; };
 		E0DF2FF90EE46351B4FC2F59 /* MenuBarDensityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarDensityPolicyTests.swift; sourceTree = "<group>"; };
+		E182322308CF38A3CF924E68 /* ESP32WifiSetup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32WifiSetup.swift; sourceTree = "<group>"; };
 		E2A135216D37932FE68501F4 /* CloudCreature.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCreature.swift; sourceTree = "<group>"; };
 		E43AD34194F04709FE69AF13 /* CodexOtelSubagentFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexOtelSubagentFilter.swift; sourceTree = "<group>"; };
 		E47A555A3917875178A5B7E5 /* WaterEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaterEffect.swift; sourceTree = "<group>"; };
@@ -1325,6 +1334,7 @@
 				FF123E62CA46345F1A78445F /* DotDirectHostingTests.swift */,
 				C671E2324E45E6745813C681 /* ESP32WifiForwardTests.swift */,
 				126F2DE93055C4D847017AF3 /* ESP32WifiProvisionRulesTests.swift */,
+				66C1FA1216E865783FAF1164 /* ESP32WifiSetupTests.swift */,
 				375A2B92423D3DB509A61372 /* ExternalAttachRetryTests.swift */,
 				A636D8963EF63909EB64131D /* GatewayHealthRulesTests.swift */,
 				14A41EA31C51D5B49399A788 /* GatewayLiveActivityTests.swift */,
@@ -1807,6 +1817,7 @@
 				31F34DE9E44936BAC6D96F19 /* BridgeDiscovery.swift */,
 				6C930EA1785B14EE276FC29A /* BridgeEventParser.swift */,
 				DB1FB433513319C533AFDD85 /* DeviceIdentity.swift */,
+				6890A429431F7A4FB1556B20 /* ESP32WifiSetupClient.swift */,
 				D2FD383032B3C47C9B547426 /* LocalSessionDiscovery.swift */,
 				3E868DDC13347FD992B9AF3D /* PairingCredential.swift */,
 				9559267F01F4A98575D3F074 /* ZaiConfigurationClient.swift */,
@@ -1917,6 +1928,7 @@
 				B857A690693DD802AA05429D /* DaemonServer.swift */,
 				80F5AD0F31E7A87406FF94F4 /* DashboardProviders.swift */,
 				6176599CD3E03A96EA977362 /* ESP32WifiOta.swift */,
+				E182322308CF38A3CF924E68 /* ESP32WifiSetup.swift */,
 				7FF390BEA92326B1152B55A9 /* HTTPServer.swift */,
 				219C7E72C9700E9E32239832 /* LocalTrust.swift */,
 				E7452338ADEA1871C7B7872C /* LocalTrustRules.generated.swift */,
@@ -2181,6 +2193,7 @@
 				CA87D544027881EBC6EE45D8 /* DotDirectHostingTests.swift in Sources */,
 				AECF975059EA0A725DB1A3E7 /* ESP32WifiForwardTests.swift in Sources */,
 				AC6DD08E133FF37614B9F176 /* ESP32WifiProvisionRulesTests.swift in Sources */,
+				FBBDA9F3AF3CD9B1C35AF5AC /* ESP32WifiSetupTests.swift in Sources */,
 				EFB490B9C3DFC1FC911A8E3C /* ExternalAttachRetryTests.swift in Sources */,
 				AE36799884B97124014BB0A2 /* GatewayHealthRulesTests.swift in Sources */,
 				35437B04ADEC279D861893EF /* GatewayLiveActivityTests.swift in Sources */,
@@ -2290,6 +2303,7 @@
 				7E98096A239A3DE29B739217 /* DotDirectHostingTests.swift in Sources */,
 				5E3FCF09BE50281AE6749762 /* ESP32WifiForwardTests.swift in Sources */,
 				4E7E45770216EA4F310DA2E8 /* ESP32WifiProvisionRulesTests.swift in Sources */,
+				4E9390CA4B03B3C97B679F59 /* ESP32WifiSetupTests.swift in Sources */,
 				4AB62E6F5AAD589513F54F32 /* ExternalAttachRetryTests.swift in Sources */,
 				31143189676B154BD1D7EAF5 /* GatewayHealthRulesTests.swift in Sources */,
 				22E17790915238FDB6934686 /* GatewayLiveActivityTests.swift in Sources */,
@@ -2484,6 +2498,8 @@
 				D4EA545B7FD41B8A5032F515 /* ESP32Serial.swift in Sources */,
 				7167DBACC477145FD5B446C5 /* ESP32WifiOta.swift in Sources */,
 				5D22CA1A7188F9A96A069A4A /* ESP32WifiProvisionRules.generated.swift in Sources */,
+				191F927A5C4A1A56D378F956 /* ESP32WifiSetup.swift in Sources */,
+				2210FE1D75FA255DC50C016D /* ESP32WifiSetupClient.swift in Sources */,
 				9C1F742026A140F9C1AFAF84 /* EinkEsp32Previews.swift in Sources */,
 				DB2C3BF8D9DC234A8CBB1D39 /* FormatUtils.swift in Sources */,
 				8B995FCD093438C0F919C374 /* GatewayHealthRules.swift in Sources */,
@@ -2766,6 +2782,8 @@
 				C71587998379ED779ADFF54F /* ESP32Serial.swift in Sources */,
 				52277012C5AE29828E911577 /* ESP32WifiOta.swift in Sources */,
 				385920AEA3868D078655518C /* ESP32WifiProvisionRules.generated.swift in Sources */,
+				878491FCBC9ACFD6C53F5A9B /* ESP32WifiSetup.swift in Sources */,
+				2ED6C951A3B95C7FA9D9C05C /* ESP32WifiSetupClient.swift in Sources */,
 				E46B6EAACB14A6B0B5BC2C12 /* EinkEsp32Previews.swift in Sources */,
 				634EEC168E46C62A2DBD1ACA /* FormatUtils.swift in Sources */,
 				EC6CEEBE6309A8CEAE7195F2 /* GatewayFrame.swift in Sources */,

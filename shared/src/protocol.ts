@@ -1058,7 +1058,13 @@ export interface PhotoChunkMessage {
 export interface WifiProvisionAckMessage {
   type: 'wifi_provision_ack';
   success: boolean;
-  ip?: string;           // assigned IP on success
+  /**
+   * Whether the board joined the network (true) or only saved the credentials
+   * for when it leaves USB (false). Absent from firmware that predates it,
+   * whose `success` may mean either and whose `ip` may be an earlier join's.
+   */
+  joined?: boolean;
+  ip?: string;           // the address it joined with; only when `joined`
   error?: string;        // reason on failure
 }
 

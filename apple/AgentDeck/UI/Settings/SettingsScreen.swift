@@ -1903,7 +1903,7 @@ struct SettingsScreen: View {
             hardwareRow(
                 icon: "antenna.radiowaves.left.and.right",
                 title: "ESP32 boards",
-                subtitle: "Send Wi-Fi credentials over USB. Works with 86Box, IPS 3.5\" and round AMOLED displays.",
+                subtitle: "Save Wi-Fi credentials and send them to boards on USB. Works with 86Box, IPS 3.5\" and round AMOLED displays.",
                 buttonLabel: "Set up…",
                 action: { showESP32Sheet = true }
             )
@@ -1938,7 +1938,7 @@ struct SettingsScreen: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .sheet(isPresented: $showESP32Sheet) {
-            ESP32ProvisionSheet()
+            ESP32ProvisionSheet(daemonPort: Int(daemonService.port))
         }
         .sheet(isPresented: $showPixooSheet) {
             PixooSheet()

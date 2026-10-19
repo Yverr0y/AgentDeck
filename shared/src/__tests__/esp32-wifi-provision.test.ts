@@ -4,9 +4,16 @@ import { describe, expect, it } from 'vitest';
 import {
   WIFI_CRED_ID_DOMAIN,
   WIFI_CRED_ID_HEX_LENGTH,
+  WIFI_PROVISION_ACK_LEDGER_EMPTY,
+  WIFI_PROVISION_ACK_TIMEOUT_MS,
   wifiCredIdComputable,
   wifiCredIdMessage,
+  wifiCredentialsProblem,
+  wifiProvisionAckAnswered,
+  wifiProvisionAckWritten,
   wifiProvisionDecision,
+  type WifiCredentialsProblem,
+  type WifiProvisionAckLedger,
   type WifiProvisionDecision,
   type WifiProvisionInput,
 } from '../esp32-wifi-provision.js';
@@ -18,6 +25,9 @@ const VECTORS = JSON.parse(readFileSync(
   credIds: Array<{ name: string; token: string; ssid: string; password: string; credId: string | null }>;
   decisionDefaults: WifiProvisionInput;
   decisions: Array<{ name: string; input: Partial<WifiProvisionInput> } & WifiProvisionDecision>;
+  credentials: Array<{ name: string; ssid: string; password: string; problem: WifiCredentialsProblem | null }>;
+  ackTimeoutMs: number;
+  ackLedger: Array<{ name: string; events: Array<{ write: number } | { ack: boolean }>; ledger: WifiProvisionAckLedger }>;
 };
 
 describe('ESP32 WiFi provision rules (shared vectors)', () => {
@@ -50,6 +60,44 @@ describe('ESP32 WiFi provision rules (shared vectors)', () => {
     for (const reason of [
       'not-connected', 'unidentified', 'already-sent', 'endpoint-refresh', 'wifi-connected',
       'credentials-match', 'credentials-differ', 'legacy-configured', 'legacy-unconfigured',
+      'operator-request',
     ]) expect(reasons).toContain(reason);
+  });
+
+  for (const v of VECTORS.credentials) {
+    it(`credentials: ${v.name}`, () => {
+      expect(wifiCredentialsProblem(v.ssid, v.password)).toBe(v.problem);
+    });
+  }
+
+  it('an ack is owed for the shared timeout', () => {
+    expect(WIFI_PROVISION_ACK_TIMEOUT_MS).toBe(VECTORS.ackTimeoutMs);
+  });
+
+  for (const v of VECTORS.ackLedger) {
+    it(`ack ledger: ${v.name}`, () => {
+      let ledger = WIFI_PROVISION_ACK_LEDGER_EMPTY;
+      const answered: boolean[] = [];
+      const expected: boolean[] = [];
+      for (const event of v.events) {
+        if ('write' in event) {
+          ledger = wifiProvisionAckWritten(ledger, event.write);
+        } else {
+          const answer = wifiProvisionAckAnswered(ledger);
+          answered.push(answer.latest);
+          expected.push(event.ack);
+          ledger = answer.ledger;
+        }
+      }
+      expect(answered).toEqual(expected);
+      expect(ledger).toEqual(v.ledger);
+    });
+  }
+
+  it('every credential problem is pinned by a vector', () => {
+    const problems = new Set(VECTORS.credentials.map((v) => v.problem));
+    for (const problem of [
+      null, 'ssid-missing', 'ssid-too-long', 'password-too-short', 'password-too-long', 'control-character',
+    ]) expect(problems).toContain(problem);
   });
 });

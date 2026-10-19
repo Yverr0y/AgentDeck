@@ -35,7 +35,17 @@ import { dirname, join } from 'path';
 import type { BridgeEvent } from './types.js';
 import { SERIAL_FORWARDED_EVENTS } from '@agentdeck/shared/protocol';
 import type { AuthProvisionMessage, ESP32ToHostMessage, WifiProvisionMessage } from '@agentdeck/shared/protocol';
-import { formatResetTime, truncateUtf8Bytes, wifiProvisionDecision, type WifiProvisionDecision } from '@agentdeck/shared';
+import {
+  formatResetTime,
+  truncateUtf8Bytes,
+  WIFI_PROVISION_ACK_LEDGER_EMPTY,
+  wifiProvisionAckAnswered,
+  wifiProvisionAckWritten,
+  wifiProvisionDecision,
+  type WifiProvisionAckLedger,
+  type WifiProvisionDecision,
+  type WifiProvisionReason,
+} from '@agentdeck/shared';
 import { readLease } from './esp32-flash-lease.js';
 import { BOARD_TIMELINE_ROWS, isToolEventRow, shrinkTimelineEntryForBoard } from './board-timeline-entry.js';
 import { debug, log, logTagged } from './logger.js';
@@ -143,6 +153,24 @@ try {
 }
 `;
 
+/** A board's answer to a `wifi_provision`, as it said it (`wifi_provision_ack`). */
+export interface WifiProvisionAckRecord {
+  success: boolean;
+  /**
+   * Whether the board joined the network (true) or only saved the credentials
+   * for when it leaves USB (false: the serial-primary boards). null when the
+   * firmware predates the field: its `success` may then mean either, and its
+   * `ip` may be an address from an earlier join.
+   */
+  joined: boolean | null;
+  /** The address the board reports; "" when it gave none. */
+  ip: string;
+  /** The board's reason for a failure, e.g. `connection failed`; "" on success. */
+  error: string;
+  /** When the daemon read the ack (epoch ms). */
+  at: number;
+}
+
 /** @internal Exported for testing only */
 export interface SerialConnection {
   port: string;
@@ -221,6 +249,12 @@ export interface SerialConnection {
    * until the next reboot-while-attached. */
   deviceInfoFresh: boolean;
   provisionSent: boolean;
+  /** When this daemon last wrote a `wifi_provision` here (epoch ms). */
+  wifiProvisionSentAt?: number;
+  /** The board's `wifi_provision_ack` to that provision; cleared by each new one. */
+  wifiProvisionAck?: WifiProvisionAckRecord;
+  /** The acks this connection is owed, so an earlier provision's is not shown as the latest's. */
+  wifiProvisionAckLedger?: WifiProvisionAckLedger;
   /** Pairing token most recently pushed over this connection, so a re-arm costs
    *  one write per board per token rather than one per device_info frame. */
   authTokenSent?: string;
@@ -1149,6 +1183,9 @@ export function handleSerialLine(conn: SerialConnection, line: string): void {
         // re-identify (a lost reply or reflashed board would stay stale).
         sendDeviceInfoRequest(conn);
       }
+      // Outside the chain above, so an ack still counts toward re-identifying
+      // a connection whose device_info never arrived.
+      if (msg.type === 'wifi_provision_ack') recordWifiProvisionAck(conn, msg);
 
       if (messageHandler) {
         messageHandler(conn.port, msg);
@@ -1877,8 +1914,7 @@ export function sendEventToBoard(conn: SerialConnection, event: BridgeEvent): vo
 export function sendWifiProvision(port: string, msg: WifiProvisionMessage): boolean {
   const conn = connections.find(c => c.port === port && c.connected);
   if (!conn) return false;
-  sendToConnection(conn, JSON.stringify(msg), true);
-  conn.provisionSent = true;
+  writeWifiProvision(conn, msg);
   debug('ESP32', `→ ${port}: wifi_provision (SSID: ${msg.ssid})`);
   return true;
 }
@@ -1888,16 +1924,153 @@ export function sendWifiProvision(port: string, msg: WifiProvisionMessage): bool
  * Each board is compared against the credential id this very message carries.
  */
 export function sendWifiProvisionToAll(msg: WifiProvisionMessage): number {
-  let count = 0;
+  return provisionSerialBoards(msg).filter((outcome) => outcome.sent).length;
+}
+
+/** What a provision fan-out did with one live serial connection. */
+export interface WifiProvisionOutcome {
+  port: string;
+  /** "" until a board identified over this connection. */
+  board: string;
+  sent: boolean;
+  reason: WifiProvisionReason;
+}
+
+/**
+ * The provision fan-out, reporting every live connection: the automatic path
+ * (a board's device_info) and an operator's request (`POST /esp32/wifi`,
+ * `manual`), which the shared decision lets through a provision already sent
+ * on the connection and through old firmware's legacy rule.
+ */
+export function provisionSerialBoards(
+  msg: WifiProvisionMessage,
+  opts: { manual?: boolean } = {},
+): WifiProvisionOutcome[] {
+  const outcomes: WifiProvisionOutcome[] = [];
   for (const conn of connections) {
-    const decision = wifiProvisionDecisionFor(conn, msg.credId ?? null);
-    if (!decision.send) continue;
-    sendToConnection(conn, JSON.stringify(msg), true);
-    conn.provisionSent = true;
-    count++;
-    debug('ESP32', `→ ${conn.port}: wifi_provision (SSID: ${msg.ssid}; ${decision.reason})`);
+    if (!conn.connected) continue;
+    const decision = wifiProvisionDecisionFor(conn, msg.credId ?? null, opts.manual === true);
+    const board = conn.deviceInfoFresh ? conn.deviceInfo?.board ?? '' : '';
+    if (decision.send) {
+      writeWifiProvision(conn, msg);
+      debug('ESP32', `→ ${conn.port}: wifi_provision (SSID: ${msg.ssid}; ${decision.reason})`);
+    }
+    outcomes.push({ port: conn.port, board, sent: decision.send, reason: decision.reason });
   }
-  return count;
+  return outcomes;
+}
+
+/** @internal Exported for testing only */
+export function writeWifiProvision(conn: SerialConnection, msg: WifiProvisionMessage, now = Date.now()): void {
+  sendToConnection(conn, JSON.stringify(msg), true);
+  conn.provisionSent = true;
+  conn.wifiProvisionSentAt = now;
+  conn.wifiProvisionAckLedger = wifiProvisionAckWritten(conn.wifiProvisionAckLedger ?? WIFI_PROVISION_ACK_LEDGER_EMPTY, now);
+  // The previous answer described the previous credentials.
+  conn.wifiProvisionAck = undefined;
+}
+
+/**
+ * Keep a board's `wifi_provision_ack` as the answer to the latest provision,
+ * unless a later provision is still owed one: the board answers in order and
+ * names no provision, so that ack is an earlier provision's.
+ * @internal Exported for testing only
+ */
+export function recordWifiProvisionAck(
+  conn: SerialConnection,
+  msg: { success?: unknown; joined?: unknown; ip?: unknown; error?: unknown },
+  now = Date.now(),
+): void {
+  const answer = wifiProvisionAckAnswered(conn.wifiProvisionAckLedger ?? WIFI_PROVISION_ACK_LEDGER_EMPTY);
+  conn.wifiProvisionAckLedger = answer.ledger;
+  if (!answer.latest) return;
+  conn.wifiProvisionAck = parseWifiProvisionAck(msg, now);
+}
+
+/** A `wifi_provision_ack` as the daemons record it (shared/esp32-wifi-setup-vectors.json pins it). */
+export function parseWifiProvisionAck(
+  msg: { success?: unknown; joined?: unknown; ip?: unknown; error?: unknown },
+  at: number,
+): WifiProvisionAckRecord {
+  return {
+    success: msg.success === true,
+    joined: typeof msg.joined === 'boolean' ? msg.joined : null,
+    ip: boardText(msg.ip, 45),
+    error: boardText(msg.error, 80),
+    at,
+  };
+}
+
+/**
+ * The log line for a board's `wifi_provision_ack`. It says connected only for
+ * a board that says it joined: an older board's `success` may mean it only saved
+ * the credentials, and its `ip` may be an address from an earlier join.
+ */
+export function describeWifiProvisionAck(ack: WifiProvisionAckRecord): string {
+  if (!ack.success) return `WiFi failed: ${ack.error || 'unknown'}`;
+  if (ack.joined === true) return ack.ip ? `WiFi connected: ${ack.ip} \u2713` : 'WiFi connected \u2713';
+  if (ack.joined === false) return 'WiFi credentials saved; the board joins when it leaves USB';
+  return 'WiFi credentials accepted';
+}
+
+/**
+ * A string a board reported, stripped of C0 controls and DEL and clipped to
+ * `max` UTF-16 units without splitting a surrogate pair; "" for anything but a
+ * string. The Swift daemon's `ESP32Serial.boardText` keeps the same units.
+ */
+function boardText(value: unknown, max: number): string {
+  if (typeof value !== 'string') return '';
+  const text = value.replace(/[\u0000-\u001f\u007f]/g, '');
+  if (text.length <= max) return text;
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+}
+
+/** One live serial board as `GET /esp32/wifi` shows it. */
+export interface WifiSetupBoardRow {
+  port: string;
+  /** "" until a board identified over this connection. */
+  board: string;
+  wifiConnected: boolean | null;
+  wifiRadioParked: boolean | null;
+  /**
+   * Whether the board's stored credential id is the id of the configured
+   * credentials. null when that cannot be told: firmware that predates the id,
+   * no configured credentials, no token, or no device_info on this connection.
+   * The id itself is never served (with the token it tests password guesses).
+   */
+  holdsCredentials: boolean | null;
+  /** When this daemon last wrote a `wifi_provision` here; 0 = not on this connection. */
+  provisionedAt: number;
+  ack: WifiProvisionAckRecord | null;
+}
+
+/** Every live serial board, judged against the credential id of the configured credentials. */
+export function wifiSetupBoards(expectedCredId: string | null): WifiSetupBoardRow[] {
+  return connections.filter((conn) => conn.connected).map((conn) => wifiSetupBoardRow(conn, expectedCredId));
+}
+
+/** @internal Exported for testing only */
+export function wifiSetupBoardRow(
+  conn: Pick<SerialConnection, 'port' | 'deviceInfo' | 'deviceInfoFresh' | 'wifiProvisionSentAt' | 'wifiProvisionAck'>,
+  expectedCredId: string | null,
+): WifiSetupBoardRow {
+  const info = conn.deviceInfoFresh ? conn.deviceInfo : null;
+  const reported = info?.wifiCredId;
+  return {
+    port: conn.port,
+    board: info?.board ?? '',
+    wifiConnected: typeof info?.wifiConnected === 'boolean' ? info.wifiConnected : null,
+    wifiRadioParked: typeof info?.wifiRadioParked === 'boolean' ? info.wifiRadioParked : null,
+    holdsCredentials: typeof reported === 'string' && expectedCredId ? reported === expectedCredId : null,
+    provisionedAt: conn.wifiProvisionSentAt ?? 0,
+    ack: conn.wifiProvisionAck ? { ...conn.wifiProvisionAck } : null,
+  };
+}
+
+/** Whether this process runs the serial channel (a `--local` daemon does not). */
+export function esp32SerialRunning(): boolean {
+  return pollTimer !== null;
 }
 
 /**
@@ -1957,8 +2130,7 @@ export function shouldSendAuthProvision(
 export function sendLegacyRearmProvision(port: string, msg: WifiProvisionMessage): boolean {
   const conn = connections.find(c => c.port === port && c.connected);
   if (!conn || !shouldSendLegacyRearm(conn)) return false;
-  sendToConnection(conn, JSON.stringify(msg), true);
-  conn.provisionSent = true;
+  writeWifiProvision(conn, msg);
   debug('ESP32', `→ ${port}: wifi_provision (legacy re-arm, SSID: ${msg.ssid})`);
   return true;
 }
@@ -1981,6 +2153,7 @@ export function shouldSendLegacyRearm(
 function wifiProvisionDecisionFor(
   conn: Pick<SerialConnection, 'connected' | 'deviceInfo' | 'deviceInfoFresh' | 'provisionSent'>,
   expectedCredId: string | null,
+  manual = false,
 ): WifiProvisionDecision {
   // Decide on what the board said over THIS connection. A cache-seeded record
   // describes an earlier one (the board may have been wiped, reflashed or
@@ -2002,6 +2175,7 @@ function wifiProvisionDecisionFor(
     // if the board is already configured/connected; otherwise a stale endpoint
     // can survive and WiFi-only operation keeps dialing the old daemon host.
     refreshIps10Endpoint: true,
+    manual,
   });
 }
 

@@ -74,7 +74,7 @@ import {
 import { buildWifiProvision } from './esp32-wifi-cred.js';
 import { loadWifiConfig } from './wifi-config.js';
 import { getAdbDeviceCountCached } from './adb-reverse.js';
-import { esp32ConnectionCount, getESP32Ports } from './esp32-serial.js';
+import { describeWifiProvisionAck, esp32ConnectionCount, getESP32Ports, parseWifiProvisionAck } from './esp32-serial.js';
 import { getPixooDeviceDetails, getLastFrame, renderPreviewFrame } from './pixoo/pixoo-bridge.js';
 import {
   BRIDGE_WS_PORT,
@@ -515,7 +515,7 @@ export async function startSession(opts: SessionOptions): Promise<void> {
         }));
         if (sent > 0) log(`WiFi provision sent to ${sent} ESP32 device(s) after ${portPath}`);
       } else if (msg.type === 'wifi_provision_ack') {
-        log(msg.success ? `ESP32 WiFi connected: ${msg.ip} \u2713` : `ESP32 WiFi failed: ${msg.error || 'unknown'}`);
+        log(`ESP32 ${describeWifiProvisionAck(parseWifiProvisionAck(msg, Date.now()))}`);
       }
     });
   }

@@ -53,11 +53,53 @@ final class ESP32WifiProvisionRulesTests: XCTestCase {
                 wifiRadioParked: fields["wifiRadioParked"] as? Bool,
                 wifiCredId: fields["wifiCredId"] as? String,
                 expectedCredId: fields["expectedCredId"] as? String,
-                refreshIps10Endpoint: fields["refreshIps10Endpoint"] as? Bool ?? false)
+                refreshIps10Endpoint: fields["refreshIps10Endpoint"] as? Bool ?? false,
+                manual: fields["manual"] as? Bool ?? false)
             let decision = ESP32WifiProvisionRules.decision(input)
             XCTAssertEqual(decision.send, vector["send"] as? Bool, name)
             XCTAssertEqual(decision.reason, vector["reason"] as? String, name)
             XCTAssertEqual(decision.legacy, vector["legacy"] as? Bool, name)
+        }
+    }
+
+    func testCredentialVectors() throws {
+        let cases = try XCTUnwrap(try vectors()["credentials"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for vector in cases {
+            let name = vector["name"] as? String ?? "?"
+            let problem = ESP32WifiProvisionRules.credentialsProblem(
+                ssid: try XCTUnwrap(vector["ssid"] as? String, name),
+                password: try XCTUnwrap(vector["password"] as? String, name))
+            // A JSON null reads as nil here: the board could use them.
+            XCTAssertEqual(problem, vector["problem"] as? String, name)
+        }
+    }
+
+    func testAckLedgerVectors() throws {
+        let file = try vectors()
+        XCTAssertEqual(ESP32WifiProvisionRules.ackTimeoutMs, file["ackTimeoutMs"] as? Int)
+        let cases = try XCTUnwrap(file["ackLedger"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for vector in cases {
+            let name = vector["name"] as? String ?? "?"
+            var ledger = ESP32WifiProvisionRules.AckLedger()
+            var answered: [Bool] = []
+            var expected: [Bool] = []
+            for event in try XCTUnwrap(vector["events"] as? [[String: Any]], name) {
+                if let at = event["write"] as? Int {
+                    ledger = ESP32WifiProvisionRules.ackWritten(ledger, now: at)
+                } else {
+                    let answer = ESP32WifiProvisionRules.ackAnswered(ledger)
+                    answered.append(answer.latest)
+                    expected.append(try XCTUnwrap(event["ack"] as? Bool, name))
+                    ledger = answer.ledger
+                }
+            }
+            XCTAssertEqual(answered, expected, name)
+            let end = try XCTUnwrap(vector["ledger"] as? [String: Any], name)
+            XCTAssertEqual(ledger, ESP32WifiProvisionRules.AckLedger(
+                owed: try XCTUnwrap(end["owed"] as? Int, name),
+                lastWriteAt: try XCTUnwrap(end["lastWriteAt"] as? Int, name)), name)
         }
     }
 

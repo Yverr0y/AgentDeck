@@ -244,6 +244,63 @@ describe.skipIf(DARWIN_BLOCKED)('daemon hub (real CLI process)', () => {
     expect(daemon.log()).not.toContain(fakeKey);
   });
 
+  it('keeps ESP32 WiFi credentials behind loopback and the token, applies them live and never returns the password', async () => {
+    const url = `http://127.0.0.1:${daemon.port}/esp32/wifi`;
+    const file = join(home, '.agentdeck', 'wifi-config.json');
+    const password = 'e2e-route-password';
+    for (const method of ['GET', 'POST']) {
+      const refused = await fetch(url, { method, signal: AbortSignal.timeout(2000) });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ ok: false, error: 'local-token-required' });
+    }
+    const headers = { Authorization: `Bearer ${(await health(daemon.port))?.pairingToken}`,
+      'Content-Type': 'application/json' };
+    // `--local`: no serial channel, so no boards, but the credentials are still kept.
+    expect(await (await fetch(url, { headers })).json())
+      .toEqual({ ok: true, configured: false, ssid: '', autoProvision: false, serial: false, boards: [] });
+    const short = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ssid: 'E2E-Net', password: 'short' }) });
+    expect(short.status).toBe(400);
+    expect(await short.json()).toEqual({ ok: false, error: 'password-too-short' });
+    // A body the route will not read is answered, not reset, and saves nothing:
+    // one over the 4 KiB limit, and bytes that are not UTF-8.
+    const oversized = await fetch(url, { method: 'POST', headers,
+      body: JSON.stringify({ ssid: 'E2E-Big', password: 'x'.repeat(8 * 1024) }), signal: AbortSignal.timeout(5000) });
+    expect(oversized.status).toBe(400);
+    expect(await oversized.json()).toEqual({ ok: false, error: 'invalid-body' });
+    const garbled = await fetch(url, { method: 'POST', headers,
+      body: Buffer.from('{"ssid":"E2E-\xff","password":"e2e-garbled-password"}', 'latin1'), signal: AbortSignal.timeout(5000) });
+    expect(garbled.status).toBe(400);
+    expect(await garbled.json()).toEqual({ ok: false, error: 'invalid-body' });
+    expect(existsSync(file)).toBe(false);
+
+    const saved = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ssid: 'E2E-Net', password }) });
+    expect(saved.status).toBe(200);
+    const savedReply = await saved.text();
+    expect(JSON.parse(savedReply)).toEqual({ ok: true, saved: true, autoProvision: true, boards: [] });
+    expect(savedReply).not.toContain(password);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ssid: 'E2E-Net', password, autoProvision: true });
+    if (POSIX) expect(statSync(file).mode & 0o777).toBe(0o600);
+    const status = await (await fetch(url, { headers })).text();
+    expect(JSON.parse(status)).toMatchObject({ ok: true, configured: true, ssid: 'E2E-Net', autoProvision: true });
+    expect(status).not.toContain(password);
+
+    // `agentdeck wifi-setup` goes through the running daemon (token from its
+    // loopback /health) instead of writing a file the daemon reads at startup.
+    const cliPassword = 'e2e-cli-password';
+    const cli = spawnSync(process.execPath, [CLI, 'wifi-setup', '--ssid', 'E2E-CLI', '--password', cliPassword], {
+      cwd: home,
+      env: { ...process.env, HOME: home, USERPROFILE: home, AGENTDECK_DATA_DIR: dataDir,
+        AGENTDECK_PORT: '', AGENTDECK_DAEMON_PORT: '' },
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    expect(cli.status, cli.stderr).toBe(0);
+    expect(cli.stderr).toContain(`WiFi config saved by the daemon on port ${daemon.port}`);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ ssid: 'E2E-CLI', password: cliPassword, autoProvision: true });
+    expect(daemon.log()).not.toContain(password);
+    expect(daemon.log()).not.toContain(cliPassword);
+  });
+
   it('answers a web page on this machine as a LAN peer, and a local program as before', async () => {
     // DNS rebinding: a page whose own host name now resolves to 127.0.0.1
     // reads the daemon same-origin, and its Host header names the page. fetch
