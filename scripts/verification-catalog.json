@@ -856,7 +856,7 @@
     {
       "id": "security",
       "name": "LAN security & pairing",
-      "question": "Is the LAN surface default-deny, and does pairing hand out credentials only with the operator's consent?",
+      "question": "Is the LAN surface default-deny, does a browser page on this machine get no more than a LAN peer, and does pairing hand out credentials only with the operator's consent?",
       "icon": "▣",
       "match": [
         "bridge/src/__tests__/http-auth-gate.test.ts",
@@ -865,6 +865,8 @@
         "bridge/src/__tests__/network-posture.test.ts",
         "bridge/src/__tests__/discovery-security.test.ts",
         "bridge/src/__tests__/ws-server-auth.test.ts",
+        "bridge/src/__tests__/local-trust-*.test.ts",
+        "shared/src/__tests__/local-trust*.test.ts",
         "shared/src/__tests__/pairing-code*.test.ts"
       ]
     },

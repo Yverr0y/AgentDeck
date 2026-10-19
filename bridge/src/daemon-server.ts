@@ -209,7 +209,7 @@ import { CLAUDE_STATUSLINE_ROUTE, parseClaudeStatusline } from '@agentdeck/share
 import { TASK_JUDGE_DRAIN_WINDOW_MS } from './apme/runner.js';
 import { stopClaudeUsageRecoveryChildren } from './claude-usage-recovery.js';
 import { AGENT_IDLE_GAP_MS, canonicalBoardId, resolveGatewayHealth } from '@agentdeck/shared';
-import { getOrCreateToken, isLocalConnection, validateToken } from './auth.js';
+import { getOrCreateToken, isLocalConnection, localTrustOf, logLocalTrustRefusal, validateToken } from './auth.js';
 import { buildPublicHealth, gateHttpRequest, isAuthorizedHttpRequest } from './http-auth-gate.js';
 import {
   closePairingWindow,
@@ -2108,21 +2108,27 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
   });
 
   const httpServer = createServer((req, res) => {
-    // LAN default-deny (issue #145): a request that is neither same-machine
-    // nor token-bearing reaches exactly one route — a minimal GET /health
-    // with no pairingToken, no module/device inventory, no session state.
+    // LAN default-deny (issue #145): a request that is neither from a local
+    // program nor token-bearing reaches exactly one route — a minimal GET
+    // /health with no pairingToken, no module/device inventory, no session
+    // state. A web page on this machine is not a local program here.
     // Everything else 401s here, before any route dispatch. The per-route
     // token checks further down remain as defense in depth.
     {
       const gatePathname = (() => {
         try { return new URL(req.url ?? '/', 'http://localhost').pathname; } catch { return '/'; }
       })();
+      const authorized = isAuthorizedHttpRequest(req);
       const decision = gateHttpRequest(
         req.method ?? 'GET',
         gatePathname,
-        isAuthorizedHttpRequest(req),
+        authorized,
         pairingWindowOpen(),
       );
+      if (!authorized && isLocalConnection(req.socket.remoteAddress ?? '')) {
+        const verdict = localTrustOf(req);
+        if (verdict !== 'trusted') logLocalTrustRefusal('HTTP', verdict, req);
+      }
       if (decision === 'public-health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(buildPublicHealth(port)));
